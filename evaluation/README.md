@@ -1,122 +1,61 @@
-# Evaluation Diagnostics
+# Evaluation of ML-RCMs
 
-This module provides the set of evaluation diagnostics recommended by CORDEX-ML-Bench for assessing ML-based regional climate downscaling. It supports seasonal filtering and exposes both single-variable indices and diagnostic tools that compare predictions against reference datasets.
+This module builds on the set of evaluation diagnostics recommended by CORDEX-ML-Bench for assessing ML-based regional climate downscaling models: 
+
+
+<a href="https://github.com/WCRP-CORDEX/ml-benchmark/evaluation/" target="_blank">https://github.com/WCRP-CORDEX/ml-benchmark/evaluation/</a>
+
+**Indices** quantify particular characteristics or properties of a single simulation `x`, for example, the mean, specific quantiles, or extremes. These indices are always calculated for an individual simulation and often form the foundation for various diagnostics.
+
+**Diagnostics** compare two simulations, `x0` and `x1`, which correspond to the ground-truth (reference) data and the model predictions, respectively. These diagnostics are designed to evaluate different aspects of model performance. For example, to assess how well a model captures warm extremes, one might use the bias of the TXx index. Some diagnostics rely on specific indices, while others, such as RMSE, PSD, or the Wasserstein distance, do not depend on them.
+
 
 ## Indices
+Initial list of metrics to validate RCM emulators. This framework is adapted from Kendon et al. (2025).
 
-Indices quantify particular characteristics or properties of a single simulation `x`, for example, the mean, specific quantiles, or extremes. These indices are always calculated for an individual simulation and often form the foundation for various diagnostics.
 
-| Index | Description | Key parameters |
-|-------|-------------|----------------|
-| `mean` | Mean of a variable over the time dimension. | `x`, `var` |
-| `quantile` | Specified time quantile of a variable. | `x`, `var`, `q` |
-| `su` | Mean annual count of days above a temperature threshold (summer days). | `x`, `var`, `season`, `threshold` |
-| `txx` | Mean annual maximum of daily maximum temperature. | `x`, `var`, `season` |
-| `txn` | Mean annual minimum of daily maximum temperature. | `x`, `var`, `season` |
-| `rx1day` | Mean annual maximum 1-day precipitation. | `x`, `var`, `season` |
-| `sdii` | Mean precipitation on wet days above a threshold. | `x`, `var`, `season`, `wet_threshold` |
-| `cdd` | Mean annual maximum dry spell length below a precipitation threshold. | `x`, `var`, `season`, `dry_threshold` |
-| `cwd` | Mean annual maximum wet spell length above a precipitation threshold. | `x`, `var`, `season`, `wet_threshold` |
-| `lag1_corr` | Lag-1 autocorrelation of a variable along time. | `x`, `var`, `season` |
-| `interannual_var` | Interannual variability (standard deviation of annual means). | `x`, `var`, `season` |
+| Category | Index | Input Timescale | Variables | Output Timescale | Performance Diagnostic | Scoreboard Summary |
+|-------|-------|-------|-------|-------|-------|-------|
+| **Basic performance** | Raw output. | sub-daily, daily | All | as input | Mean Bias, RMSE, Corr over time (F) | Spatial mean? |
+|  |  |  |  |  | ***QQ plots*** |  |
+|   | Wet/dry day frequency | daily | precip | Freq per year or season | Mean Bias, RMSE, Corr over time (F) | Spatial mean? |
+| **Extremes** | Percentiles (e.g. 95th, 99th) | daily, sub-daily | All | Annual/Seasonal, compute over whole dataset? | Bias of single fields (F) | Spatial mean? |
+|   | Max (min) values | daily | All | Max per year or season | Mean Bias, RMSE, Corr over time (F) | Spatial mean? |
+|   | Frequency of threshold exceedance | daily | All | Freq per year or season | Mean Bias, RMSE, Corr over time (F) | Spatial mean? |
+|   |  |  |  |  | ***Fractional Skill Score*** |  |
+| **Spatial coherence** | Radially averaged power | daily, sub-daily | All |  |  |  |
+| **Temporal coherence** | Autocorrelation | daily | All | Annual/Seasonal, compute over whole dataset? | Bias of single fields (F) | Spatial mean? |
+|   | Wet/dry, hot/cold spell length: max ***(median, 90th percentile?)*** | daily | precip, temp | Max per year or season | Mean Bias, RMSE, Corr over time (F) | Spatial mean? |
+|   | Power spectral density | daily | All | Annual/Seasonal, compute over whole dataset? | PSD plots |  |
+|   | ***Diurnal cycle (amplitude, phase)*** | sub-daily | precip, temp |  |  |  |
+|   | ***Joint distribution characteristics e.g. mean, variance*** | sub-daily | All |  | ***Wasserstein Distance for 2d distributions (F?)*** |  |
+| **Multivariate coherence** | Multivariate correlation | daily | e.g. temp-precip | Annual/Seasonal, compute over whole dataset? | Bias of single fields (F) | Spatial mean? |
+|  | ***Probability of joint exceedances*** | daily | e.g. temp-precip | Annual/Seasonal, compute over whole dataset? | Bias of single fields (F) | Spatial mean? |
+|  | ***Joint distribution*** | daily | e.g. temp-precip | Annual/Seasonal, compute over whole dataset? | ***Wasserstein Distance for 2d distributions (F?)*** |  |
+| **Climate change** | ***Long-term trends e.g. of monthly means, extreme percentiles*** | daily | All | Annual/Seasonal, compute over whole dataset? | Bias of single fields (F) | Spatial mean? |
+|  |  |  |  |  |  |  |
+| **Case studies** | ***Event based (compound extremes; multi-day events)*** | daily | e.g. heat+drought |  |  |  |
+| **Object-Oriented** | ***Raw output + object identifying algorithm*** | daily | precip, temp |  | ***SAL Score*** |  |
+| **Explainability** | ***Integrated gradients*** | daily | All |  |  |  |
 
-## Diagnostics
 
-Diagnostics compare two simulations, `x0` and `x1`, which correspond to the ground-truth (reference) data and the model predictions, respectively. These diagnostics are designed to evaluate different aspects of model performance. For example, to assess how well a model captures warm extremes, one might use the bias of the TXx index. Some diagnostics rely on specific indices, while others, such as RMSE, PSD, or the Wasserstein distance, do not depend on them.
+## Performance Diagnostics
+Bias, RMSE, correlation (over time dimension; over spatial dimension?).
 
-To simplify comparisons between models in the benchmark, every diagnostic should be reducible to a single summary value. For example, the RMSE can be expressed as its mean across all relevant dimensions, and the bias of a specific index can be reported as the spatial mean of its absolute values.
+***Wasserstein Distance*** (for single or ***joint distributions***).
 
-| Diagnostic | Description | Key parameters |
-|------------|-------------|----------------|
-| `rmse` | Root mean square error between x0 and x1. | `x0`, `x1`, `var`, `season`, `dim` |
-| `psd` | Power spectral density with radial averaging for 2D spatial fields. | `x0`, `x1`, `var`, `season` |
-| `ralsd` | Radially averaged log spectral distance between two RAPSD curves (Harris et al., 2022). | `psd_x0`, `psd_x1` |
-| `wasserstein_distance` | Wasserstein distance between the distributions of x0 and x1. With `spatial=False`, returns a single scalar (all values flattened); with `spatial=True`, returns a field of distances at each grid point (computed over time). | `x0`, `x1`, `var`, `season`, `spatial` |
-| `bias_index` | Absolute or relative bias for any index function. | `x0`, `x1`, `index_fn`, `season`, index-specific kwargs |
-| `ratio_index` | Ratio (x1 / x0) for any index function. | `x0`, `x1`, `index_fn`, `season`, index-specific kwargs |
-| `bias_multivariable_correlation` | Bias in correlations between two variables. | `x0`, `x1`, `var_x`, `var_y`, `season` |
+***Fractional skill score (for threshold exceedances)***.
 
-## Examples
+***SAL score (structure, amplitude, location)***.
 
-### Tasmax diagnostics
+***Probabilistic Metrics? Ensemble spread; Continuous rank probability score (CRPS)***.
 
-```python
-import xarray as xr
-import indices, diagnostics
 
-x0 = xr.open_dataset("target_tasmax.nc")
-x1 = xr.open_dataset("prediction_tasmax.nc")
+## Scoreboard summary statistics
+Spatial mean? (where performance diagnostic outputs 1 field).
 
-# RMSE over time dimension
-rmse = diagnostics.rmse(x0, x1, var="tasmax", dim="time")
+Bias, RMSE, correlation over spatial dimension? (where index outputs 1 field for prediction and 1 field for target/truth).
 
-# Bias of annual maximum temperature
-bias_txx = diagnostics.bias_index(x0, x1, index_fn=indices.txx, var="tasmax")
 
-# Bias of mean temperature
-bias_mean = diagnostics.bias_index(x0, x1, index_fn=indices._mean, var="tasmax")
-
-# Bias of summer days count
-bias_summer_days = diagnostics.bias_index(x0, x1, index_fn=indices.su, var="tasmax")
-
-# Power Spectral Density
-psd_x0, psd_x1 = diagnostics.psd(x0, x1, var="tasmax")
-
-# Radially Averaged Log Spectral Distance
-ralsd_value = diagnostics.ralsd(psd_x0, psd_x1)
-
-# Wasserstein distance (single scalar over all space-time)
-wd_scalar = diagnostics.wasserstein_distance(x0, x1, var="tasmax")
-
-# Wasserstein distance at each grid point (over time)
-wd_field = diagnostics.wasserstein_distance(x0, x1, var="tasmax", spatial=True)
-```
-
-### Precipitation diagnostics
-
-```python
-import xarray as xr
-import indices, diagnostics
-
-x0 = xr.open_dataset("target_pr.nc")
-x1 = xr.open_dataset("prediction_pr.nc")
-
-# RMSE over time dimension
-rmse = diagnostics.rmse(x0, x1, var="pr", dim="time")
-
-# Bias of SDII
-bias_sdii = diagnostics.bias_index(x0, x1, index_fn=indices.sdii, var="pr")
-
-# Bias of annual maximum 1-day precipitation
-bias_rx1day = diagnostics.bias_index(x0, x1, index_fn=indices.rx1day, var="pr")
-
-# Bias of maximum wet spell length
-bias_cwd = diagnostics.bias_index(x0, x1, index_fn=indices.cwd, var="pr")
-
-# Power Spectral Density
-psd_x0, psd_x1 = diagnostics.psd(x0, x1, var="pr")
-
-# Radially Averaged Log Spectral Distance
-ralsd_value = diagnostics.ralsd(psd_x0, psd_x1)
-
-# Wasserstein distance between precipitation distributions
-wd_pr = diagnostics.wasserstein_distance(x0, x1, var="pr", season="summer")
-```
-
-### Multivariate correlation bias
-
-```python
-import xarray as xr
-import diagnostics
-
-# Load joint x0 dataset with both variables
-x0 = xr.open_dataset("target_joint.nc")
-x1 = xr.open_dataset("pred_joint.nc")
-
-# Compute correlation bias between temperature and precipitation
-correlation_bias = diagnostics.bias_multivariable_correlation(
-    x0,
-    x1,
-    var_x="tasmax",
-    var_y="pr"
-)
+## References
+Kendon, E. J., Addison, H., Doury, A., Somot, S., Watson, P. A., Booth, B. B., ... & Scullion, C. (2025). Potential for machine learning emulators to augment regional climate simulations in provision of local climate change information. Bulletin of the American Meteorological Society, BAMS-D.
