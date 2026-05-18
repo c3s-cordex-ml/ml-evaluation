@@ -244,9 +244,6 @@ def ann_extrema(x: xr.Dataset, var: str, maxmin: str = 'max', season: str | None
         if not drop_nonfull:
             # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)  
             if len(counts[var]) > len(years): annual_extrema = annual_extrema.where(counts >= 59, drop=True)
-
-
-
     else:
         if maxmin=='max': annual_extrema = da.resample(time="1YE").max()
         if maxmin=='min': annual_extrema = da.resample(time="1YE").min()
@@ -332,8 +329,6 @@ def ann_freq_wrt_array(x: xr.Dataset, var: str, threshold: xr.Dataset | int | fl
                 if not missing:
                     for dcount in range(len(input_doy)): threshold_new[var].values[dcount]=threshold[var].values[np.where(thresh_doy == input_doy[dcount])[0]]
             if other_dims_thresh!={"doy_noleap"}:
-                    f"x input full dims {dims_input}: Expected doy_noleap in threshold."
-                )
                 raise ValueError(
                     f"threshold dimensions {set(threshold.dims)} do not match "
                     f"x input full dims {dims_input}: Expected doy_noleap in threshold."
@@ -498,8 +493,6 @@ def ann_maxspell_wrt_array(x: xr.Dataset, var: str, threshold: xr.Dataset | int 
                 if not missing:
                     for dcount in range(len(input_doy)): threshold_new[var].values[dcount]=threshold[var].values[np.where(thresh_doy == input_doy[dcount])[0]]
             if other_dims_thresh!={"doy_noleap"}:
-                    f"x input full dims {dims_input}: Expected doy_noleap in threshold."
-                )
                 raise ValueError(
                     f"threshold dimensions {set(threshold.dims)} do not match "
                     f"x input full dims {dims_input}: Expected doy_noleap in threshold."
@@ -540,6 +533,146 @@ def ann_maxspell_wrt_array(x: xr.Dataset, var: str, threshold: xr.Dataset | int 
     if cmean is False: output = ann_spell
     
     return output
+
+
+# -------------------------------------------------------------------------------------
+def ann_sdii(
+    x: xr.Dataset,
+    var: str,
+    season: str | None = None,
+    wet_threshold: float = 1.0,
+    drop_nonfull=True, 
+    cmean=False,
+) -> xr.Dataset:
+    """
+    Compute the simple precipitation intensity index.
+    Added by R. Eade
+    Adapted from ml-benchmark indices.py sdii()
+    - changed season filter 
+    - special case for DJF
+    - outputs annual data not just climate mean
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the precipitation variable.
+    var : str
+        Variable name of daily precipitation.
+    season : str | None, optional
+        Season name to filter before computing the index.
+    wet_threshold : float, default 1.0
+        Minimum precipitation to consider a wet day.
+    drop_nonfull : boolean
+        True: Ignore DJF seasons that are < 90 days long (JF start year, Dec end year)
+        False: Ignore DJF seasons that are < 59 days long (Dec end year)
+    cmean : boolean
+        True: Output annual mean values; False output annual values
+
+    Returns
+    -------
+    xr.Dataset
+        Simple precipitation intensity index.
+    """
+    x = _filter_by_monthseason(x, season)
+    da = x[[var]]
+    wet = da.where(da >= wet_threshold)
+
+    if season=='DJF':
+        # Compute on consecutive months across year boundary ending at the end of Feb
+        output = wet.resample(time="1YE-FEB").mean(dim='time')
+        # If data covers n years going from Jan Year1 to Dec YearN, there will be
+        # n+1 max values for seasons [JF, DJF, ..., DJF, D] so drop shortest season (D)
+        years=np.unique(da["time.year"])
+        counts = da.resample(time="1YE-FEB").count()
+        if drop_nonfull:
+            # Only include full DJF seasons (90 days) 
+            output = output.where(counts == 90, drop=True)
+        if not drop_nonfull:
+            # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)  
+            if len(counts[var]) > len(years): output = output.where(counts >= 59, drop=True)
+    else:
+        output = wet.resample(time="1YE").mean(dim='time')
+
+    if cmean is True: output = output.mean("time")
+    if cmean is False: output = output
+
+    return output
+
+# -------------------------------------------------------------------------------------
+def interannual_var(x: xr.Dataset, var: str, season: str | None = None, drop_nonfull=True) -> xr.Dataset:
+    """
+    Compute the interannual variability of the target variable along time.
+    Added by R. Eade
+    Adapted from ml-benchmark indices.py interannual_var()
+    - changed season filter 
+    - special case for DJF
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the target variable.
+    var : str
+        Variable name to analyse.
+    season : str | None, optional
+        Season name to filter before computing the index.
+    drop_nonfull : boolean
+        True: Ignore DJF seasons that are < 90 days long (JF start year, Dec end year)
+        False: Ignore DJF seasons that are < 59 days long (Dec end year)
+
+    Returns
+    -------
+    xr.Dataset
+        Interannual variability computed along the time dimension.
+    """
+
+    x = _filter_by_monthseason(x, season)
+    da = x[[var]]
+
+    if season=='DJF':
+        # Compute on consecutive months across year boundary ending at the end of Feb
+        output = da.resample(time="1YE-FEB").mean(dim='time').std('time')
+        # If data covers n years going from Jan Year1 to Dec YearN, there will be
+        # n+1 max values for seasons [JF, DJF, ..., DJF, D] so drop shortest season (D)
+        years=np.unique(da["time.year"])
+        counts = da.resample(time="1YE-FEB").count()
+        if drop_nonfull:
+            # Only include full DJF seasons (90 days) 
+            output = output.where(counts == 90, drop=True)
+        if not drop_nonfull:
+            # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)  
+            if len(counts[var]) > len(years): output = output.where(counts >= 59, drop=True)
+    else:
+        output = da.resample(time="1YE").mean(dim='time').std('time')
+
+    return output
+
+
+# -------------------------------------------------------------------------------------
+# Code directly from ml-benchmark indices.py with just the season filter updated
 # -------------------------------------------------------------------------------------
 
+def lag1_corr(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
+    """
+    Compute the lag-1 autocorrelation of the target variable along time.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the target variable.
+    var : str
+        Variable name to analyse.
+    season : str | None, optional
+        Season name to filter before computing the index.
+
+    Returns
+    -------
+    xr.Dataset
+        Lag-1 autocorrelation computed along the time dimension.
+    """
+
+    x = _filter_by_monthseason(x, season)
+    da = x[var]
+    shifted = da.shift(time=1)
+    lag1_corr = xr.corr(da, shifted, dim="time")
+    return xr.Dataset({var: lag1_corr})
 
