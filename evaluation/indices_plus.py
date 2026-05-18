@@ -1,7 +1,6 @@
 import numpy as np
 import xarray as xr
 import pandas as pd
-import indices
 
 TEST_SPEED=False # Option to test speed of certain functions
 if TEST_SPEED: import datetime # only needed when testing speed of different versions of functions
@@ -369,6 +368,33 @@ def ann_freq_wrt_array(x: xr.Dataset, var: str, threshold: xr.Dataset | int | fl
     return output
 
 # -------------------------------------------------------------------------------------
+def _max_spell_length(condition: np.ndarray) -> float:
+    """
+    Compute the maximum consecutive spell length in a boolean sequence.
+    Copied directly from ml-benchmark indices.py
+
+    Parameters
+    ----------
+    condition : np.ndarray
+        Boolean sequence describing the spell condition.
+
+    Returns
+    -------
+    float
+        Maximum consecutive spell length.
+    """
+    max_run = 0
+    run = 0
+    for flag in condition:
+        if flag:
+            run += 1
+            if run > max_run:
+                max_run = run
+        else:
+            run = 0
+    return float(max_run)
+
+# -------------------------------------------------------------------------------------
 def _compute_max_spell_per_year(arr: xr.DataArray) -> xr.DataArray: 
     """
     Compute maxspell length per year.
@@ -386,7 +412,7 @@ def _compute_max_spell_per_year(arr: xr.DataArray) -> xr.DataArray:
         Resampled maximum spell length.
     """
 
-    output=xr.apply_ufunc(indices._max_spell_length, arr, input_core_dims=[["time"]], 
+    output=xr.apply_ufunc(_max_spell_length, arr, input_core_dims=[["time"]], 
         output_core_dims=[[]], vectorize=True, dask="parallelized", output_dtypes=[float] )
 
     return output
@@ -551,6 +577,8 @@ def ann_sdii(
     - changed season filter 
     - special case for DJF
     - outputs annual data not just climate mean
+    - NB taking mean of annual means (cmean=True) vs mean of all days (original)
+      leads to a slight difference due to floating point accuracy.
 
     Parameters
     ----------
@@ -630,7 +658,7 @@ def interannual_var(x: xr.Dataset, var: str, season: str | None = None, drop_non
 
     if season=='DJF':
         # Compute on consecutive months across year boundary ending at the end of Feb
-        output = da.resample(time="1YE-FEB").mean(dim='time').std('time')
+        output = da.resample(time="1YE-FEB").mean(dim='time')
         # If data covers n years going from Jan Year1 to Dec YearN, there will be
         # n+1 max values for seasons [JF, DJF, ..., DJF, D] so drop shortest season (D)
         years=np.unique(da["time.year"])
@@ -641,19 +669,21 @@ def interannual_var(x: xr.Dataset, var: str, season: str | None = None, drop_non
         if not drop_nonfull:
             # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)  
             if len(counts[var]) > len(years): output = output.where(counts >= 59, drop=True)
+        output_std=output.std('time')
     else:
-        output = da.resample(time="1YE").mean(dim='time').std('time')
+        output_std = da.resample(time="1YE").mean(dim='time').std('time')
 
-    return output
-
+    return output_std
 
 # -------------------------------------------------------------------------------------
-# Code directly from ml-benchmark indices.py with just the season filter updated
-# -------------------------------------------------------------------------------------
-
 def lag1_corr(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     """
     Compute the lag-1 autocorrelation of the target variable along time.
+    Added by R. Eade
+    Adapted from ml-benchmark indices.py lag1_corr()
+    - changed season filter 
+    - special case for DJF
+    - special case for season != None to ensure constraint to 1 day lag
 
     Parameters
     ----------
@@ -673,6 +703,19 @@ def lag1_corr(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     x = _filter_by_monthseason(x, season)
     da = x[var]
     shifted = da.shift(time=1)
+    
+    # For annual data, .shift automatically masks the first day in data (=nan)
+    # For seasonal or monthly data, also mask the first day of each season/month
+    # to avoid pairing values with more than a day lag
+    if season != None:
+        print(season)
+        month1=da.time.dt.month[0]
+        if season=="DJF": month1=12
+        da = da.sel(time=~((da.time.dt.month == month1) & (da.time.dt.day == 1)))
+        shifted = shifted.sel(time=~((shifted.time.dt.month == month1) & (shifted.time.dt.day == 1)))
+    
     lag1_corr = xr.corr(da, shifted, dim="time")
     return xr.Dataset({var: lag1_corr})
 
+# -------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------
