@@ -283,12 +283,12 @@ def pearsoncorr_ann_index(
             dim=None
 
     if dim is None:
-        pcor_xarray=x0_da.mean(dim=dim)*0.0
-        pcor_result=calculate_pearsoncorr_nparray(x0_da[var].values, x1_da[var].values, axis=None)
+        pcor_xarray=x0_index.mean(dim=dim)*0.0
+        pcor_result=calculate_pearsoncorr_nparray(x0_index[var].values, x1_index[var].values, axis=None)
         pcor_xarray=pcor_xarray+pcor_result
     else:
-        pcor_xarray=x0_da.mean(dim=dim)*0.0
-        pcor_result=calculate_pearsoncorr_nparray(x0_da[var].values, x1_da[var].values, axis=axis_num)
+        pcor_xarray=x0_index.mean(dim=dim)*0.0
+        pcor_result=calculate_pearsoncorr_nparray(x0_index[var].values, x1_index[var].values, axis=axis_num)
         pcor_xarray=pcor_xarray+pcor_result
     
     return pcor_xarray
@@ -307,7 +307,7 @@ def bias_multivariable_correlation(
     and return the correlation bias.
     Added by R. Eade.
     Adapted from ml-benchmark diagnostics.py bias_multivariable_correlation()
-    - changed season filter and correlation function
+    - changed season filter and correlation function (as quicker?)
 
     Parameters
     ----------
@@ -334,19 +334,19 @@ def bias_multivariable_correlation(
     
     dim=('time',)
 
-    dim_list=list(x0_index.dims)
+    dim_list=list(x0_filtered.dims)
     matches = [dim1 for dim1 in dim_list if dim1 in dim]
     axis_num = tuple(dim_list.index(dim1) for dim1 in matches)
     if not matches:
         raise ValueError(f"Warning: no matches found for {list(dim)} in {dim_list}")
 
-    x0_corr_xarray=x0_filtered.mean(dim=dim)*0.0
-    x0_corr_result=calculate_pearsoncorr_nparray(x0_corr[var_x].values, x0_corr[var_y].values, axis=axis_num)
+    x0_corr_xarray=x0_filtered[var_x].mean(dim=dim)*0.0
+    x0_corr_result=calculate_pearsoncorr_nparray(x0_filtered[var_x].values, x0_filtered[var_y].values, axis=axis_num)
     x0_corr_xarray=x0_corr_xarray+x0_corr_result
 
-    x1_corr_xarray=x1_filtered.mean(dim=dim)*0.0
-    x1_corr_result=calculate_pearsoncorr_nparray(x1_corr[var_x].values, x1_corr[var_y].values, axis=axis_num)
-    x1_corr_xarray=x1_corr_xarray+x0_corr_result
+    x1_corr_xarray=x1_filtered[var_x].mean(dim=dim)*0.0
+    x1_corr_result=calculate_pearsoncorr_nparray(x1_filtered[var_x].values, x1_filtered[var_y].values, axis=axis_num)
+    x1_corr_xarray=x1_corr_xarray+x1_corr_result
 
     correlation_bias = x1_corr_xarray - x0_corr_xarray
 
