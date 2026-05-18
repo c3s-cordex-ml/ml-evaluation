@@ -129,6 +129,79 @@ def calculate_pearsoncorr_nparray(arr0, arr1, axis=0):
     return correlations
 
 # -------------------------------------------------------------------------------------
+def mean_bias_index( 
+    x0: xr.Dataset,
+    x1: xr.Dataset,
+    var: str,
+    typeerror: str = 'bias',
+    index_fn: Callable[..., xr.DataArray] | None = None,
+    season: str | None = None,
+    **index_kwargs: Any,
+) -> xr.Dataset:
+    """
+    Compute the time mean bias between (index function of) x0 and x1 datasets.
+    Added by R. Eade.
+    Adapted from ml-benchmark diagnostics.py rmse() and bias_index()
+    - changed season filter and added options for error type (typeerror)
+
+    Parameters
+    ----------
+    x0 : xr.Dataset
+        Ground truth dataset.
+    x1 : xr.Dataset
+        Predicted dataset.
+    typeerror : str, default='rmse'
+        Type of error to compute, options ('bias', 'ratio')
+    index_fn : Callable[..., xr.DataArray]
+        Function computing the desired index.
+    var : str
+        Variable name to analyse.
+    season : str | None, optional
+        Season to filter before computing the index.
+    relative : bool, default False
+        If True, return the relative bias.
+    **index_kwargs : Any
+        Additional keyword arguments passed to the index function.
+
+    Returns
+    -------
+    xr.Dataset
+        Error between x0 and x1 (x1-x0).
+        Output has N - len(dim) dimensions
+        (input shape with the specified dimension(s) removed).
+    """
+    
+    if index_fn is None:
+        x0_index = _filter_by_monthseason(x0, season)[[var]]
+        x1_index = _filter_by_monthseason(x1, season)[[var]]
+
+    else:
+        call_kwargs = dict(index_kwargs)
+        if season is not None and "season" not in call_kwargs:
+            call_kwargs["season"] = season
+        if var is not None and "var" not in call_kwargs:
+            call_kwargs["var"] = var
+
+        x0_index = index_fn(x0, **call_kwargs)
+        x1_index = index_fn(x1, **call_kwargs)
+
+    dim = ("time",)
+
+    dim_list=list(x0_index.dims)
+    matches = [dim1 for dim1 in dim_list if dim1 in dim]
+    
+    if matches:
+        x0_index=x0_index.mean("time")
+        x1_index=x1_index.mean("time")
+
+    bias = x1_index - x0_index
+
+    if typeerror=="ratio":
+        bias = bias / x0_index
+    
+    return bias
+
+# -------------------------------------------------------------------------------------
 def error_ann_index( 
     x0: xr.Dataset,
     x1: xr.Dataset,
@@ -151,18 +224,16 @@ def error_ann_index(
         Ground truth dataset.
     x1 : xr.Dataset
         Predicted dataset.
+    var : str
+        Variable name to analyse.
     typeerror : str, default='rmse'
         Type of error to compute, options ('rmse', 'bias', 'abias')
     dim : str | None, optional
         Dimension(s) along which to compute the RMSE. If None, computes over all dimensions.
     index_fn : Callable[..., xr.DataArray]
         Function computing the desired index.
-    var : str
-        Variable name to analyse.
     season : str | None, optional
         Season to filter before computing the index.
-    relative : bool, default False
-        If True, return the relative bias.
     **index_kwargs : Any
         Additional keyword arguments passed to the index function.
 
@@ -208,8 +279,6 @@ def error_ann_index(
         error_xarray=(x1_index-x0_index).mean(dim=dim)*0.0
         error_result=calculate_error_nparray(x0_index[var].values, x1_index[var].values, axis=axis_num, typeerror=typeerror)
         error_xarray=error_xarray+error_result
-
-    squared_diff = (x1_index - x0_index) ** 2
     
     return error_xarray
     
@@ -235,16 +304,14 @@ def pearsoncorr_ann_index(
         Ground truth dataset.
     x1 : xr.Dataset
         Predicted dataset.
+    var : str
+        Variable name to analyse.
     dim : str | None, optional
         Dimension(s) along which to compute the RMSE. If None, computes over all dimensions.
     index_fn : Callable[..., xr.DataArray]
         Function computing the desired index.
-    var : str
-        Variable name to analyse.
     season : str | None, optional
         Season to filter before computing the index.
-    relative : bool, default False
-        If True, return the relative bias.
     **index_kwargs : Any
         Additional keyword arguments passed to the index function.
 

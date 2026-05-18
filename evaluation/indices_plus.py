@@ -708,7 +708,6 @@ def lag1_corr(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     # For seasonal or monthly data, also mask the first day of each season/month
     # to avoid pairing values with more than a day lag
     if season != None:
-        print(season)
         month1=da.time.dt.month[0]
         if season=="DJF": month1=12
         da = da.sel(time=~((da.time.dt.month == month1) & (da.time.dt.day == 1)))
