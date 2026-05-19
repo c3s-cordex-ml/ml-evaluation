@@ -9,6 +9,7 @@ from tqdm import tqdm
 from numpy import fft
 from scipy.stats import wasserstein_distance_nd
 
+
 def _filter_by_season(x: xr.Dataset, season: str | None) -> xr.Dataset:
     """
     Filter the dataset by season label.
@@ -37,6 +38,7 @@ def _filter_by_season(x: xr.Dataset, season: str | None) -> xr.Dataset:
         return x.where(x["time.season"] == "SON", drop=True)
     return x
 
+
 def _radial_average(array_2d: np.ndarray) -> np.ndarray:
     """
     Compute the radial average of a two-dimensional field.
@@ -58,7 +60,8 @@ def _radial_average(array_2d: np.ndarray) -> np.ndarray:
     nr = np.bincount(r.ravel())
     return tbin / np.maximum(nr, 1)
 
-def bias_index( 
+
+def bias_index(
     x0: xr.Dataset,
     x1: xr.Dataset,
     index_fn: Callable[..., xr.DataArray],
@@ -101,6 +104,7 @@ def bias_index(
         return bias / x0_index
     else:
         return bias
+
 
 def ratio_index(
     x0: xr.Dataset,
@@ -174,8 +178,8 @@ def bias_multivariable_correlation(
     x0_filtered = _filter_by_season(x0, season)
     x1_filtered = _filter_by_season(x1, season)
 
-    x0_corr = xr.corr(x0_filtered[var_x], x0_filtered[var_y], dim='time')
-    x1_corr = xr.corr(x1_filtered[var_x], x1_filtered[var_y], dim='time')
+    x0_corr = xr.corr(x0_filtered[var_x], x0_filtered[var_y], dim="time")
+    x1_corr = xr.corr(x1_filtered[var_x], x1_filtered[var_y], dim="time")
 
     correlation_bias = x1_corr - x0_corr
 
@@ -188,7 +192,7 @@ def bias_multivariable_correlation(
     )
 
 
-def rmse( 
+def rmse(
     x0: xr.Dataset,
     x1: xr.Dataset,
     var: str,
@@ -230,8 +234,9 @@ def rmse(
         mse = squared_diff.mean(dim=dim)
 
     rmse_result = np.sqrt(mse)
-    
+
     return rmse_result
+
 
 def psd(
     x0: xr.Dataset,
@@ -284,6 +289,7 @@ def psd(
 
     return psd_x0_da, psd_x1_da
 
+
 def ralsd(psd_x0: xr.DataArray, psd_x1: xr.DataArray) -> float:
     """
     Compute the Radially Averaged Log Spectral Distance (RALSD).
@@ -306,7 +312,8 @@ def ralsd(psd_x0: xr.DataArray, psd_x1: xr.DataArray) -> float:
     """
     ratio = psd_x0.values / np.maximum(psd_x1.values, 1e-30)
     log_ratio = 10.0 * np.log10(np.maximum(ratio, 1e-30))
-    return float(np.mean(log_ratio ** 2))
+    return float(np.mean(log_ratio**2))
+
 
 def wasserstein_distance(
     x0: xr.Dataset,
@@ -348,7 +355,7 @@ def wasserstein_distance(
         x0_flat = np.nan_to_num(x0_da.values, nan=0.0).flatten()
         x1_flat = np.nan_to_num(x1_da.values, nan=0.0).flatten()
 
-        print('Computing Wasserstein distance...')
+        print("Computing Wasserstein distance...")
         distance = wasserstein_distance_nd(u_values=x0_flat, v_values=x1_flat)
         return distance
 

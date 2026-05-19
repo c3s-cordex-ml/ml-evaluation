@@ -1,0 +1,56 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=61.0.0", "wheel"]
+
+[project]
+authors = [
+  {name = "CORDEX-ML-Bench Contributors"}
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent"
+]
+dependencies = [
+  "numpy>=2.0.0",
+  "xarray>=2025.0.0",
+  "pandas>=2.0.0",
+  "cartopy>=0.20.0",
+  "matplotlib>=3.5.0",
+  "netcdf4>=1.5.0",
+  "pyproj>=3.0.0",
+  "shapely>=2.0.0",
+  "PySide6>=6.0.0",
+  "cftime>=1.0.0",
+  "pyyaml>=6.0",
+  "requests>=2.0.0",
+  "scipy>=1.10.0",
+  "tqdm>=4.0.0",
+  "filelock",
+  "fsspec",
+  "mpmath",
+  "networkx",
+  "sympy",
+  "torch",
+  "torchvision",
+  "click"
+]
+description = "Evaluation of Machine Learning Regional Climate Models"
+name = "ml-evaluation"
+readme = "README.md"
+requires-python = ">=3.13"
+version = "0.1.0"
+
+[project.scripts]
+ml-eval = "ml_evaluation.cli:main"
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[tool.setuptools.package-data]
+"ml_evaluation.format_predictions" = ["templates/*.nc"]
+
+[tool.setuptools.packages.find]
+include = ["ml_evaluation", "ml_evaluation.*"]
+where = ["."]
