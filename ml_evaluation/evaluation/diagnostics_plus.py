@@ -4,10 +4,11 @@ from typing import Any, Callable
 
 import numpy as np
 import xarray as xr
-#from tqdm import tqdm # taken out so don't need to install tqdm
+# from tqdm import tqdm # taken out so don't need to install tqdm
 
 from numpy import fft
 from scipy.stats import wasserstein_distance_nd
+
 
 # -------------------------------------------------------------------------------------
 def _filter_by_monthseason(x: xr.Dataset, season: str | None) -> xr.Dataset:
@@ -28,28 +29,42 @@ def _filter_by_monthseason(x: xr.Dataset, season: str | None) -> xr.Dataset:
     -------
     xr.Dataset
         Filtered dataset.
-    
+
     """
-    
-    MON_LIST=["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"]
-    SEAS_LIST=["DJF","MAM","JJA","SON"]
-    
-    if not season in MON_LIST and not season in SEAS_LIST: 
-        season=None
+
+    MON_LIST = [
+        "JAN",
+        "FEB",
+        "MAR",
+        "APR",
+        "MAY",
+        "JUN",
+        "JUL",
+        "AUG",
+        "SEP",
+        "OCT",
+        "NOV",
+        "DEC",
+    ]
+    SEAS_LIST = ["DJF", "MAM", "JJA", "SON"]
+
+    if season not in MON_LIST and season not in SEAS_LIST:
+        season = None
     if season is None:
         return x
-        
+
     if season in SEAS_LIST:
         return x.where(x["time.season"] == season, drop=True)
-        
+
     if season in MON_LIST:
-        month_num = MON_LIST.index(season) + 1 
+        month_num = MON_LIST.index(season) + 1
         return x.where(x["time.month"] == month_num, drop=True)
 
     return x
 
+
 # -------------------------------------------------------------------------------------
-def calculate_error_nparray(arr0, arr1, axis=0, typeerror='rmse'):
+def calculate_error_nparray(arr0, arr1, axis=0, typeerror="rmse"):
     """
     Calculate (rms) error between 2 N-dimensional numpy arrays
     Added by R. Eade.
@@ -64,27 +79,34 @@ def calculate_error_nparray(arr0, arr1, axis=0, typeerror='rmse'):
         Axis/axes along which to compute error
     typeerror : str, default='rmse'
         Type of error to compute, options ('rmse', 'bias', 'abias', 'ratio')
-    
+
     Returns:
     --------
     numpy.ndarray
         Error. Output has N - len(axis) dimensions
         (input shape with the specified axis/axes removed).
-    
+
     """
 
     if arr0.shape != arr1.shape:
-        raise ValueError(f"Arrays must have the same shape. Got {arr0.shape} and {arr1.shape}")
-    
+        raise ValueError(
+            f"Arrays must have the same shape. Got {arr0.shape} and {arr1.shape}"
+        )
+
     # Compute Error over axis/axes specified
     # - subtract first then take mean so consistent method for bias and rmse
     # - better level of accuracy than taking means then subtract (ie slight difference)
-    if typeerror=='bias': output_error = (arr1-arr0).mean(axis=axis)
-    if typeerror=='abias': output_error = np.abs(arr1-arr0).mean(axis=axis)
-    if typeerror=='rmse': output_error = np.sqrt(((arr1-arr0)**2).mean(axis=axis))
-    if typeerror=='ratio': output_error = arr1.mean(axis=axis)/arr0.mean(axis=axis)
-    
+    if typeerror == "bias":
+        output_error = (arr1 - arr0).mean(axis=axis)
+    if typeerror == "abias":
+        output_error = np.abs(arr1 - arr0).mean(axis=axis)
+    if typeerror == "rmse":
+        output_error = np.sqrt(((arr1 - arr0) ** 2).mean(axis=axis))
+    if typeerror == "ratio":
+        output_error = arr1.mean(axis=axis) / arr0.mean(axis=axis)
+
     return output_error
+
 
 # -------------------------------------------------------------------------------------
 def calculate_pearsoncorr_nparray(arr0, arr1, axis=0):
@@ -101,39 +123,44 @@ def calculate_pearsoncorr_nparray(arr0, arr1, axis=0):
     axis : int or type of int, default=0
         Axis or tuple of axes over which to compute correlation
         None : if want to compute over all axes
-    
+
     Returns:
     --------
     numpy.ndarray
         Pearson correlation coefficients. Output has N - len(axis) dimensions
         (input shape with the specified axis/axes removed).
-    
+
     """
 
     if arr0.shape != arr1.shape:
-        raise ValueError(f"Arrays must have the same shape. Got {arr0.shape} and {arr1.shape}")
-    
+        raise ValueError(
+            f"Arrays must have the same shape. Got {arr0.shape} and {arr1.shape}"
+        )
+
     # Center the data over axis/axes specified
     arr0_centered = arr0 - arr0.mean(axis=axis, keepdims=True)
     arr1_centered = arr1 - arr1.mean(axis=axis, keepdims=True)
-    
+
     # Compute correlation over axis/axes specified
     numerator = (arr0_centered * arr1_centered).sum(axis=axis)
-    denominator = np.sqrt((arr0_centered**2).sum(axis=axis) * (arr1_centered**2).sum(axis=axis))
+    denominator = np.sqrt(
+        (arr0_centered**2).sum(axis=axis) * (arr1_centered**2).sum(axis=axis)
+    )
 
     # Avoid division by zero (set as 0.0 instead of inf or nan)
-    correlations = np.divide(numerator, denominator, 
-                            out=np.zeros_like(numerator), 
-                            where=denominator!=0)
-    
+    correlations = np.divide(
+        numerator, denominator, out=np.zeros_like(numerator), where=denominator != 0
+    )
+
     return correlations
 
+
 # -------------------------------------------------------------------------------------
-def mean_bias_index( 
+def mean_bias_index(
     x0: xr.Dataset,
     x1: xr.Dataset,
     var: str,
-    typeerror: str = 'bias',
+    typeerror: str = "bias",
     index_fn: Callable[..., xr.DataArray] | None = None,
     season: str | None = None,
     **index_kwargs: Any,
@@ -170,7 +197,7 @@ def mean_bias_index(
         Output has N - len(dim) dimensions
         (input shape with the specified dimension(s) removed).
     """
-    
+
     if index_fn is None:
         x0_index = _filter_by_monthseason(x0, season)[[var]]
         x1_index = _filter_by_monthseason(x1, season)[[var]]
@@ -187,26 +214,27 @@ def mean_bias_index(
 
     dim = ("time",)
 
-    dim_list=list(x0_index.dims)
+    dim_list = list(x0_index.dims)
     matches = [dim1 for dim1 in dim_list if dim1 in dim]
-    
+
     if matches:
-        x0_index=x0_index.mean("time")
-        x1_index=x1_index.mean("time")
+        x0_index = x0_index.mean("time")
+        x1_index = x1_index.mean("time")
 
     bias = x1_index - x0_index
 
-    if typeerror=="ratio":
+    if typeerror == "ratio":
         bias = bias / x0_index
-    
+
     return bias
 
+
 # -------------------------------------------------------------------------------------
-def error_ann_index( 
+def error_ann_index(
     x0: xr.Dataset,
     x1: xr.Dataset,
     var: str,
-    typeerror: str = 'rmse',
+    typeerror: str = "rmse",
     dim: str | None = None,
     index_fn: Callable[..., xr.DataArray] | None = None,
     season: str | None = None,
@@ -244,7 +272,7 @@ def error_ann_index(
         Output has N - len(dim) dimensions
         (input shape with the specified dimension(s) removed).
     """
-    
+
     if index_fn is None:
         x0_index = _filter_by_monthseason(x0, season)[[var]]
         x1_index = _filter_by_monthseason(x1, season)[[var]]
@@ -262,28 +290,38 @@ def error_ann_index(
     if isinstance(dim, str):
         # Convert string to tuple
         dim = (dim,)
-    
+
     if isinstance(dim, tuple):
-        dim_list=list(x0_index.dims)
+        dim_list = list(x0_index.dims)
         matches = [dim1 for dim1 in dim_list if dim1 in dim]
         axis_num = tuple(dim_list.index(dim1) for dim1 in matches)
         if not matches:
-            print(f"Warning: no matches found for {list(dim)} in {dim_list} so set dim=None")
-            dim=None
+            print(
+                f"Warning: no matches found for {list(dim)} in {dim_list} so set dim=None"
+            )
+            dim = None
 
     if dim is None:
-        error_xarray=(x1_index-x0_index).mean(dim=dim)*0.0
-        error_result=calculate_error_nparray(x0_index[var].values, x1_index[var].values, axis=None, typeerror=typeerror)
-        error_xarray=error_xarray+error_result
+        error_xarray = (x1_index - x0_index).mean(dim=dim) * 0.0
+        error_result = calculate_error_nparray(
+            x0_index[var].values, x1_index[var].values, axis=None, typeerror=typeerror
+        )
+        error_xarray = error_xarray + error_result
     else:
-        error_xarray=(x1_index-x0_index).mean(dim=dim)*0.0
-        error_result=calculate_error_nparray(x0_index[var].values, x1_index[var].values, axis=axis_num, typeerror=typeerror)
-        error_xarray=error_xarray+error_result
-    
+        error_xarray = (x1_index - x0_index).mean(dim=dim) * 0.0
+        error_result = calculate_error_nparray(
+            x0_index[var].values,
+            x1_index[var].values,
+            axis=axis_num,
+            typeerror=typeerror,
+        )
+        error_xarray = error_xarray + error_result
+
     return error_xarray
-    
+
+
 # -------------------------------------------------------------------------------------
-def pearsoncorr_ann_index( 
+def pearsoncorr_ann_index(
     x0: xr.Dataset,
     x1: xr.Dataset,
     var: str,
@@ -322,7 +360,7 @@ def pearsoncorr_ann_index(
         Output has N - len(dim) dimensions
         (input shape with the specified dimension(s) removed).
     """
-    
+
     if index_fn is None:
         x0_index = _filter_by_monthseason(x0, season)[[var]]
         x1_index = _filter_by_monthseason(x1, season)[[var]]
@@ -340,24 +378,30 @@ def pearsoncorr_ann_index(
     if isinstance(dim, str):
         # Convert string to tuple
         dim = (dim,)
-    
+
     if isinstance(dim, tuple):
-        dim_list=list(x0_index.dims)
+        dim_list = list(x0_index.dims)
         matches = [dim1 for dim1 in dim_list if dim1 in dim]
         axis_num = tuple(dim_list.index(dim1) for dim1 in matches)
         if not matches:
-            print(f"Warning: no matches found for {list(dim)} in {dim_list} so set dim=None")
-            dim=None
+            print(
+                f"Warning: no matches found for {list(dim)} in {dim_list} so set dim=None"
+            )
+            dim = None
 
     if dim is None:
-        pcor_xarray=x0_index.mean(dim=dim)*0.0
-        pcor_result=calculate_pearsoncorr_nparray(x0_index[var].values, x1_index[var].values, axis=None)
-        pcor_xarray=pcor_xarray+pcor_result
+        pcor_xarray = x0_index.mean(dim=dim) * 0.0
+        pcor_result = calculate_pearsoncorr_nparray(
+            x0_index[var].values, x1_index[var].values, axis=None
+        )
+        pcor_xarray = pcor_xarray + pcor_result
     else:
-        pcor_xarray=x0_index.mean(dim=dim)*0.0
-        pcor_result=calculate_pearsoncorr_nparray(x0_index[var].values, x1_index[var].values, axis=axis_num)
-        pcor_xarray=pcor_xarray+pcor_result
-    
+        pcor_xarray = x0_index.mean(dim=dim) * 0.0
+        pcor_result = calculate_pearsoncorr_nparray(
+            x0_index[var].values, x1_index[var].values, axis=axis_num
+        )
+        pcor_xarray = pcor_xarray + pcor_result
+
     return pcor_xarray
 
 
@@ -398,22 +442,26 @@ def bias_multivariable_correlation(
 
     x0_filtered = _filter_by_monthseason(x0, season)
     x1_filtered = _filter_by_monthseason(x1, season)
-    
-    dim=('time',)
 
-    dim_list=list(x0_filtered.dims)
+    dim = ("time",)
+
+    dim_list = list(x0_filtered.dims)
     matches = [dim1 for dim1 in dim_list if dim1 in dim]
     axis_num = tuple(dim_list.index(dim1) for dim1 in matches)
     if not matches:
         raise ValueError(f"Warning: no matches found for {list(dim)} in {dim_list}")
 
-    x0_corr_xarray=x0_filtered[var_x].mean(dim=dim)*0.0
-    x0_corr_result=calculate_pearsoncorr_nparray(x0_filtered[var_x].values, x0_filtered[var_y].values, axis=axis_num)
-    x0_corr_xarray=x0_corr_xarray+x0_corr_result
+    x0_corr_xarray = x0_filtered[var_x].mean(dim=dim) * 0.0
+    x0_corr_result = calculate_pearsoncorr_nparray(
+        x0_filtered[var_x].values, x0_filtered[var_y].values, axis=axis_num
+    )
+    x0_corr_xarray = x0_corr_xarray + x0_corr_result
 
-    x1_corr_xarray=x1_filtered[var_x].mean(dim=dim)*0.0
-    x1_corr_result=calculate_pearsoncorr_nparray(x1_filtered[var_x].values, x1_filtered[var_y].values, axis=axis_num)
-    x1_corr_xarray=x1_corr_xarray+x1_corr_result
+    x1_corr_xarray = x1_filtered[var_x].mean(dim=dim) * 0.0
+    x1_corr_result = calculate_pearsoncorr_nparray(
+        x1_filtered[var_x].values, x1_filtered[var_y].values, axis=axis_num
+    )
+    x1_corr_xarray = x1_corr_xarray + x1_corr_result
 
     correlation_bias = x1_corr_xarray - x0_corr_xarray
 
@@ -424,6 +472,7 @@ def bias_multivariable_correlation(
             "correlation_bias": correlation_bias,
         }
     )
+
 
 # -------------------------------------------------------------------------------------
 # Code directly from ml-benchmark diagnostics.py with just the season filter updated
@@ -449,7 +498,8 @@ def _radial_average(array_2d: np.ndarray) -> np.ndarray:
     tbin = np.bincount(r.ravel(), array_2d.ravel())
     nr = np.bincount(r.ravel())
     return tbin / np.maximum(nr, 1)
-    
+
+
 # -------------------------------------------------------------------------------------
 def psd(
     x0: xr.Dataset,
@@ -503,6 +553,7 @@ def psd(
 
     return psd_x0_da, psd_x1_da
 
+
 # -------------------------------------------------------------------------------------
 def ralsd(psd_x0: xr.DataArray, psd_x1: xr.DataArray) -> float:
     """
@@ -511,7 +562,7 @@ def ralsd(psd_x0: xr.DataArray, psd_x1: xr.DataArray) -> float:
     RALSD measures the distance between two radially averaged power spectra
     in log space (Harris et al., 2022). Lower values indicate better agreement
     between the spectra.
-    
+
     From ml-benchmark diagnostics.py.
 
     Parameters
@@ -528,7 +579,8 @@ def ralsd(psd_x0: xr.DataArray, psd_x1: xr.DataArray) -> float:
     """
     ratio = psd_x0.values / np.maximum(psd_x1.values, 1e-30)
     log_ratio = 10.0 * np.log10(np.maximum(ratio, 1e-30))
-    return float(np.mean(log_ratio ** 2))
+    return float(np.mean(log_ratio**2))
+
 
 # -------------------------------------------------------------------------------------
 def wasserstein_distance(
@@ -572,7 +624,7 @@ def wasserstein_distance(
         x0_flat = np.nan_to_num(x0_da.values, nan=0.0).flatten()
         x1_flat = np.nan_to_num(x1_da.values, nan=0.0).flatten()
 
-        print('Computing Wasserstein distance...')
+        print("Computing Wasserstein distance...")
         distance = wasserstein_distance_nd(u_values=x0_flat, v_values=x1_flat)
         return distance
 
@@ -590,7 +642,7 @@ def wasserstein_distance(
 
         # Loop with progress bar # taken out so don't need to install tqdm
         ##for i in tqdm(range(n_spatial), desc="Computing Wasserstein distances"):
-        
+
         # Standard loop
         for i in range(n_spatial):
             x0_temporal = x0_reshaped[:, i].flatten()

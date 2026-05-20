@@ -30,6 +30,7 @@ def _filter_by_season(x: xr.Dataset, season: str | None) -> xr.Dataset:
         return x.where(x["time.season"] == "SON", drop=True)
     return x
 
+
 def quantile(x: xr.Dataset, var: str, q: float) -> xr.Dataset:
     """
     Compute the specified time quantile of a variable in a dataset.
@@ -54,6 +55,7 @@ def quantile(x: xr.Dataset, var: str, q: float) -> xr.Dataset:
         result = result.sel(quantile=q)
     return result
 
+
 def mean(x: xr.Dataset, var: str) -> xr.Dataset:
     """
     Compute the mean of a variable in a dataset over the time dimension.
@@ -73,6 +75,7 @@ def mean(x: xr.Dataset, var: str) -> xr.Dataset:
     da = x[[var]]
     result = da.mean(dim="time", skipna=True)
     return result
+
 
 def _max_spell_length(condition: np.ndarray) -> float:
     """
@@ -99,6 +102,7 @@ def _max_spell_length(condition: np.ndarray) -> float:
             run = 0
     return float(max_run)
 
+
 def _resample_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArray:
     """
     Aggregate maximum spell length over the resampled period and return the mean annual spell length.
@@ -115,6 +119,7 @@ def _resample_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataAr
     xr.DataArray
         Resampled maximum spell length.
     """
+
     def _compute(arr: xr.DataArray) -> xr.DataArray:
         return xr.apply_ufunc(
             _max_spell_length,
@@ -126,9 +131,12 @@ def _resample_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataAr
             output_dtypes=[float],
         )
 
-    return condition.resample(time=freq).map(_compute).mean('time')
+    return condition.resample(time=freq).map(_compute).mean("time")
 
-def su(x: xr.Dataset, var: str, season: str | None = None, threshold: float =  300.0) -> xr.Dataset:
+
+def su(
+    x: xr.Dataset, var: str, season: str | None = None, threshold: float = 300.0
+) -> xr.Dataset:
     """
     Count summer days defined by daily maximum temperature above a threshold. First the summer days
     are counted for each year, then the mean is computed.
@@ -151,7 +159,8 @@ def su(x: xr.Dataset, var: str, season: str | None = None, threshold: float =  3
     """
     x = _filter_by_season(x, season)
     da = x[[var]]
-    return (da > threshold).groupby('time.year').sum('time').mean('year')
+    return (da > threshold).groupby("time.year").sum("time").mean("year")
+
 
 def txx(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     """
@@ -176,6 +185,7 @@ def txx(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     annual_max = da.resample(time="1YE").max()
     return annual_max.mean(dim="time")
 
+
 def txn(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     """
     Compute the mean annual minimum of daily maximum temperature.
@@ -199,6 +209,7 @@ def txn(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     annual_min = da.resample(time="1YE").min()
     return annual_min.mean(dim="time")
 
+
 def rx1day(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     """
     Compute the mean annual maximum 1-day precipitation.
@@ -221,6 +232,7 @@ def rx1day(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     da = x[[var]]
     annual_max = da.resample(time="1YE").max()
     return annual_max.mean(dim="time")
+
 
 def sdii(
     x: xr.Dataset,
@@ -252,6 +264,7 @@ def sdii(
     wet = da.where(da >= wet_threshold)
     return wet.mean(dim="time")
 
+
 def cdd(
     x: xr.Dataset,
     var: str,
@@ -281,6 +294,7 @@ def cdd(
     da = x[[var]]
     condition = da < dry_threshold
     return _resample_max_spell(condition)
+
 
 def cwd(
     x: xr.Dataset,
@@ -312,6 +326,7 @@ def cwd(
     condition = da >= wet_threshold
     return _resample_max_spell(condition)
 
+
 def lag1_corr(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     """
     Compute the lag-1 autocorrelation of the target variable along time.
@@ -337,6 +352,7 @@ def lag1_corr(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     lag1_corr = xr.corr(da, shifted, dim="time")
     return xr.Dataset({var: lag1_corr})
 
+
 def interannual_var(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     """
     Compute the interannual variability of the target variable along time.
@@ -358,4 +374,4 @@ def interannual_var(x: xr.Dataset, var: str, season: str | None = None) -> xr.Da
 
     x = _filter_by_season(x, season)
     da = x[[var]]
-    return da.groupby('time.year').mean(dim='time').std('year')
+    return da.groupby("time.year").mean(dim="time").std("year")

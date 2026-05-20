@@ -2,8 +2,10 @@ import numpy as np
 import xarray as xr
 import pandas as pd
 
-TEST_SPEED=False # Option to test speed of certain functions
-if TEST_SPEED: import datetime # only needed when testing speed of different versions of functions
+TEST_SPEED = False  # Option to test speed of certain functions
+if TEST_SPEED:
+    import datetime  # only needed when testing speed of different versions of functions
+
 
 # -------------------------------------------------------------------------------------
 def _filter_by_monthseason(x: xr.Dataset, season: str | None) -> xr.Dataset:
@@ -24,25 +26,39 @@ def _filter_by_monthseason(x: xr.Dataset, season: str | None) -> xr.Dataset:
     -------
     xr.Dataset
         Filtered dataset.
-    
+
     """
-    
-    MON_LIST=["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"]
-    SEAS_LIST=["DJF","MAM","JJA","SON"]
-    
-    if not season in MON_LIST and not season in SEAS_LIST: 
-        season=None
+
+    MON_LIST = [
+        "JAN",
+        "FEB",
+        "MAR",
+        "APR",
+        "MAY",
+        "JUN",
+        "JUL",
+        "AUG",
+        "SEP",
+        "OCT",
+        "NOV",
+        "DEC",
+    ]
+    SEAS_LIST = ["DJF", "MAM", "JJA", "SON"]
+
+    if season not in MON_LIST and season not in SEAS_LIST:
+        season = None
     if season is None:
         return x
-        
+
     if season in SEAS_LIST:
         return x.where(x["time.season"] == season, drop=True)
-        
+
     if season in MON_LIST:
-        month_num = MON_LIST.index(season) + 1 
+        month_num = MON_LIST.index(season) + 1
         return x.where(x["time.month"] == month_num, drop=True)
 
     return x
+
 
 # -------------------------------------------------------------------------------------
 def xr_assign_dayofyear_noleap(x: xr.Dataset):
@@ -61,29 +77,32 @@ def xr_assign_dayofyear_noleap(x: xr.Dataset):
     -------
     xr.Dataset
         Dataset with new coordinate "doy_noleap" added.
-    
+
     """
 
     # Make sure 29th Feb in leap years are removed.
-    x = x.sel(time=~((x.time.dt.month == 2) & (x.time.dt.day == 29))) 
+    x = x.sel(time=~((x.time.dt.month == 2) & (x.time.dt.day == 29)))
 
     has_doy_noleap = "doy_noleap" in x.coords
     if has_doy_noleap is True:
         print("doy_noleap coordinate already exists so don't add")
         return x
 
-    x_dates = pd.to_datetime(x['time'].dt.date)
+    x_dates = pd.to_datetime(x["time"].dt.date)
     x_doy_orig = np.array(x_dates.dayofyear)
     x_doy_new = np.array(x_dates.dayofyear)
-    # Adjust pandas day of year in leap years to revert to 365 day year 
-    adj_index = (x_dates.is_leap_year == True) * (x_doy_orig > 60)
-    x_doy_new[adj_index] = x_doy_orig[adj_index]-1
+    # Adjust pandas day of year in leap years to revert to 365 day year
+    adj_index = x_dates.is_leap_year * (x_doy_orig > 60)
+    x_doy_new[adj_index] = x_doy_orig[adj_index] - 1
     x = x.assign_coords(doy_noleap=("time", x_doy_new))
 
     return x
 
+
 # -------------------------------------------------------------------------------------
-def season_quantile(x: xr.Dataset, var: str, q: float, season: str | None = None) -> xr.Dataset:
+def season_quantile(
+    x: xr.Dataset, var: str, q: float, season: str | None = None
+) -> xr.Dataset:
     """
     Compute the specified time quantile of a variable in a dataset.
     Option to restrict to a specified season or month.
@@ -108,22 +127,25 @@ def season_quantile(x: xr.Dataset, var: str, q: float, season: str | None = None
     xr.Dataset
         Quantile of the input data.
     """
-    
+
     x = _filter_by_monthseason(x, season)
     da = x[[var]]
-    
+
     result = da.quantile(q, dim="time", skipna=True)
     if "quantile" in result.dims:
         result = result.sel(quantile=q)
     return result
 
+
 # -------------------------------------------------------------------------------------
-def day_noleap_quantile(x: xr.Dataset, var: str, q: float, padding: int = 2, axis: int = 0) -> xr.Dataset:
+def day_noleap_quantile(
+    x: xr.Dataset, var: str, q: float, padding: int = 2, axis: int = 0
+) -> xr.Dataset:
     """
     Compute the specified daily time quantile of a variable in a dataset
-    using a centred 5 day window (assumes 365 day year). 
+    using a centred 5 day window (assumes 365 day year).
     Adds coordinate doy_noleap to output (if not already there) and removes coordinate time.
-        
+
     Added by Rosie, May 2026
     * Check: only 1 year of data
     * Check: less than 1 year of data or missing days (careful with window wrapping)
@@ -146,23 +168,24 @@ def day_noleap_quantile(x: xr.Dataset, var: str, q: float, padding: int = 2, axi
     xr.Dataset
         Quantile of the input data with dimensions {'doy_noleap', 'lat', 'lon'}
     """
-    if TEST_SPEED: 
+    if TEST_SPEED:
         print("day_noleap_quantile: start time")
         print(datetime.datetime.now().time())
 
     da = x[[var]]
-    
+
     da = xr_assign_dayofyear_noleap(da)
-    
-    doy_vals = da["doy_noleap"].values # np array of 'day in year' values x0doy
-    data_vals = da[var].values # np array of data values
-    
-    n_doys=365
-    window=2*padding+1
-    
-    # list of arrays for each day in year showing position of elements of input data with that day    
-    day_indices: list[np.ndarray] = [np.where(doy_vals == d)[0] for d in range(1, n_doys + 1)] 
-    
+
+    doy_vals = da["doy_noleap"].values  # np array of 'day in year' values x0doy
+    data_vals = da[var].values  # np array of data values
+
+    n_doys = 365
+
+    # list of arrays for each day in year showing position of elements of input data with that day
+    day_indices: list[np.ndarray] = [
+        np.where(doy_vals == d)[0] for d in range(1, n_doys + 1)
+    ]
+
     # output array
     spatial_shape = data_vals.shape[1:] if data_vals.ndim > 1 else ()
     out = np.empty((n_doys, *spatial_shape), dtype=np.float64)
@@ -170,7 +193,9 @@ def day_noleap_quantile(x: xr.Dataset, var: str, q: float, padding: int = 2, axi
     if padding > 0:
         for d in range(n_doys):
             # Wrap-around indices for the window
-            window_doys = [(d + offset) % n_doys for offset in range(-padding, padding + 1)]
+            window_doys = [
+                (d + offset) % n_doys for offset in range(-padding, padding + 1)
+            ]
             # Concatenate time indices for every DOY in the window
             idx = np.concatenate([day_indices[wd] for wd in window_doys])
             out[d] = np.nanquantile(data_vals[idx], q, axis=0)
@@ -180,27 +205,41 @@ def day_noleap_quantile(x: xr.Dataset, var: str, q: float, padding: int = 2, axi
             out[d] = np.nanquantile(data_vals[day_indices[d]], q, axis=0)
 
     doy_coord = np.arange(1, n_doys + 1)
-    spatial_coords = {k: da.coords[k] for k in da.coords if k != "doy_noleap" and k != "time"}
+    spatial_coords = {
+        k: da.coords[k] for k in da.coords if k != "doy_noleap" and k != "time"
+    }
 
-    result_da = xr.DataArray(out,dims=["doy_noleap", *[d for d in da[var].dims[1:]]],coords={"doy_noleap": doy_coord, **spatial_coords})
+    result_da = xr.DataArray(
+        out,
+        dims=["doy_noleap", *[d for d in da[var].dims[1:]]],
+        coords={"doy_noleap": doy_coord, **spatial_coords},
+    )
 
-    if TEST_SPEED: 
+    if TEST_SPEED:
         print("day_noleap_quantile: end time")
         print(datetime.datetime.now().time())
 
     return xr.Dataset({var: result_da})
+
+
 # -------------------------------------------------------------------------------------
 
 
-
 # -------------------------------------------------------------------------------------
-def ann_extrema(x: xr.Dataset, var: str, maxmin: str = 'max', season: str | None = None, drop_nonfull=True, cmean=False) -> xr.Dataset:
+def ann_extrema(
+    x: xr.Dataset,
+    var: str,
+    maxmin: str = "max",
+    season: str | None = None,
+    drop_nonfull=True,
+    cmean=False,
+) -> xr.Dataset:
     """
     Compute the annual maximum or minimum of target variable per year (season or month).
     Option to output annual values or annual mean.
     Added by R. Eade.
     Adapted from ml-benchmark indices.py txx()
-    - changed season filter, generalised (max or min options), 
+    - changed season filter, generalised (max or min options),
     - special case for DJF,
     - outputs annual data not just climate mean
 
@@ -225,41 +264,57 @@ def ann_extrema(x: xr.Dataset, var: str, maxmin: str = 'max', season: str | None
     x = _filter_by_monthseason(x, season)
     da = x[[var]]
 
-    if maxmin not in ['max','min']:
-        maxmin = 'max'
+    if maxmin not in ["max", "min"]:
+        maxmin = "max"
         print(f"WARNING: max='{max}' not in list ['max','min'] so default to 'max'")
 
-    if season=='DJF':
+    if season == "DJF":
         # Compute on consecutive months across year boundary ending at the end of Feb
-        if maxmin=='max': annual_extrema = da.resample(time="1YE-FEB").max()
-        if maxmin=='min': annual_extrema = da.resample(time="1YE-FEB").min()
+        if maxmin == "max":
+            annual_extrema = da.resample(time="1YE-FEB").max()
+        if maxmin == "min":
+            annual_extrema = da.resample(time="1YE-FEB").min()
         # If data covers n years going from Jan Year1 to Dec YearN, there will be
         # n+1 max values for seasons [JF, DJF, ..., DJF, D] so drop shortest season (D)
-        years=np.unique(da["time.year"])
+        years = np.unique(da["time.year"])
         counts = da.resample(time="1YE-FEB").count()
         if drop_nonfull:
-            # Only include full DJF seasons (90 days) 
+            # Only include full DJF seasons (90 days)
             annual_extrema = annual_extrema.where(counts == 90, drop=True)
         if not drop_nonfull:
-            # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)  
-            if len(counts[var]) > len(years): annual_extrema = annual_extrema.where(counts >= 59, drop=True)
+            # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)
+            if len(counts[var]) > len(years):
+                annual_extrema = annual_extrema.where(counts >= 59, drop=True)
     else:
-        if maxmin=='max': annual_extrema = da.resample(time="1YE").max()
-        if maxmin=='min': annual_extrema = da.resample(time="1YE").min()
-        
-    if cmean is True: output = annual_extrema.mean(dim="time")
-    if cmean is False: output = annual_extrema
-    
+        if maxmin == "max":
+            annual_extrema = da.resample(time="1YE").max()
+        if maxmin == "min":
+            annual_extrema = da.resample(time="1YE").min()
+
+    if cmean is True:
+        output = annual_extrema.mean(dim="time")
+    if cmean is False:
+        output = annual_extrema
+
     return output
 
+
 # -------------------------------------------------------------------------------------
-def ann_freq_wrt_array(x: xr.Dataset, var: str, threshold: xr.Dataset | int | float, relation: str = 'gt', season: str | None = None, drop_nonfull=True, cmean=False) -> xr.Dataset:
+def ann_freq_wrt_array(
+    x: xr.Dataset,
+    var: str,
+    threshold: xr.Dataset | int | float,
+    relation: str = "gt",
+    season: str | None = None,
+    drop_nonfull=True,
+    cmean=False,
+) -> xr.Dataset:
     """
     Count number of event days, defined wrt threshold, per year (season or month).
     Option to output annual values or annual mean.
     Added by R. Eade.
     Adapted from ml-benchmark indices.py su()
-    - changed season filter, generalised (gt, le etc), 
+    - changed season filter, generalised (gt, le etc),
     - special case for DJF,
     - outputs annual data not just climate mean
 
@@ -285,87 +340,105 @@ def ann_freq_wrt_array(x: xr.Dataset, var: str, threshold: xr.Dataset | int | fl
     -------
     xr.Dataset
         (Mean of ) Annual count of event days.
-        
+
     Function code adapted and generalised by Rosie Eade from original function su()
     """
     x = _filter_by_monthseason(x, season)
     da = x[[var]]
-    
-    if isinstance(threshold, int): threshold_new=threshold
-    if isinstance(threshold, float): threshold_new=threshold
+
+    if isinstance(threshold, int):
+        threshold_new = threshold
+    if isinstance(threshold, float):
+        threshold_new = threshold
 
     if isinstance(threshold, xr.Dataset):
         # Should include check that shape matches
-        if da.sizes["lat"] != threshold.sizes["lat"] or da.sizes["lon"] != threshold.sizes["lon"]:
+        if (
+            da.sizes["lat"] != threshold.sizes["lat"]
+            or da.sizes["lon"] != threshold.sizes["lon"]
+        ):
             raise ValueError(
                 f"Spatial shape mismatch: input ({da.sizes['lat']}, {da.sizes['lon']}) "
-                f"!= threhsold ({threhsold.sizes['lat']}, {threhsold.sizes['lon']})"
+                f"!= threshold ({threshold.sizes['lat']}, {threshold.sizes['lon']})"
             )
 
         dims_input = set(da.dims)
-        spatial_dims_input = dims_input - {"time"}
-        other_dims_input = dims_input - {"lat","lon"}
-        
+
         dims_thresh = set(threshold.dims)
-        spatial_dims_thresh = dims_thresh - {"doy_noleap"}
-        other_dims_thresh = dims_thresh - {"lat","lon"}
+        other_dims_thresh = dims_thresh - {"lat", "lon"}
 
         if not other_dims_thresh:
-            threshold_new=threshold
+            threshold_new = threshold
         if other_dims_thresh:
-            if other_dims_thresh=={"doy_noleap"}:
+            if other_dims_thresh == {"doy_noleap"}:
                 # Should include check that shape matches
-                threshold_new=xr_assign_dayofyear_noleap(da) 
+                threshold_new = xr_assign_dayofyear_noleap(da)
                 # This will become a matched array containing percentile based thresholds (matched to doy)
-                input_doy=threshold_new["doy_noleap"].values # doy for input array
-                thresh_doy=threshold["doy_noleap"].values # doy for daily percentile threshold array
+                input_doy = threshold_new["doy_noleap"].values  # doy for input array
+                thresh_doy = threshold[
+                    "doy_noleap"
+                ].values  # doy for daily percentile threshold array
                 # Check of all doy needed for input x are present in threshold
                 missing = set(np.unique(input_doy)) - set(thresh_doy)
                 if missing:
                     raise ValueError(
                         f"Threshold doy doesn't cover all input doy, missing: {sorted(int(x) for x in missing)}"
-                    )                
+                    )
                 if not missing:
-                    for dcount in range(len(input_doy)): threshold_new[var].values[dcount]=threshold[var].values[np.where(thresh_doy == input_doy[dcount])[0]]
-            if other_dims_thresh!={"doy_noleap"}:
+                    for dcount in range(len(input_doy)):
+                        threshold_new[var].values[dcount] = threshold[var].values[
+                            np.where(thresh_doy == input_doy[dcount])[0]
+                        ]
+            if other_dims_thresh != {"doy_noleap"}:
                 raise ValueError(
                     f"threshold dimensions {set(threshold.dims)} do not match "
                     f"x input full dims {dims_input}: Expected doy_noleap in threshold."
                 )
 
-    
-    if relation not in ['gt', 'ge', 'lt', 'le', 'eq', 'ne']:
-        relation = 'gt'
-        print(f"WARNING: relation='{relation}' not in list ['gt', 'ge', 'lt', 'le', 'eq', 'ne'] so default to 'gt'")
-    
-    # Event Condition
-    if relation=='gt': econdition = (da > threshold_new)
-    if relation=='ge': econdition = (da >= threshold_new)
-    if relation=='lt': econdition = (da < threshold_new)
-    if relation=='le': econdition = (da <= threshold_new)
-    if relation=='eq': econdition = (da == threshold_new)
-    if relation=='ne': econdition = (da != threshold_new)
+    if relation not in ["gt", "ge", "lt", "le", "eq", "ne"]:
+        relation = "gt"
+        print(
+            f"WARNING: relation='{relation}' not in list ['gt', 'ge', 'lt', 'le', 'eq', 'ne'] so default to 'gt'"
+        )
 
-    if season=='DJF':
+    # Event Condition
+    if relation == "gt":
+        econdition = da > threshold_new
+    if relation == "ge":
+        econdition = da >= threshold_new
+    if relation == "lt":
+        econdition = da < threshold_new
+    if relation == "le":
+        econdition = da <= threshold_new
+    if relation == "eq":
+        econdition = da == threshold_new
+    if relation == "ne":
+        econdition = da != threshold_new
+
+    if season == "DJF":
         # Compute on consecutive months across year boundary ending at the end of Feb
-        ann_freq = econdition.resample(time="1YE-FEB").sum('time') 
+        ann_freq = econdition.resample(time="1YE-FEB").sum("time")
         # If data covers n years going from Jan Year1 to Dec YearN, there will be
         # n+1 max values for seasons [JF, DJF, ..., DJF, D] so drop shortest season (D)
-        years=np.unique(da["time.year"])
+        years = np.unique(da["time.year"])
         counts = da.resample(time="1YE-FEB").count()
         if drop_nonfull:
-            # Only include full DJF seasons (90 days) 
+            # Only include full DJF seasons (90 days)
             ann_freq = ann_freq.where(counts == 90, drop=True)
         if not drop_nonfull:
-            # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)  
-            if len(counts[var]) > len(years): ann_freq = ann_freq.where(counts >= 59, drop=True)
+            # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)
+            if len(counts[var]) > len(years):
+                ann_freq = ann_freq.where(counts >= 59, drop=True)
     else:
-        ann_freq = econdition.resample(time="1YE").sum('time')
+        ann_freq = econdition.resample(time="1YE").sum("time")
 
-    if cmean is True: output = ann_freq.mean("time")
-    if cmean is False: output = ann_freq
-    
+    if cmean is True:
+        output = ann_freq.mean("time")
+    if cmean is False:
+        output = ann_freq
+
     return output
+
 
 # -------------------------------------------------------------------------------------
 def _max_spell_length(condition: np.ndarray) -> float:
@@ -394,8 +467,9 @@ def _max_spell_length(condition: np.ndarray) -> float:
             run = 0
     return float(max_run)
 
+
 # -------------------------------------------------------------------------------------
-def _compute_max_spell_per_year(arr: xr.DataArray) -> xr.DataArray: 
+def _compute_max_spell_per_year(arr: xr.DataArray) -> xr.DataArray:
     """
     Compute maxspell length per year.
     Added by R. Eade.
@@ -412,15 +486,23 @@ def _compute_max_spell_per_year(arr: xr.DataArray) -> xr.DataArray:
         Resampled maximum spell length.
     """
 
-    output=xr.apply_ufunc(_max_spell_length, arr, input_core_dims=[["time"]], 
-        output_core_dims=[[]], vectorize=True, dask="parallelized", output_dtypes=[float] )
+    output = xr.apply_ufunc(
+        _max_spell_length,
+        arr,
+        input_core_dims=[["time"]],
+        output_core_dims=[[]],
+        vectorize=True,
+        dask="parallelized",
+        output_dtypes=[float],
+    )
 
     return output
+
 
 # -------------------------------------------------------------------------------------
 def _ann_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArray:
     """
-    Aggregate maximum spell length over the resampled period and 
+    Aggregate maximum spell length over the resampled period and
     return annual max spell lengths.
     Added by R. Eade.
     Adapted from ml-benchmark indices.py _resample_max_spell()
@@ -438,18 +520,27 @@ def _ann_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArray:
         Resampled maximum spell length.
     """
 
-    output=condition.resample(time=freq).map(_compute_max_spell_per_year)
+    output = condition.resample(time=freq).map(_compute_max_spell_per_year)
 
     return output
 
+
 # -------------------------------------------------------------------------------------
-def ann_maxspell_wrt_array(x: xr.Dataset, var: str, threshold: xr.Dataset | int | float, relation: str = 'gt', season: str | None = None, drop_nonfull=True, cmean=False) -> xr.Dataset:
+def ann_maxspell_wrt_array(
+    x: xr.Dataset,
+    var: str,
+    threshold: xr.Dataset | int | float,
+    relation: str = "gt",
+    season: str | None = None,
+    drop_nonfull=True,
+    cmean=False,
+) -> xr.Dataset:
     """
     Compute max spell length of event days, defined wrt threshold, per year (season or month).
     Option to output annual values or annual mean.
     Added by R. Eade
     Adapted from ml-benchmark indices.py cdd()
-    - changed season filter, generalised (gt, le etc), 
+    - changed season filter, generalised (gt, le etc),
     - special case for DJF,
     - outputs annual data not just climate mean
 
@@ -475,89 +566,106 @@ def ann_maxspell_wrt_array(x: xr.Dataset, var: str, threshold: xr.Dataset | int 
     -------
     xr.Dataset
         (Mean of ) Annual max spell length of event days.
-        
+
     Function code adapted and generalised by Rosie Eade from original function su()
     """
 
     x = _filter_by_monthseason(x, season)
     da = x[[var]]
-    
-    if isinstance(threshold, int): threshold_new=threshold
-    if isinstance(threshold, float): threshold_new=threshold
+
+    if isinstance(threshold, int):
+        threshold_new = threshold
+    if isinstance(threshold, float):
+        threshold_new = threshold
 
     if isinstance(threshold, xr.Dataset):
         # Should include check that shape matches
-        if da.sizes["lat"] != threshold.sizes["lat"] or da.sizes["lon"] != threshold.sizes["lon"]:
+        if (
+            da.sizes["lat"] != threshold.sizes["lat"]
+            or da.sizes["lon"] != threshold.sizes["lon"]
+        ):
             raise ValueError(
                 f"Spatial shape mismatch: input ({da.sizes['lat']}, {da.sizes['lon']}) "
-                f"!= threhsold ({threhsold.sizes['lat']}, {threhsold.sizes['lon']})"
+                f"!= threshold ({threshold.sizes['lat']}, {threshold.sizes['lon']})"
             )
 
         dims_input = set(da.dims)
-        spatial_dims_input = dims_input - {"time"}
-        other_dims_input = dims_input - {"lat","lon"}
-        
+
         dims_thresh = set(threshold.dims)
-        spatial_dims_thresh = dims_thresh - {"doy_noleap"}
-        other_dims_thresh = dims_thresh - {"lat","lon"}
+        other_dims_thresh = dims_thresh - {"lat", "lon"}
 
         if not other_dims_thresh:
-            threshold_new=threshold
+            threshold_new = threshold
         if other_dims_thresh:
-            if other_dims_thresh=={"doy_noleap"}:
+            if other_dims_thresh == {"doy_noleap"}:
                 # Should include check that shape matches
-                threshold_new=xr_assign_dayofyear_noleap(da) 
+                threshold_new = xr_assign_dayofyear_noleap(da)
                 # This will become a matched array containing percentile based thresholds (matched to doy)
-                input_doy=threshold_new["doy_noleap"].values # doy for input array
-                thresh_doy=threshold["doy_noleap"].values # doy for daily percentile threshold array
+                input_doy = threshold_new["doy_noleap"].values  # doy for input array
+                thresh_doy = threshold[
+                    "doy_noleap"
+                ].values  # doy for daily percentile threshold array
                 # Check of all doy needed for input x are present in threshold
                 missing = set(np.unique(input_doy)) - set(thresh_doy)
                 if missing:
                     raise ValueError(
                         f"Threshold doy doesn't cover all input doy, missing: {sorted(int(x) for x in missing)}"
-                    )                
+                    )
                 if not missing:
-                    for dcount in range(len(input_doy)): threshold_new[var].values[dcount]=threshold[var].values[np.where(thresh_doy == input_doy[dcount])[0]]
-            if other_dims_thresh!={"doy_noleap"}:
+                    for dcount in range(len(input_doy)):
+                        threshold_new[var].values[dcount] = threshold[var].values[
+                            np.where(thresh_doy == input_doy[dcount])[0]
+                        ]
+            if other_dims_thresh != {"doy_noleap"}:
                 raise ValueError(
                     f"threshold dimensions {set(threshold.dims)} do not match "
                     f"x input full dims {dims_input}: Expected doy_noleap in threshold."
                 )
 
-    
-    if relation not in ['gt', 'ge', 'lt', 'le', 'eq', 'ne']:
-        relation = 'gt'
-        print(f"WARNING: relation='{relation}' not in list ['gt', 'ge', 'lt', 'le', 'eq', 'ne'] so default to 'gt'")
+    if relation not in ["gt", "ge", "lt", "le", "eq", "ne"]:
+        relation = "gt"
+        print(
+            f"WARNING: relation='{relation}' not in list ['gt', 'ge', 'lt', 'le', 'eq', 'ne'] so default to 'gt'"
+        )
 
     # Event Condition
-    if relation=='gt': econdition = (da > threshold_new)
-    if relation=='ge': econdition = (da >= threshold_new)
-    if relation=='lt': econdition = (da < threshold_new)
-    if relation=='le': econdition = (da <= threshold_new)
-    if relation=='eq': econdition = (da == threshold_new)
-    if relation=='ne': econdition = (da != threshold_new)
+    if relation == "gt":
+        econdition = da > threshold_new
+    if relation == "ge":
+        econdition = da >= threshold_new
+    if relation == "lt":
+        econdition = da < threshold_new
+    if relation == "le":
+        econdition = da <= threshold_new
+    if relation == "eq":
+        econdition = da == threshold_new
+    if relation == "ne":
+        econdition = da != threshold_new
 
-    if season=='DJF':
+    if season == "DJF":
         # Compute on consecutive months across year boundary ending at the end of Feb
         ann_spell = _ann_max_spell(econdition, freq="1YE-FEB")
-        years=np.unique(da["time.year"])
+        years = np.unique(da["time.year"])
         counts = da.resample(time="1YE-FEB").count()
         # If data covers n years going from Jan Year1 to Dec YearN, there will be
         # n+1 max values for seasons [JF, DJF, ..., DJF, D] so either
         # - drop all non-full seasons i.e. JF and D
         if drop_nonfull:
-            # Only include full DJF seasons (90 days) 
+            # Only include full DJF seasons (90 days)
             ann_spell = ann_spell.where(counts == 90, drop=True)
         # - drop shortest season (D)
         if not drop_nonfull:
             # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)
-            if len(counts[var]) > len(years): ann_spell = ann_spell.where(counts >= 59, drop=True)
+            if len(counts[var]) > len(years):
+                ann_spell = ann_spell.where(counts >= 59, drop=True)
     else:
         ann_spell = _ann_max_spell(econdition, freq="1YE")
 
-    if cmean is True: output = ann_spell.mean("time")
-    if cmean is False: output = ann_spell
-    
+    if cmean is True:
+        output = ann_spell.mean("time")
+    if cmean is False:
+        output = ann_spell
+
     return output
 
 
@@ -567,14 +675,14 @@ def ann_sdii(
     var: str,
     season: str | None = None,
     wet_threshold: float = 1.0,
-    drop_nonfull=True, 
+    drop_nonfull=True,
     cmean=False,
 ) -> xr.Dataset:
     """
     Compute the simple precipitation intensity index.
     Added by R. Eade
     Adapted from ml-benchmark indices.py sdii()
-    - changed season filter 
+    - changed season filter
     - special case for DJF
     - outputs annual data not just climate mean
     - NB taking mean of annual means (cmean=True) vs mean of all days (original)
@@ -605,34 +713,40 @@ def ann_sdii(
     da = x[[var]]
     wet = da.where(da >= wet_threshold)
 
-    if season=='DJF':
+    if season == "DJF":
         # Compute on consecutive months across year boundary ending at the end of Feb
-        output = wet.resample(time="1YE-FEB").mean(dim='time')
+        output = wet.resample(time="1YE-FEB").mean(dim="time")
         # If data covers n years going from Jan Year1 to Dec YearN, there will be
         # n+1 max values for seasons [JF, DJF, ..., DJF, D] so drop shortest season (D)
-        years=np.unique(da["time.year"])
+        years = np.unique(da["time.year"])
         counts = da.resample(time="1YE-FEB").count()
         if drop_nonfull:
-            # Only include full DJF seasons (90 days) 
+            # Only include full DJF seasons (90 days)
             output = output.where(counts == 90, drop=True)
         if not drop_nonfull:
-            # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)  
-            if len(counts[var]) > len(years): output = output.where(counts >= 59, drop=True)
+            # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)
+            if len(counts[var]) > len(years):
+                output = output.where(counts >= 59, drop=True)
     else:
-        output = wet.resample(time="1YE").mean(dim='time')
+        output = wet.resample(time="1YE").mean(dim="time")
 
-    if cmean is True: output = output.mean("time")
-    if cmean is False: output = output
+    if cmean is True:
+        output = output.mean("time")
+    if cmean is False:
+        output = output
 
     return output
 
+
 # -------------------------------------------------------------------------------------
-def interannual_var(x: xr.Dataset, var: str, season: str | None = None, drop_nonfull=True) -> xr.Dataset:
+def interannual_var(
+    x: xr.Dataset, var: str, season: str | None = None, drop_nonfull=True
+) -> xr.Dataset:
     """
     Compute the interannual variability of the target variable along time.
     Added by R. Eade
     Adapted from ml-benchmark indices.py interannual_var()
-    - changed season filter 
+    - changed season filter
     - special case for DJF
 
     Parameters
@@ -656,24 +770,26 @@ def interannual_var(x: xr.Dataset, var: str, season: str | None = None, drop_non
     x = _filter_by_monthseason(x, season)
     da = x[[var]]
 
-    if season=='DJF':
+    if season == "DJF":
         # Compute on consecutive months across year boundary ending at the end of Feb
-        output = da.resample(time="1YE-FEB").mean(dim='time')
+        output = da.resample(time="1YE-FEB").mean(dim="time")
         # If data covers n years going from Jan Year1 to Dec YearN, there will be
         # n+1 max values for seasons [JF, DJF, ..., DJF, D] so drop shortest season (D)
-        years=np.unique(da["time.year"])
+        years = np.unique(da["time.year"])
         counts = da.resample(time="1YE-FEB").count()
         if drop_nonfull:
-            # Only include full DJF seasons (90 days) 
+            # Only include full DJF seasons (90 days)
             output = output.where(counts == 90, drop=True)
         if not drop_nonfull:
-            # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)  
-            if len(counts[var]) > len(years): output = output.where(counts >= 59, drop=True)
-        output_std=output.std('time')
+            # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)
+            if len(counts[var]) > len(years):
+                output = output.where(counts >= 59, drop=True)
+        output_std = output.std("time")
     else:
-        output_std = da.resample(time="1YE").mean(dim='time').std('time')
+        output_std = da.resample(time="1YE").mean(dim="time").std("time")
 
     return output_std
+
 
 # -------------------------------------------------------------------------------------
 def lag1_corr(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
@@ -681,7 +797,7 @@ def lag1_corr(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     Compute the lag-1 autocorrelation of the target variable along time.
     Added by R. Eade
     Adapted from ml-benchmark indices.py lag1_corr()
-    - changed season filter 
+    - changed season filter
     - special case for DJF
     - special case for season != None to ensure constraint to 1 day lag
 
@@ -703,18 +819,22 @@ def lag1_corr(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     x = _filter_by_monthseason(x, season)
     da = x[var]
     shifted = da.shift(time=1)
-    
+
     # For annual data, .shift automatically masks the first day in data (=nan)
     # For seasonal or monthly data, also mask the first day of each season/month
     # to avoid pairing values with more than a day lag
-    if season != None:
-        month1=da.time.dt.month[0]
-        if season=="DJF": month1=12
+    if season is not None:
+        month1 = da.time.dt.month[0]
+        if season == "DJF":
+            month1 = 12
         da = da.sel(time=~((da.time.dt.month == month1) & (da.time.dt.day == 1)))
-        shifted = shifted.sel(time=~((shifted.time.dt.month == month1) & (shifted.time.dt.day == 1)))
-    
+        shifted = shifted.sel(
+            time=~((shifted.time.dt.month == month1) & (shifted.time.dt.day == 1))
+        )
+
     lag1_corr = xr.corr(da, shifted, dim="time")
     return xr.Dataset({var: lag1_corr})
+
 
 # -------------------------------------------------------------------------------------
 # -------------------------------------------------------------------------------------

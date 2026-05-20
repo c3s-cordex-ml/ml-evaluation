@@ -1,0 +1,57 @@
+[dependencies]
+cartopy = ">=0.20.0"
+cftime = ">=1.0.0"
+click = "*"
+filelock = "*"
+fsspec = "*"
+matplotlib = ">=3.5.0"
+mpmath = "*"
+netcdf4 = ">=1.5.0"
+networkx = "*"
+numpy = ">=2.0.0"
+pandas = ">=2.0.0"
+pyproj = ">=3.0.0"
+pyside6 = ">=6.0.0"
+python = ">=3.13"
+pytorch = "*"
+pyyaml = ">=6.0"
+requests = ">=2.0.0"
+scipy = ">=1.10.0"
+shapely = ">=2.0.0"
+sympy = "*"
+torchvision = "*"
+tqdm = ">=4.0.0"
+xarray = ">=2025.0.0"
+
+[environments]
+default = {solve-group = "default"}
+dev = {features = ["dev"], solve-group = "default"}
+
+[feature.dev.dependencies]
+commitizen = "*"
+cruft = "*"
+mypy = "*"
+pre-commit = "*"
+pytest = "*"
+pytest-cov = "*"
+
+[tasks]
+bumpversion-major = "cz bump --increment major"
+bumpversion-minor = "cz bump --increment minor"
+bumpversion-patch = "cz bump --increment patch"
+default = {depends-on = ["qa", "unit-tests", "type-check"]}
+docker-build = "docker build -t ml-evaluation ."
+docker-run = "docker run --rm -ti -v $(pwd):/srv ml-evaluation"
+docs-build = "cp README.md docs/. && sed -i 's|docs/_static/logo.png|_static/logo.png|g' docs/README.md && cd docs && rm -fr _api && make clean && make html"
+qa = "pre-commit run --all-files"
+template-update = "pre-commit run --all-files cruft -c .pre-commit-config-cruft.yaml"
+type-check = "python -m mypy ."
+unit-tests = "python -m pytest -vv --cov=. --cov-report=html --doctest-glob='*.md' --doctest-glob='*.rst' tests/unit"
+
+[workspace]
+authors = ["C3S-CORDEX-ML Contributors"]
+channels = ["conda-forge"]
+description = "Evaluation of Machine Learning Regional Climate Models"
+name = "ml-evaluation"
+platforms = ["linux-64"]
+version = "0.1.0"
