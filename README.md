@@ -99,19 +99,6 @@ curl -fsSL https://pixi.sh/install.sh | bash
 
 After installation, restart your terminal or source your shell configuration file (e.g., `source ~/.bashrc` or `source ~/.zshrc`) to make the `pixi` command available in your PATH.
 
-**Windows (PowerShell):**
-
-```powershell
-iwr -useb https://pixi.sh/install.ps1 | iex
-```
-
-**Alternative Package Managers:**
-
-- **Homebrew** (macOS/Linux): `brew install pixi`
-- **Conda**: `conda install -c conda-forge pixi`
-
-For other installation methods, see the [Pixi Installation Guide](https://pixi.sh/latest/#installation).
-
 #### 2. Installing Project Dependencies (`pixi install`)
 
 To install the project dependencies, run the following command in the root of the repository:
