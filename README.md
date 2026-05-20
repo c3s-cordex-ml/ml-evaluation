@@ -4,16 +4,25 @@ This module builds on the set of evaluation indices and diagnostics recommended 
 
 ## Project Structure
 
-This repository is structured as a standard Python package:
+This repository is structured as a standard Python package with self-contained environments managed by Pixi or Conda:
 
-- `ml_evaluation/` - Core package containing the Python source code.
-  - `evaluation/` - Evaluation indices and diagnostics.
-    - `indices.py` - Core evaluation indices.
-    - `diagnostics.py` - Core evaluation performance diagnostics.
-    - `indices_plus.py` - Extended indices.
-    - `diagnostics_plus.py` - Extended diagnostics.
+- `ml_evaluation/` - Core package containing the Python source code:
+  - `cli.py` - Command-line interface definitions and logic using `click`.
+  - `evaluation/` - Core and extended evaluation indices and diagnostics.
+    - `indices.py` - Standard evaluation indices (e.g., mean, wet/dry day frequency).
+    - `diagnostics.py` - Standard performance diagnostics comparing predictions and reference data (e.g., bias, RMSE, correlation).
+    - `indices_plus.py` - Extended/advanced indices.
+    - `diagnostics_plus.py` - Extended/advanced performance diagnostics (e.g., power spectral density, Wasserstein distance).
   - `format_predictions/` - Utilities for formatting and templates for model predictions.
-    - `templates/` - NetCDF template files matching CORDEX-ML-Bench expected schemas.
+    - `templates/` - NetCDF template files matching CORDEX-ML-Bench expected schemas (ALPS, NZ, SA regions).
+- `requirements/` - Conda environment configurations.
+  - `environment.yaml` - Legacy Conda environment description.
+- `tests/` - Unit tests for testing the CLI, diagnostics, and indices.
+- `Dockerfile` - Docker configuration to containerize the evaluation environment and CLI.
+- `pixi.toml` - Project configuration file for Pixi, specifying Conda and PyPI dependencies, build platforms, and developer tasks.
+- `pixi.lock` - Lockfile storing the exact versions and hashes of resolved dependencies, ensuring a reproducible environment.
+- `pyproject.toml` - Standard Python packaging metadata, defining dependencies, metadata, and the `ml-eval` CLI entry point.
+- `.pre-commit-config.yaml` - Configuration for QA/linting hooks executed before commits.
 
 ______________________________________________________________________
 
@@ -76,17 +85,80 @@ To set up the development environment using Conda:
 
 ### Option B: Setup with Pixi
 
-[Pixi](https://pixi.sh) is a modern package management tool that automatically manages dependencies and tasks within project environments.
+[Pixi](https://pixi.sh) is a modern, fast package management tool built on top of the Conda ecosystem. It automatically manages dependencies (both Conda-forge and PyPI packages), system environments, and development tasks in a reproducible and self-contained manner.
 
-1. Install Pixi if you haven't already.
-1. Initialize and run tasks directly. Pixi will automatically download and configure all dependencies when you execute any command:
-   ```bash
-   pixi run -e dev type-check
-   ```
-1. Alternatively, you can start a shell within the environment:
-   ```bash
-   pixi shell -e dev
-   ```
+#### 1. Installing Pixi
+
+If you do not have Pixi installed, you can install it using one of the following methods:
+
+**macOS / Linux:**
+
+```bash
+curl -fsSL https://pixi.sh/install.sh | bash
+```
+
+After installation, restart your terminal or source your shell configuration file (e.g., `source ~/.bashrc` or `source ~/.zshrc`) to make the `pixi` command available in your PATH.
+
+**Windows (PowerShell):**
+
+```powershell
+iwr -useb https://pixi.sh/install.ps1 | iex
+```
+
+**Alternative Package Managers:**
+
+- **Homebrew** (macOS/Linux): `brew install pixi`
+- **Conda**: `conda install -c conda-forge pixi`
+
+For other installation methods, see the [Pixi Installation Guide](https://pixi.sh/latest/#installation).
+
+#### 2. Installing Project Dependencies (`pixi install`)
+
+To install the project dependencies, run the following command in the root of the repository:
+
+```bash
+pixi install
+```
+
+**What does `pixi install` do?**
+
+- It reads the dependency specifications in `pixi.toml`.
+- It resolves and downloads all required packages (both Conda and PyPI) for your platform.
+- It creates a local, self-contained environment under the `.pixi/` directory in the root of the repository.
+- Unlike global or user-wide conda installations, the environment is isolated to this directory, preventing conflicts with other projects.
+
+#### 3. Understanding the Lockfile (`pixi.lock`)
+
+The `pixi.lock` file is an automatically managed lockfile that records the exact versions, build configurations, and cryptographic hashes of all resolved packages (including transitive dependencies) for all supported platforms.
+
+**Why is it important?**
+
+- **Reproducibility:** It ensures that every developer, CI/CD runner, or Docker container running `pixi install` will build the exact same environment down to the binary level.
+- **Consistency:** It eliminates the "works on my machine" class of bugs caused by silent package updates.
+- **Speed:** Since dependencies are already resolved in the lockfile, installation is extremely fast.
+
+*Note: You should always commit changes to `pixi.lock` to version control when modifying dependencies in `pixi.toml`.*
+
+#### 4. Running Tasks and Entering the Environment
+
+Pixi allows you to run commands and development tasks directly within the environment without manually activating it, or you can enter an interactive shell.
+
+**Running tasks directly:**
+
+```bash
+# Run type checking using the dev environment
+pixi run -e dev type-check
+
+# Run unit tests
+pixi run -e dev unit-tests
+```
+
+**Entering the environment shell:**
+
+```bash
+# Start a shell with the development environment activated
+pixi shell -e dev
+```
 
 ______________________________________________________________________
 
@@ -117,13 +189,13 @@ You can run the CLI inside a Docker container without local dependencies. The co
 Build the image:
 
 ```bash
-docker build -t d4p .
+docker build -t ml-evaluation .
 ```
 
 Run the container:
 
 ```bash
-docker run --rm -v $(pwd):/data d4p fast --x0 /data/ref.nc --x1 /data/pred.nc --var tasmax --output /data/eval_out
+docker run --rm -v $(pwd):/data ml-evaluation fast --x0 /data/ref.nc --x1 /data/pred.nc --var tasmax --output /data/eval_out
 ```
 
 ______________________________________________________________________
