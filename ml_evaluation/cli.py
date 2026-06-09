@@ -184,7 +184,7 @@ def fast(
 )
 @click.option(
     "--nonleap",
-    type=boolean,
+    type=bool,
     default=True,
     help="Option to convert data to non-leap year 365 day calendar.",
 )
