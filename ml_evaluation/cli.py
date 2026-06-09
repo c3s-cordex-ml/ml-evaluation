@@ -114,8 +114,8 @@ def fast(x0: str, x1: str, var: str, output: str, season: str | None) -> None:
 
     # Align calendars to 365 day calendar
     # - this will not alter derived quantities such as x.time.dt.dayofyear
-    x0_ds = x0.sel(time=~((x0_ds.time.dt.month == 2) & (x0_ds.time.dt.day == 29)))
-    x1_ds = x1.sel(time=~((x1_ds.time.dt.month == 2) & (x1_ds.time.dt.day == 29)))
+    x0_ds = x0_ds.sel(time=~((x0_ds.time.dt.month == 2) & (x0_ds.time.dt.day == 29)))
+    x1_ds = x1_ds.sel(time=~((x1_ds.time.dt.month == 2) & (x1_ds.time.dt.day == 29)))
 
     # Compute Mean Bias
     click.echo("Computing Mean Bias...")
@@ -199,8 +199,8 @@ def slow(x0: str, x1: str, var: str, output: str, season: str | None) -> None:
 
     # Align calendars to 365 day calendar
     # - this will not alter derived quantities such as x.time.dt.dayofyear
-    x0_ds = x0.sel(time=~((x0_ds.time.dt.month == 2) & (x0_ds.time.dt.day == 29)))
-    x1_ds = x1.sel(time=~((x1_ds.time.dt.month == 2) & (x1_ds.time.dt.day == 29)))
+    x0_ds = x0_ds.sel(time=~((x0_ds.time.dt.month == 2) & (x0_ds.time.dt.day == 29)))
+    x1_ds = x1_ds.sel(time=~((x1_ds.time.dt.month == 2) & (x1_ds.time.dt.day == 29)))
 
     # Compute PSD and RALSD
     click.echo("Computing Power Spectral Density (PSD)...")
