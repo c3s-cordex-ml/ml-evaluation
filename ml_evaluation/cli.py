@@ -82,7 +82,19 @@ def main() -> None:
     default=None,
     help="Optional season/month to filter (e.g., DJF, MAM, JJA, SON, JAN).",
 )
-def fast(x0: str, x1: str, var: str, output: str, season: str | None) -> None:
+@click.option(
+    "--nonleap",
+    type=bool,
+    default=True,
+    help="Option to convert data to non-leap year 365 day calendar.",
+)
+def fast(
+    x0: str, 
+    x1: str, 
+    var: str, 
+    output: str, 
+    season: str | None, 
+    nonleap: bool) -> None:
     """
     Run the fast-track evaluation workflow.
 
@@ -101,6 +113,8 @@ def fast(x0: str, x1: str, var: str, output: str, season: str | None) -> None:
         Directory or file prefix for output NetCDF results.
     season : str | None
         Optional season or month standard name.
+    nonleap : bool
+        Option to convert data to non-leap year 365 day calendar.
 
     Returns
     -------
@@ -114,8 +128,9 @@ def fast(x0: str, x1: str, var: str, output: str, season: str | None) -> None:
 
     # Align calendars to 365 day calendar
     # - this will not alter derived quantities such as x.time.dt.dayofyear
-    x0_ds = x0_ds.sel(time=~((x0_ds.time.dt.month == 2) & (x0_ds.time.dt.day == 29)))
-    x1_ds = x1_ds.sel(time=~((x1_ds.time.dt.month == 2) & (x1_ds.time.dt.day == 29)))
+    if nonleap==True:
+        x0_ds = x0_ds.sel(time=~((x0_ds.time.dt.month == 2) & (x0_ds.time.dt.day == 29)))
+        x1_ds = x1_ds.sel(time=~((x1_ds.time.dt.month == 2) & (x1_ds.time.dt.day == 29)))
 
     # Compute Mean Bias
     click.echo("Computing Mean Bias...")
@@ -167,7 +182,19 @@ def fast(x0: str, x1: str, var: str, output: str, season: str | None) -> None:
     default=None,
     help="Optional season/month to filter (e.g., DJF, MAM, JJA, SON, JAN).",
 )
-def slow(x0: str, x1: str, var: str, output: str, season: str | None) -> None:
+@click.option(
+    "--nonleap",
+    type=boolean,
+    default=True,
+    help="Option to convert data to non-leap year 365 day calendar.",
+)
+def slow(
+    x0: str, 
+    x1: str, 
+    var: str, 
+    output: str, 
+    season: str | None, 
+    nonleap: bool) -> None:
     """
     Run the slow-track evaluation workflow.
 
@@ -186,6 +213,8 @@ def slow(x0: str, x1: str, var: str, output: str, season: str | None) -> None:
         Directory or file prefix for output NetCDF results.
     season : str | None
         Optional season or month standard name.
+    nonleap : bool
+        Option to convert data to non-leap year 365 day calendar.
 
     Returns
     -------
@@ -199,8 +228,9 @@ def slow(x0: str, x1: str, var: str, output: str, season: str | None) -> None:
 
     # Align calendars to 365 day calendar
     # - this will not alter derived quantities such as x.time.dt.dayofyear
-    x0_ds = x0_ds.sel(time=~((x0_ds.time.dt.month == 2) & (x0_ds.time.dt.day == 29)))
-    x1_ds = x1_ds.sel(time=~((x1_ds.time.dt.month == 2) & (x1_ds.time.dt.day == 29)))
+    if nonleap==True:
+        x0_ds = x0_ds.sel(time=~((x0_ds.time.dt.month == 2) & (x0_ds.time.dt.day == 29)))
+        x1_ds = x1_ds.sel(time=~((x1_ds.time.dt.month == 2) & (x1_ds.time.dt.day == 29)))
 
     # Compute PSD and RALSD
     click.echo("Computing Power Spectral Density (PSD)...")
