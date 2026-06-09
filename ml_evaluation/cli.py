@@ -112,6 +112,11 @@ def fast(x0: str, x1: str, var: str, output: str, season: str | None) -> None:
     click.echo(f"Loading prediction: {x1}")
     x1_ds = xr.open_dataset(x1)
 
+    # Align calendars to 365 day calendar
+    # - this will not alter derived quantities such as x.time.dt.dayofyear
+    x0_ds = x0.sel(time=~((x0_ds.time.dt.month == 2) & (x0_ds.time.dt.day == 29)))
+    x1_ds = x1.sel(time=~((x1_ds.time.dt.month == 2) & (x1_ds.time.dt.day == 29)))
+
     # Compute Mean Bias
     click.echo("Computing Mean Bias...")
     mb = mean_bias_index(x0_ds, x1_ds, var=var, season=season)
@@ -191,6 +196,11 @@ def slow(x0: str, x1: str, var: str, output: str, season: str | None) -> None:
     x0_ds = xr.open_dataset(x0)
     click.echo(f"Loading prediction: {x1}")
     x1_ds = xr.open_dataset(x1)
+
+    # Align calendars to 365 day calendar
+    # - this will not alter derived quantities such as x.time.dt.dayofyear
+    x0_ds = x0.sel(time=~((x0_ds.time.dt.month == 2) & (x0_ds.time.dt.day == 29)))
+    x1_ds = x1.sel(time=~((x1_ds.time.dt.month == 2) & (x1_ds.time.dt.day == 29)))
 
     # Compute PSD and RALSD
     click.echo("Computing Power Spectral Density (PSD)...")
