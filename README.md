@@ -185,6 +185,23 @@ Run the container:
 docker run --rm -v $(pwd):/data ml-evaluation fast --x0 /data/ref.nc --x1 /data/pred.nc --var tasmax --output /data/eval_out
 ```
 
+### Call the CLI directly as a module
+
+```bash
+pixi run -e dev python -m ml_evaluation.cli fast --x0 <ref.nc> --x1 <pred.nc> --var <variable> --output <prefix_or_dir> [--season <season>]
+```
+
+```bash
+pixi run -e dev python -m ml_evaluation.cli slow --x0 <ref.nc> --x1 <pred.nc> --var <variable> --output <prefix_or_dir> [--season <season>]
+```
+
+### Optional Input Parameters for ml-eval
+
+```bash
+--season <season> # Option to filter by standard seasons or months
+--cal365 <bool> # Option to align data to 365day calendar
+```
+
 ______________________________________________________________________
 
 ## Prediction Formatting & Templates
@@ -255,16 +272,24 @@ You can contribute via issues, pull requests, or direct commits:
 #### 2. Submit a Pull Request (PR)
 
 - Create a new feature branch:
+
   ```bash
   git branch branch_add_sal_score
   git checkout branch_add_sal_score
   ```
+
+- Changes should be quality checked using Development Tasks above, e.g.
+
+  **QA / Linting**: `pixi run -e dev qa`
+
 - Stage, commit, and push your changes:
+
   ```bash
   git add .
   git commit -m "Add SAL score computation diagnostic"
   git push --set-upstream origin branch_add_sal_score
   ```
+
 - Go to GitHub.com and click **Compare & pull request** to submit the PR.
 
 ______________________________________________________________________
