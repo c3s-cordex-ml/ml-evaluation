@@ -181,7 +181,8 @@ def day_noleap_quantile(
 
     n_doys = 365
 
-    # list of arrays for each day in year showing position of elements of input data with that day
+    # list of arrays for each day in year showing position of elements
+    # of input data with that day
     day_indices: list[np.ndarray] = [
         np.where(doy_vals == d)[0] for d in range(1, n_doys + 1)
     ]
@@ -235,12 +236,14 @@ def ann_extrema(
     cmean=False,
 ) -> xr.Dataset:
     """
-    Compute the annual maximum or minimum of target variable per year (season or month).
+    Compute the annual maximum or minimum of target variable per year
+    (season or month).
     Option to output annual values or annual mean.
     Added by R. Eade.
     Adapted from ml-benchmark indices.py txx()
-    - changed season filter, generalised (max or min options),
-    - special case for DJF,
+    - changed season filter
+    - generalised (max or min options)
+    - special case for DJF
     - outputs annual data not just climate mean
 
     Parameters
@@ -254,6 +257,12 @@ def ann_extrema(
     season : str | None, optional
         Season or Month standard name to filter before computing the index:
         ('DJF', 'JUN',...) or None to skip filtering.
+    drop_nonfull : bool
+        Treatment of DJF season.
+        True: only include seasons where have full 3 months of data.
+        False: only include seasons where have at least 2 months (59 days)
+    cmean : bool
+        True: Compute climate mean over time, else leave as annual output.
 
     Returns
     -------
@@ -282,7 +291,8 @@ def ann_extrema(
             # Only include full DJF seasons (90 days)
             annual_extrema = annual_extrema.where(counts == 90, drop=True)
         if not drop_nonfull:
-            # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)
+            # Include full DJF seasons (90 days) and JF season (59 days)
+            # but not D season (31 days)
             if len(counts[var]) > len(years):
                 annual_extrema = annual_extrema.where(counts >= 59, drop=True)
     else:
@@ -314,8 +324,9 @@ def ann_freq_wrt_array(
     Option to output annual values or annual mean.
     Added by R. Eade.
     Adapted from ml-benchmark indices.py su()
-    - changed season filter, generalised (gt, le etc),
-    - special case for DJF,
+    - changed season filter
+    - generalised (gt, le etc)
+    - special case for DJF
     - outputs annual data not just climate mean
 
     Parameters
@@ -327,14 +338,15 @@ def ann_freq_wrt_array(
     threshold : xr.DataArray
         Array threshold to define event in same units as x dataset (e.g. 90 percentile field).
     relation : str, default 'gt'
-        Relationship of event to threshold, options ('gt', 'ge', 'lt', 'le') e.g. 'gt' for events where x > threshold.
+        Relationship of event to threshold, options ('gt', 'ge', 'lt', 'le')
+        e.g. 'gt' for events where x > threshold.
     season : str | None, optional
         Season name to filter before computing the index.
-    drop_nonfull : boolean
+    drop_nonfull : bool
         True: Ignore DJF seasons that are < 90 days long (JF start year, Dec end year)
         False: Ignore DJF seasons that are < 59 days long (Dec end year)
-    cmean : boolean
-        True: Output annual mean values; False output annual values
+    cmean : bool
+        True: Compute climate mean over time, else leave as annual output.
 
     Returns
     -------
@@ -373,7 +385,8 @@ def ann_freq_wrt_array(
             if other_dims_thresh == {"doy_noleap"}:
                 # Should include check that shape matches
                 threshold_new = xr_assign_dayofyear_noleap(da)
-                # This will become a matched array containing percentile based thresholds (matched to doy)
+                # This will become a matched array containing percentile based thresholds
+                # (matched to doy)
                 input_doy = threshold_new["doy_noleap"].values  # doy for input array
                 thresh_doy = threshold[
                     "doy_noleap"
@@ -382,7 +395,8 @@ def ann_freq_wrt_array(
                 missing = set(np.unique(input_doy)) - set(thresh_doy)
                 if missing:
                     raise ValueError(
-                        f"Threshold doy doesn't cover all input doy, missing: {sorted(int(x) for x in missing)}"
+                        f"Threshold doy doesn't cover all input doy, missing:"
+                        f" {sorted(int(x) for x in missing)}"
                     )
                 if not missing:
                     for dcount in range(len(input_doy)):
@@ -397,9 +411,8 @@ def ann_freq_wrt_array(
 
     if relation not in ["gt", "ge", "lt", "le", "eq", "ne"]:
         relation = "gt"
-        print(
-            f"WARNING: relation='{relation}' not in list ['gt', 'ge', 'lt', 'le', 'eq', 'ne'] so default to 'gt'"
-        )
+        print(f"WARNING: relation='{relation}' not in list: ")
+        print("['gt', 'ge', 'lt', 'le', 'eq', 'ne'] so default to 'gt'")
 
     # Event Condition
     if relation == "gt":
@@ -426,7 +439,8 @@ def ann_freq_wrt_array(
             # Only include full DJF seasons (90 days)
             ann_freq = ann_freq.where(counts == 90, drop=True)
         if not drop_nonfull:
-            # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)
+            # Include full DJF seasons (90 days) and JF season (59 days)
+            # but not D season (31 days)
             if len(counts[var]) > len(years):
                 ann_freq = ann_freq.where(counts >= 59, drop=True)
     else:
@@ -536,12 +550,14 @@ def ann_maxspell_wrt_array(
     cmean=False,
 ) -> xr.Dataset:
     """
-    Compute max spell length of event days, defined wrt threshold, per year (season or month).
+    Compute max spell length of event days, defined wrt threshold, per year
+    (season or month).
     Option to output annual values or annual mean.
     Added by R. Eade
     Adapted from ml-benchmark indices.py cdd()
-    - changed season filter, generalised (gt, le etc),
-    - special case for DJF,
+    - changed season filter
+    - generalised (gt, le etc)
+    - special case for DJF
     - outputs annual data not just climate mean
 
     Parameters
@@ -553,14 +569,16 @@ def ann_maxspell_wrt_array(
     threshold : xr.DataArray
         Array threshold to define event in same units as x dataset (e.g. 90 percentile field).
     relation : str, default 'gt'
-        Relationship of event to threshold, options ('gt', 'ge', 'lt', 'le') e.g. 'gt' for events where x > threshold.
+        Relationship of event to threshold, options ('gt', 'ge', 'lt', 'le')
+        e.g. 'gt' for events where x > threshold.
     season : str | None, optional
         Season name to filter before computing the index.
-    drop_nonfull : boolean
-        True: Ignore DJF seasons that are < 90 days long (JF start year, Dec end year)
-        False: Ignore DJF seasons that are < 59 days long (Dec end year)
-    cmean : boolean
-        True: Output annual mean values; False output annual values
+    drop_nonfull : bool
+        Treatment of DJF season.
+        True: only include seasons where have full 3 months of data.
+        False: only include seasons where have at least 2 months (59 days)
+    cmean : bool
+        True: Compute climate mean over time, else leave as annual output.
 
     Returns
     -------
@@ -600,7 +618,8 @@ def ann_maxspell_wrt_array(
             if other_dims_thresh == {"doy_noleap"}:
                 # Should include check that shape matches
                 threshold_new = xr_assign_dayofyear_noleap(da)
-                # This will become a matched array containing percentile based thresholds (matched to doy)
+                # This will become a matched array containing percentile based
+                # thresholds (matched to doy)
                 input_doy = threshold_new["doy_noleap"].values  # doy for input array
                 thresh_doy = threshold[
                     "doy_noleap"
@@ -609,7 +628,8 @@ def ann_maxspell_wrt_array(
                 missing = set(np.unique(input_doy)) - set(thresh_doy)
                 if missing:
                     raise ValueError(
-                        f"Threshold doy doesn't cover all input doy, missing: {sorted(int(x) for x in missing)}"
+                        f"Threshold doy doesn't cover all input doy, missing: "
+                        f"{sorted(int(x) for x in missing)}"
                     )
                 if not missing:
                     for dcount in range(len(input_doy)):
@@ -624,9 +644,8 @@ def ann_maxspell_wrt_array(
 
     if relation not in ["gt", "ge", "lt", "le", "eq", "ne"]:
         relation = "gt"
-        print(
-            f"WARNING: relation='{relation}' not in list ['gt', 'ge', 'lt', 'le', 'eq', 'ne'] so default to 'gt'"
-        )
+        print(f"WARNING: relation='{relation}' not in list: ")
+        print("['gt', 'ge', 'lt', 'le', 'eq', 'ne'] so default to 'gt'")
 
     # Event Condition
     if relation == "gt":
@@ -655,7 +674,8 @@ def ann_maxspell_wrt_array(
             ann_spell = ann_spell.where(counts == 90, drop=True)
         # - drop shortest season (D)
         if not drop_nonfull:
-            # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)
+            # Include full DJF seasons (90 days) and JF season (59 days)
+            # but not D season (31 days)
             if len(counts[var]) > len(years):
                 ann_spell = ann_spell.where(counts >= 59, drop=True)
     else:
@@ -698,17 +718,20 @@ def ann_sdii(
         Season name to filter before computing the index.
     wet_threshold : float, default 1.0
         Minimum precipitation to consider a wet day.
-    drop_nonfull : boolean
-        True: Ignore DJF seasons that are < 90 days long (JF start year, Dec end year)
-        False: Ignore DJF seasons that are < 59 days long (Dec end year)
-    cmean : boolean
-        True: Output annual mean values; False output annual values
+    drop_nonfull : bool
+        Treatment of DJF season.
+        True: only include seasons where have full 3 months of data.
+        False: only include seasons where have at least 2 months (59 days)
+    cmean : bool
+        True: Compute climate mean over time, else leave as annual output.
 
     Returns
     -------
     xr.Dataset
         Simple precipitation intensity index.
+
     """
+
     x = _filter_by_monthseason(x, season)
     da = x[[var]]
     wet = da.where(da >= wet_threshold)
@@ -724,7 +747,8 @@ def ann_sdii(
             # Only include full DJF seasons (90 days)
             output = output.where(counts == 90, drop=True)
         if not drop_nonfull:
-            # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)
+            # Include full DJF seasons (90 days) and JF season (59 days)
+            # but not D season (31 days)
             if len(counts[var]) > len(years):
                 output = output.where(counts >= 59, drop=True)
     else:
@@ -757,14 +781,16 @@ def interannual_var(
         Variable name to analyse.
     season : str | None, optional
         Season name to filter before computing the index.
-    drop_nonfull : boolean
-        True: Ignore DJF seasons that are < 90 days long (JF start year, Dec end year)
-        False: Ignore DJF seasons that are < 59 days long (Dec end year)
+    drop_nonfull : bool
+        Treatment of DJF season.
+        True: only include seasons where have full 3 months of data.
+        False: only include seasons where have at least 2 months (59 days)
 
     Returns
     -------
     xr.Dataset
         Interannual variability computed along the time dimension.
+
     """
 
     x = _filter_by_monthseason(x, season)
@@ -781,7 +807,8 @@ def interannual_var(
             # Only include full DJF seasons (90 days)
             output = output.where(counts == 90, drop=True)
         if not drop_nonfull:
-            # Include full DJF seasons (90 days) and JF season (59 days) but not D season (31 days)
+            # Include full DJF seasons (90 days) and JF season (59 days)
+            # but not D season (31 days)
             if len(counts[var]) > len(years):
                 output = output.where(counts >= 59, drop=True)
         output_std = output.std("time")
@@ -814,6 +841,7 @@ def lag1_corr(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     -------
     xr.Dataset
         Lag-1 autocorrelation computed along the time dimension.
+
     """
 
     x = _filter_by_monthseason(x, season)

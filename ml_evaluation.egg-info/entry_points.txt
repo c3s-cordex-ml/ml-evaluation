@@ -1,0 +1,2 @@
+[console_scripts]
+ml-eval = ml_evaluation.cli:main
