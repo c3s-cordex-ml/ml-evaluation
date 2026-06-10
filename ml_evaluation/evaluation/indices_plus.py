@@ -2,10 +2,6 @@ import numpy as np
 import xarray as xr
 import pandas as pd
 
-TEST_SPEED = False  # Option to test speed of certain functions
-if TEST_SPEED:
-    import datetime  # only needed when testing speed of different versions of functions
-
 
 # -------------------------------------------------------------------------------------
 def _filter_by_monthseason(x: xr.Dataset, season: str | None) -> xr.Dataset:
@@ -100,6 +96,28 @@ def xr_assign_dayofyear_noleap(x: xr.Dataset):
 
 
 # -------------------------------------------------------------------------------------
+def mean(x: xr.Dataset, var: str) -> xr.Dataset:
+    """
+    Compute the mean of a variable in a dataset over the time dimension.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the target variable.
+    var : str
+        Variable name to compute the mean for.
+
+    Returns
+    -------
+    xr.Dataset
+        Mean of the input data over time.
+    """
+    da = x[[var]]
+    result = da.mean(dim="time", skipna=True)
+    return result
+
+
+# -------------------------------------------------------------------------------------
 def season_quantile(
     x: xr.Dataset, var: str, q: float, season: str | None = None
 ) -> xr.Dataset:
@@ -168,9 +186,6 @@ def day_noleap_quantile(
     xr.Dataset
         Quantile of the input data with dimensions {'doy_noleap', 'lat', 'lon'}
     """
-    if TEST_SPEED:
-        print("day_noleap_quantile: start time")
-        print(datetime.datetime.now().time())
 
     da = x[[var]]
 
@@ -215,10 +230,6 @@ def day_noleap_quantile(
         dims=["doy_noleap", *[d for d in da[var].dims[1:]]],
         coords={"doy_noleap": doy_coord, **spatial_coords},
     )
-
-    if TEST_SPEED:
-        print("day_noleap_quantile: end time")
-        print(datetime.datetime.now().time())
 
     return xr.Dataset({var: result_da})
 
