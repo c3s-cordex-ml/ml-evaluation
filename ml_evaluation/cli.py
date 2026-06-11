@@ -220,14 +220,14 @@ def fast(
     # Compute RMSE Map
     click.echo("Computing RMSE Field...")
     rmsef_ds = rmse_index(x0_ds, x1_ds, var=var, season=season, dim="time")
-    rmsef_path = _get_output_path(output, "raw_rmsef.nc")
+    rmsef_path = _get_output_path(output, "rmsefld.nc")
     rmsef_ds.to_netcdf(rmsef_path)
     click.echo(f"Saved RMSE Field to {rmsef_path}")
 
     # Compute RMSE
     click.echo("Computing RMSE All Dims...")
     rmse_ds = rmse_index(x0_ds, x1_ds, var=var, season=season)
-    rmse_path = _get_output_path(output, "raw_rmse.nc")
+    rmse_path = _get_output_path(output, "rmse.nc")
     rmse_ds.to_netcdf(rmse_path)
     click.echo(f"Saved RMSE to {rmse_path}")
 

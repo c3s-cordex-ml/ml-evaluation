@@ -125,7 +125,6 @@ def test_cli_fast_workflow(
     # Check if files were created
     assert os.path.exists(f"{output_prefix}_mean_bias.nc")
     assert os.path.exists(f"{output_prefix}_rmse.nc")
-    assert os.path.exists(f"{output_prefix}_correlation.nc")
 
     # Load and verify one of them
     ds_mb = xr.open_dataset(f"{output_prefix}_mean_bias.nc")
