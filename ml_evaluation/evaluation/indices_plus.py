@@ -96,7 +96,7 @@ def xr_assign_dayofyear_noleap(x: xr.Dataset):
 
 
 # -------------------------------------------------------------------------------------
-def mean(x: xr.Dataset, var: str) -> xr.Dataset:
+def mean(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     """
     Compute the mean of a variable in a dataset over the time dimension.
 
@@ -106,12 +106,16 @@ def mean(x: xr.Dataset, var: str) -> xr.Dataset:
         Dataset containing the target variable.
     var : str
         Variable name to compute the mean for.
+    season : str | None, optional
+        Season or Month standard name to filter before computing the index:
+        ('DJF', 'JUN',...) or None to skip filtering.
 
     Returns
     -------
     xr.Dataset
         Mean of the input data over time.
     """
+    x = _filter_by_monthseason(x, season)
     da = x[[var]]
     result = da.mean(dim="time", skipna=True)
     return result
@@ -346,8 +350,9 @@ def ann_freq_wrt_array(
         Dataset containing the target variable.
     var : str
         Name of the daily variable.
-    threshold : xr.DataArray
+    threshold : int | float | xr.DataArray
         Array threshold to define event in same units as x dataset (e.g. 90 percentile field).
+        Can also be an int or float ie same for entire field.
     relation : str, default 'gt'
         Relationship of event to threshold, options ('gt', 'ge', 'lt', 'le')
         e.g. 'gt' for events where x > threshold.
@@ -577,8 +582,9 @@ def ann_maxspell_wrt_array(
         Dataset containing the target variable.
     var : str
         Name of the daily variable.
-    threshold : xr.DataArray
+    threshold : int | float | xr.DataArray
         Array threshold to define event in same units as x dataset (e.g. 90 percentile field).
+        Can also be an int or float ie same for entire field.
     relation : str, default 'gt'
         Relationship of event to threshold, options ('gt', 'ge', 'lt', 'le')
         e.g. 'gt' for events where x > threshold.

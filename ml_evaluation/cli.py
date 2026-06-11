@@ -132,7 +132,7 @@ def fast(
             time=~((x1_ds.time.dt.month == 2) & (x1_ds.time.dt.day == 29))
         )
 
-    # Compute Bias
+    # Compute Bias of Mean
     click.echo("Computing Bias of Mean...")
     bias_ds = bias_index(
         x0_ds, x1_ds, var=var, season=season, index_fn=indices_plus.mean
@@ -154,6 +154,68 @@ def fast(
     bias98p_path = _get_output_path(output, "98ptile_bias.nc")
     bias98p_ds.to_netcdf(bias98p_path)
     click.echo(f"Saved Bias of 98%tile to {bias98p_path}")
+
+    # Compute Bias of Annual max
+    click.echo("Computing Bias of Ann Max...")
+    biasannmax_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices_plus.ann_extrema,
+        maxmin="max",
+        cmean=True,
+    )
+    biasannmax_path = _get_output_path(output, "annmax_bias.nc")
+    biasannmax_ds.to_netcdf(biasannmax_path)
+    click.echo(f"Saved Bias of Ann Max to {biasannmax_path}")
+
+    # Compute Bias of Annual min
+    click.echo("Computing Bias of Ann Min...")
+    biasannmin_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices_plus.ann_extrema,
+        maxmin="min",
+        cmean=True,
+    )
+    biasannmin_path = _get_output_path(output, "annmin_bias.nc")
+    biasannmin_ds.to_netcdf(biasannmin_path)
+    click.echo(f"Saved Bias of Ann Min to {biasannmin_path}")
+
+    # Compute Bias of Annual Freq > 35
+    click.echo("Computing Bias of Ann Freq>35...")
+    biasanngt35_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices_plus.ann_freq_wrt_array,
+        threshold=35.0,
+        relation="gt",
+        cmean=True,
+    )
+    biasanngt35_path = _get_output_path(output, "anngt35_bias.nc")
+    biasanngt35_ds.to_netcdf(biasanngt35_path)
+    click.echo(f"Saved Bias of Ann Freq>35 to {biasanngt35_path}")
+
+    # Compute Bias of Annual Spell < 1
+    click.echo("Computing Bias of Ann Spell<1...")
+    biasannsplt1_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices_plus.ann_maxspell_wrt_array,
+        threshold=1.0,
+        relation="lt",
+        cmean=True,
+    )
+    biasannsplt1_path = _get_output_path(output, "annsp1t1_bias.nc")
+    biasannsplt1_ds.to_netcdf(biasanngt35_path)
+    click.echo(f"Saved Bias of Ann Spell<1 to {biasannsplt1_path}")
 
     # Compute RMSE Map
     click.echo("Computing RMSE Field...")
