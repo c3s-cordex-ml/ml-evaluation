@@ -6,7 +6,6 @@ import xarray as xr
 from ml_evaluation.evaluation.diagnostics_plus import (
     bias_index,
     rmse_index,
-    corr_index,
     wasserstein_distance,
     psd,
     ralsd,
@@ -163,33 +162,12 @@ def fast(
     rmsef_ds.to_netcdf(rmsef_path)
     click.echo(f"Saved RMSE Field to {rmsef_path}")
 
-    # Compute Pearson Correlation Map
-    click.echo("Computing Pearson Correlation Field...")
-    pcorrf_ds = corr_index(x0_ds, x1_ds, var=var, season=season, dim="time")
-    pcorrf_path = _get_output_path(output, "pcorrelationf.nc")
-    pcorrf_ds.to_netcdf(pcorrf_path)
-    click.echo(f"Saved Pearson Correlation Field to {pcorrf_path}")
-
     # Compute RMSE
     click.echo("Computing RMSE All Dims...")
     rmse_ds = rmse_index(x0_ds, x1_ds, var=var, season=season)
     rmse_path = _get_output_path(output, "raw_rmse.nc")
     rmse_ds.to_netcdf(rmse_path)
     click.echo(f"Saved RMSE to {rmse_path}")
-
-    # Compute Pearson Correlation
-    click.echo("Computing Pearson Correlation All Dims...")
-    pcorr_ds = corr_index(x0_ds, x1_ds, var=var, season=season)
-    pcorr_path = _get_output_path(output, "pcorrelation.nc")
-    pcorr_ds.to_netcdf(pcorr_path)
-    click.echo(f"Saved Pearson Correlation to {pcorr_path}")
-
-    # Compute Spearmans Correlation
-    click.echo("Computing Spearmans Correlation All Dims..")
-    scorr_ds = corr_index(x0_ds, x1_ds, var=var, season=season, srank=True)
-    scorr_path = _get_output_path(output, "scorrelation.nc")
-    scorr_ds.to_netcdf(scorr_path)
-    click.echo(f"Saved Spearmans Correlation to {scorr_path}")
 
     click.echo("Fast-track evaluation complete.")
 
