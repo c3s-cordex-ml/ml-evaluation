@@ -4,13 +4,13 @@ import os
 import click
 import xarray as xr
 from ml_evaluation.evaluation.diagnostics_plus import (
-    mean_bias_index,
-    error_ann_index,
-    pearsoncorr_ann_index,
+    bias_index,
+    rmse_index,
     wasserstein_distance,
     psd,
     ralsd,
 )
+import ml_evaluation.evaluation.indices_plus as indices_plus
 
 
 def _get_output_path(base: str, suffix: str) -> str:
@@ -132,26 +132,104 @@ def fast(
             time=~((x1_ds.time.dt.month == 2) & (x1_ds.time.dt.day == 29))
         )
 
-    # Compute Mean Bias
-    click.echo("Computing Mean Bias...")
-    mb = mean_bias_index(x0_ds, x1_ds, var=var, season=season)
-    mb_path = _get_output_path(output, "mean_bias.nc")
-    mb.to_netcdf(mb_path)
-    click.echo(f"Saved Mean Bias to {mb_path}")
+    # Compute Bias of Mean
+    click.echo("Computing Bias of Mean...")
+    bias_ds = bias_index(
+        x0_ds, x1_ds, var=var, season=season, index_fn=indices_plus.mean
+    )
+    bias_path = _get_output_path(output, "mean_bias.nc")
+    bias_ds.to_netcdf(bias_path)
+    click.echo(f"Saved Bias of Mean to {bias_path}")
+
+    # Compute Bias of 98th percentile
+    click.echo("Computing Bias of 98%tile...")
+    bias98p_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices_plus.season_quantile,
+        q=0.98,
+    )
+    bias98p_path = _get_output_path(output, "98ptile_bias.nc")
+    bias98p_ds.to_netcdf(bias98p_path)
+    click.echo(f"Saved Bias of 98%tile to {bias98p_path}")
+
+    # Compute Bias of Annual max
+    click.echo("Computing Bias of Ann Max...")
+    biasannmax_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices_plus.ann_extrema,
+        maxmin="max",
+        cmean=True,
+    )
+    biasannmax_path = _get_output_path(output, "annmax_bias.nc")
+    biasannmax_ds.to_netcdf(biasannmax_path)
+    click.echo(f"Saved Bias of Ann Max to {biasannmax_path}")
+
+    # Compute Bias of Annual min
+    click.echo("Computing Bias of Ann Min...")
+    biasannmin_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices_plus.ann_extrema,
+        maxmin="min",
+        cmean=True,
+    )
+    biasannmin_path = _get_output_path(output, "annmin_bias.nc")
+    biasannmin_ds.to_netcdf(biasannmin_path)
+    click.echo(f"Saved Bias of Ann Min to {biasannmin_path}")
+
+    # Compute Bias of Annual Freq > 35
+    click.echo("Computing Bias of Ann Freq>35...")
+    biasanngt35_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices_plus.ann_freq_wrt_array,
+        threshold=35.0,
+        relation="gt",
+        cmean=True,
+    )
+    biasanngt35_path = _get_output_path(output, "anngt35_bias.nc")
+    biasanngt35_ds.to_netcdf(biasanngt35_path)
+    click.echo(f"Saved Bias of Ann Freq>35 to {biasanngt35_path}")
+
+    # Compute Bias of Annual Spell < 1
+    click.echo("Computing Bias of Ann Spell<1...")
+    biasannsplt1_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices_plus.ann_maxspell_wrt_array,
+        threshold=1.0,
+        relation="lt",
+        cmean=True,
+    )
+    biasannsplt1_path = _get_output_path(output, "annsplt1_bias.nc")
+    biasannsplt1_ds.to_netcdf(biasannsplt1_path)
+    click.echo(f"Saved Bias of Ann Spell<1 to {biasannsplt1_path}")
+
+    # Compute RMSE Map
+    click.echo("Computing RMSE Field...")
+    rmsef_ds = rmse_index(x0_ds, x1_ds, var=var, season=season, dim="time")
+    rmsef_path = _get_output_path(output, "rmsefld.nc")
+    rmsef_ds.to_netcdf(rmsef_path)
+    click.echo(f"Saved RMSE Field to {rmsef_path}")
 
     # Compute RMSE
-    click.echo("Computing RMSE...")
-    rmse_ds = error_ann_index(x0_ds, x1_ds, var=var, typeerror="rmse", season=season)
+    click.echo("Computing RMSE All Dims...")
+    rmse_ds = rmse_index(x0_ds, x1_ds, var=var, season=season)
     rmse_path = _get_output_path(output, "rmse.nc")
     rmse_ds.to_netcdf(rmse_path)
     click.echo(f"Saved RMSE to {rmse_path}")
-
-    # Compute Pearson Correlation
-    click.echo("Computing Pearson Correlation...")
-    corr = pearsoncorr_ann_index(x0_ds, x1_ds, var=var, season=season)
-    corr_path = _get_output_path(output, "correlation.nc")
-    corr.to_netcdf(corr_path)
-    click.echo(f"Saved Pearson Correlation to {corr_path}")
 
     click.echo("Fast-track evaluation complete.")
 
