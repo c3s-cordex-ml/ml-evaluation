@@ -213,8 +213,8 @@ def fast(
         relation="lt",
         cmean=True,
     )
-    biasannsplt1_path = _get_output_path(output, "annsp1t1_bias.nc")
-    biasannsplt1_ds.to_netcdf(biasanngt35_path)
+    biasannsplt1_path = _get_output_path(output, "annsplt1_bias.nc")
+    biasannsplt1_ds.to_netcdf(biasannsplt1_path)
     click.echo(f"Saved Bias of Ann Spell<1 to {biasannsplt1_path}")
 
     # Compute RMSE Map
