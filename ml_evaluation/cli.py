@@ -6,9 +6,10 @@ import xarray as xr
 from ml_evaluation.evaluation.diagnostics_plus import (
     bias_index,
     rmse_index,
-    wasserstein_distance,
+    calc_wasserstein_distance,
     psd,
     ralsd,
+    calc_pdf_metric_xr,
 )
 import ml_evaluation.evaluation.indices_plus as indices_plus
 
@@ -310,6 +311,42 @@ def slow(
             time=~((x1_ds.time.dt.month == 2) & (x1_ds.time.dt.day == 29))
         )
 
+    # Compute FCSS per grid point -> map
+    click.echo("Computing FCSS map...")
+    fcss_map_ds = calc_pdf_metric_xr(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=None,
+        dim=("time",),
+        bins_arr=None,
+        nbins=100,
+        bin_target_only=True,
+        typedistance="fcss",
+    )
+    fcss_map_path = _get_output_path(output, "fcss_map.nc")
+    fcss_map_ds.to_netcdf(fcss_map_path)
+    click.echo(f"Saved FCSS map to {fcss_map_path}")
+
+    # Compute FCSS over all grid points and timesteps together (all-space)
+    click.echo("Computing FCSS total...")
+    fcss_val_ds = calc_pdf_metric_xr(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=None,
+        dim=None,
+        bins_arr=None,
+        nbins=100,
+        bin_target_only=False,
+        typedistance="fcss",
+    )
+    fcss_val_path = _get_output_path(output, "fcss_val.nc")
+    fcss_val_ds.to_netcdf(fcss_val_path)
+    click.echo(f"Saved FCSS val to {fcss_val_path}")
+
     # Compute PSD and RALSD
     click.echo("Computing Power Spectral Density (PSD)...")
     psd_x0, psd_x1 = psd(x0_ds, x1_ds, var=var, season=season)
@@ -333,7 +370,7 @@ def slow(
 
     # Compute Spatial Wasserstein Distance
     click.echo("Computing Spatial Wasserstein Distance (this may take a while)...")
-    wd = wasserstein_distance(x0_ds, x1_ds, var=var, season=season, spatial=True)
+    wd = calc_wasserstein_distance(x0_ds, x1_ds, var=var, season=season, spatial=True)
     if isinstance(wd, xr.Dataset) or isinstance(wd, xr.DataArray):
         wd_path = _get_output_path(output, "wasserstein_distance.nc")
         wd.to_netcdf(wd_path)
