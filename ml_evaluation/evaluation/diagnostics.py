@@ -449,6 +449,31 @@ def ralsd(psd_x0: xr.DataArray, psd_x1: xr.DataArray) -> float:
     return float(np.mean(log_ratio**2))
 
 
+def ralsd_ds(psd_x0: xr.DataArray, psd_x1: xr.DataArray, var: str) -> float:
+    """
+    Compute the Radially Averaged Log Spectral Distance (RALSD).
+
+    RALSD measures the distance between two radially averaged power spectra
+    in log space. Lower values indicate better agreement.
+
+    Parameters
+    ----------
+    psd_x0 : xr.DataArray
+        Power spectral density of the ground truth (as returned by psd function).
+    psd_x1 : xr.DataArray
+        Power spectral density of the prediction (as returned by psd function).
+
+    Returns
+    -------
+    float
+        Scalar RALSD value.
+    """
+    ratio = psd_x0.values / np.maximum(psd_x1.values, 1e-30)
+    log_ratio = 10.0 * np.log10(np.maximum(ratio, 1e-30))
+    res = xr.Dataset({var: ((), float(np.mean(log_ratio**2)))})
+    return res
+
+
 def wasserstein_distance(
     x0: xr.Dataset,
     x1: xr.Dataset,

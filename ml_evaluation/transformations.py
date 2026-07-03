@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 import xarray as xr
+import pandas as pd
+import cftime
 
 
 def align_calendar(dataset: xr.Dataset, align_leap_days: bool = False) -> xr.Dataset:
@@ -24,9 +26,22 @@ def align_calendar(dataset: xr.Dataset, align_leap_days: bool = False) -> xr.Dat
         The aligned xarray Dataset.
     """
     if align_leap_days:
-        try:
-            dataset = dataset.convert_calendar("standard", missing=np.nan)
-        except ValueError:
-            dataset = dataset.convert_calendar("standard")
-        dataset = dataset.ffill(dim="time")
+        t = dataset.time.to_index()
+
+        if isinstance(t[0], cftime.datetime):
+            # Original code (cftime based)
+            try:
+                dataset = dataset.convert_calendar("standard", missing=np.nan)
+            except ValueError as e:
+                print("convert_calendar failed:", e)
+                dataset = dataset.convert_calendar("standard")
+            dataset = dataset.ffill(dim="time")
+        else:
+            # Alt numpy/pandas datetime64 for 365 day calendars with Gregorian timestamps?
+            # as found conflicting time frequency (1 day, but 2 days for 28 Feb to 1 mar)
+            full_time = pd.date_range(start=t[0], end=t[-1], freq="D")
+
+            dataset = dataset.reindex(time=full_time)
+            dataset = dataset.ffill(dim="time")
+
     return dataset

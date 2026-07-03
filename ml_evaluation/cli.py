@@ -5,9 +5,10 @@ import click
 from ml_evaluation.evaluation.diagnostics import (
     bias_index,
     rmse_index,
+    corr_index,
     wasserstein_distance,
     psd,
-    ralsd,
+    ralsd_ds,
     calc_pdf_metric_xr,
 )
 import ml_evaluation.evaluation.indices as indices
@@ -132,24 +133,93 @@ def fast(
     click.echo(f"Loading prediction: {x1}")
     x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
 
-    # Compute Bias of Mean
-    click.echo("Computing Bias of Mean...")
-    bias_ds = bias_index(x0_ds, x1_ds, var=var, season=season, index_fn=indices.mean)
+    # Compute time Bias of Mean: field
+    click.echo("Computing time Bias of Mean daily data: field...")
+    biasf_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices.mean,
+    )
 
-    # Compute Bias of 98th percentile
-    click.echo("Computing Bias of 98%tile...")
-    bias98p_ds = bias_index(
+    # Compute time RMSE: field
+    click.echo("Computing time RMSE of daily data: field...")
+    rmsef_ds = rmse_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        dim="time",
+    )
+
+    # Compute all dims RMSE: float
+    click.echo("Computing time,lat,lon RMSE of daily data: float..")
+    rmse_ds = rmse_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        dim=("time", "lat", "lon"),
+    )
+
+    # Compute lat, lon Pearson Correlation: series
+    click.echo("Computing lat, lon Pearson Correlation of daily data: series...")
+    pcorrs_ds = corr_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        dim=("lat", "lon"),
+    )
+
+    # Compute lat, lon Spearman Correlation: series
+    click.echo("Computing lat, lon Spearman Correlation of daily data: series...")
+    scorrs_ds = corr_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        dim=("lat", "lon"),
+        srank=True,
+    )
+
+    # Compute time Bias of 99th percentile: field
+    click.echo("Computing time Bias of 99th percentile: field...")
+    biasf_p99_ds = bias_index(
         x0_ds,
         x1_ds,
         var=var,
         season=season,
         index_fn=indices.season_quantile,
-        q=0.98,
+        q=0.99,
     )
 
-    # Compute Bias of Annual max
-    click.echo("Computing Bias of Ann Max...")
-    biasannmax_ds = bias_index(
+    # Compute time Bias of 1th percentile: field
+    click.echo("Computing time Bias of 1th percentile: field...")
+    biasf_p1_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices.season_quantile,
+        q=0.01,
+    )
+
+    # Compute time Bias of lag-1 day autocorrelation: field
+    click.echo("Computing time Bias of lag-1 day autocorrelation: field...")
+    biasf_acorr_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices.lag1_corr,
+    )
+
+    # Compute time Bias of annual max: field
+    # **precip Rx1day fast track; temperature TXx, TNx slow track?
+    click.echo("Computing time Bias of annual max: field...")
+    biasf_max1day_ds = bias_index(
         x0_ds,
         x1_ds,
         var=var,
@@ -159,9 +229,10 @@ def fast(
         cmean=True,
     )
 
-    # Compute Bias of Annual min
-    click.echo("Computing Bias of Ann Min...")
-    biasannmin_ds = bias_index(
+    # Compute time Bias of annual min: field
+    # **temperature TXn, TNn slow track? Precip not useful
+    click.echo("Computing time Bias of annual min: field...")
+    biasf_min1day_ds = bias_index(
         x0_ds,
         x1_ds,
         var=var,
@@ -171,54 +242,79 @@ def fast(
         cmean=True,
     )
 
-    # Compute Bias of Annual Freq > 35
-    click.echo("Computing Bias of Ann Freq>35...")
-    biasanngt35_ds = bias_index(
+    # Compute time Bias of freq timesteps gt 1mm/day: field
+    # **Precipitation only metric
+    click.echo("Computing time Bias of freq ge 1mm/day: field...")
+    biasf_r1_ds = bias_index(
         x0_ds,
         x1_ds,
         var=var,
         season=season,
         index_fn=indices.ann_freq_wrt_array,
-        threshold=35.0,
-        relation="gt",
+        threshold=1.0,
+        relation="ge",
         cmean=True,
     )
 
-    # Compute Bias of Annual Spell < 1
-    click.echo("Computing Bias of Ann Spell<1...")
-    biasannsplt1_ds = bias_index(
+    # Compute time Bias of sdii: field
+    # **Precipitation only metric
+    click.echo("Computing time Bias of sdii: field...")
+    biasf_sdii_ds = bias_index(
         x0_ds,
         x1_ds,
         var=var,
         season=season,
-        index_fn=indices.ann_maxspell_wrt_array,
-        threshold=1.0,
-        relation="lt",
+        index_fn=indices.ann_sdii,
+        wet_threshold=1.0,
         cmean=True,
     )
+    print(type(biasf_sdii_ds))
 
-    # Compute RMSE Map
-    click.echo("Computing RMSE Field...")
-    rmsef_ds = rmse_index(x0_ds, x1_ds, var=var, season=season, dim="time")
+    # Compute PSD and RALSD
+    click.echo("Computing Power Spectral Density (PSD)...")
+    psd_x0, psd_x1 = psd(x0_ds, x1_ds, var=var, season=season)
 
-    # Compute RMSE
-    click.echo("Computing RMSE All Dims...")
-    rmse_ds = rmse_index(x0_ds, x1_ds, var=var, season=season)
+    click.echo("Computing Radially Averaged Log Spectral Distance (RALSD)...")
+    ralsd_val = ralsd_ds(psd_x0, psd_x1, var=var)
+    click.echo(f"RALSD: {ralsd_val}")
+
+    print(type(ralsd_val))
+    print(type(psd_x0))
+
+    # Compute Rx1day
+    # **Needs Code adjusted for leap-year calendar optiont**
+
+    # Compute temporal spectral distance
+    # **Needs Code**
 
     # Save all fast-track metrics
     click.echo("Combining and saving metrics...")
     metrics = {
-        "mean_bias": bias_ds,
-        "98ptile_bias": bias98p_ds,
-        "annmax_bias": biasannmax_ds,
-        "annmin_bias": biasannmin_ds,
-        "anngt35_bias": biasanngt35_ds,
-        "annsplt1_bias": biasannsplt1_ds,
-        "rmsefld": rmsef_ds,
-        "rmse": rmse_ds,
+        "bias_mean_field": biasf_ds,
+        "rmse_field": rmsef_ds,
+        "rmse_float": rmse_ds,
+        "pcorr_series": pcorrs_ds,
+        "scorr_series": scorrs_ds,
+        "bias_p99_field": biasf_p99_ds,
+        "bias_p1_field": biasf_p1_ds,
+        "bias_acorr_field": biasf_acorr_ds,
+        "bias_max1day_field": biasf_max1day_ds,
+        "bias_min1day_field": biasf_min1day_ds,
+        "bias_r1_field": biasf_r1_ds,
+        "bias_sdii_field": biasf_sdii_ds,
+        "psd_x0": psd_x0,
+        "psd_x1": psd_x1,
+        "ralsd": ralsd_val,
     }
 
+    # tmp: also store as .nc files to check
+    for name, ds in metrics.items():
+        filepath = os.path.join(output, f"{name}.nc")
+        ds.to_netcdf(filepath)
+        print(f"Saved {name} -> {filepath}")
+
     metrics_path = _get_output_path(output, "metrics.zarr")
+    print(metrics_path)
     write_zarr(metrics, metrics_path, mode="w", var=var)
     click.echo(f"Saved all fast-track metrics to {metrics_path}")
 
@@ -326,14 +422,6 @@ def slow(
         typedistance="fcss",
     )
 
-    # Compute PSD and RALSD
-    click.echo("Computing Power Spectral Density (PSD)...")
-    psd_x0, psd_x1 = psd(x0_ds, x1_ds, var=var, season=season)
-
-    click.echo("Computing Radially Averaged Log Spectral Distance (RALSD)...")
-    ralsd_val = ralsd(psd_x0, psd_x1)
-    click.echo(f"RALSD: {ralsd_val}")
-
     # Compute Spatial Wasserstein Distance
     click.echo("Computing Spatial Wasserstein Distance (this may take a while)...")
     wd = wasserstein_distance(x0_ds, x1_ds, var=var, season=season, spatial=True)
@@ -343,9 +431,6 @@ def slow(
     metrics = {
         "fcss_map": fcss_map_ds,
         "fcss_val": fcss_val_ds,
-        "psd_x0": psd_x0,
-        "psd_x1": psd_x1,
-        "ralsd": ralsd_val,
         "wasserstein_distance": wd,
     }
 
