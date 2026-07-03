@@ -2,40 +2,44 @@ from __future__ import annotations
 
 import os
 import click
-import xarray as xr
-from ml_evaluation.evaluation.diagnostics_plus import (
+from ml_evaluation.evaluation.diagnostics import (
     bias_index,
     rmse_index,
-    calc_wasserstein_distance,
+    wasserstein_distance,
     psd,
     ralsd,
     calc_pdf_metric_xr,
 )
-import ml_evaluation.evaluation.indices_plus as indices_plus
+import ml_evaluation.evaluation.indices as indices
+from ml_evaluation.io import load_dataset, write_zarr
 
 
-def _get_output_path(base: str, suffix: str) -> str:
+def _get_output_path(base: str, default_name: str) -> str:
     """
-    Construct the output file path based on a base path and a suffix.
+    Construct the output path based on a base path and a default filename.
 
-    If the base path is an existing directory, the suffix is appended as a filename.
-    Otherwise, the base path is treated as a file prefix, and the suffix is appended.
+    If the base path is an existing directory, the default filename is appended.
+    If the base path ends with '.zarr', it is used directly as the output path.
+    Otherwise, the base path is treated as a prefix, and the default filename
+    is appended.
 
     Parameters
     ----------
     base : str
-        The base output directory or file prefix.
-    suffix : str
-        The suffix to append (e.g. 'mean_bias.nc').
+        The base output directory, file prefix, or final Zarr store path.
+    default_name : str
+        The default filename to append if `base` is a directory or prefix.
 
     Returns
     -------
     str
-        The constructed file path.
+        The constructed file path or Zarr store path.
     """
     if os.path.isdir(base):
-        return os.path.join(base, suffix)
-    return f"{base}_{suffix}"
+        return os.path.join(base, default_name)
+    if base.endswith(".zarr"):
+        return base
+    return f"{base}_{default_name}"
 
 
 @click.group()
@@ -75,7 +79,7 @@ def main() -> None:
     "--output",
     required=True,
     type=str,
-    help="Directory or file prefix for output NetCDF results.",
+    help="Directory or file path for the output Zarr results.",
 )
 @click.option(
     "--season",
@@ -84,13 +88,18 @@ def main() -> None:
     help="Optional season/month to filter (e.g., DJF, MAM, JJA, SON, JAN).",
 )
 @click.option(
-    "--cal365",
+    "--align-leap-days",
     type=bool,
     default=True,
-    help="Option to convert data to non-leap year 365 day calendar.",
+    help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 def fast(
-    x0: str, x1: str, var: str, output: str, season: str | None, cal365: bool
+    x0: str,
+    x1: str,
+    var: str,
+    output: str,
+    season: str | None,
+    align_leap_days: bool,
 ) -> None:
     """
     Run the fast-track evaluation workflow.
@@ -107,11 +116,11 @@ def fast(
     var : str
         Variable name to evaluate.
     output : str
-        Directory or file prefix for output NetCDF results.
+        Directory, file prefix, or final Zarr store path.
     season : str | None
         Optional season or month standard name.
-    cal365 : bool
-        Option to convert data to non-leap year 365 day calendar.
+    align_leap_days : bool
+        Option to align datasets to standard calendar by filling missing leap days.
 
     Returns
     -------
@@ -119,28 +128,13 @@ def fast(
     """
     click.echo(f"Running fast-track evaluation for variable '{var}'...")
     click.echo(f"Loading reference: {x0}")
-    x0_ds = xr.open_dataset(x0)
+    x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
     click.echo(f"Loading prediction: {x1}")
-    x1_ds = xr.open_dataset(x1)
-
-    # Align calendars to 365 day calendar
-    # - this will not alter derived quantities such as x.time.dt.dayofyear
-    if cal365:
-        x0_ds = x0_ds.sel(
-            time=~((x0_ds.time.dt.month == 2) & (x0_ds.time.dt.day == 29))
-        )
-        x1_ds = x1_ds.sel(
-            time=~((x1_ds.time.dt.month == 2) & (x1_ds.time.dt.day == 29))
-        )
+    x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
 
     # Compute Bias of Mean
     click.echo("Computing Bias of Mean...")
-    bias_ds = bias_index(
-        x0_ds, x1_ds, var=var, season=season, index_fn=indices_plus.mean
-    )
-    bias_path = _get_output_path(output, "mean_bias.nc")
-    bias_ds.to_netcdf(bias_path)
-    click.echo(f"Saved Bias of Mean to {bias_path}")
+    bias_ds = bias_index(x0_ds, x1_ds, var=var, season=season, index_fn=indices.mean)
 
     # Compute Bias of 98th percentile
     click.echo("Computing Bias of 98%tile...")
@@ -149,12 +143,9 @@ def fast(
         x1_ds,
         var=var,
         season=season,
-        index_fn=indices_plus.season_quantile,
+        index_fn=indices.season_quantile,
         q=0.98,
     )
-    bias98p_path = _get_output_path(output, "98ptile_bias.nc")
-    bias98p_ds.to_netcdf(bias98p_path)
-    click.echo(f"Saved Bias of 98%tile to {bias98p_path}")
 
     # Compute Bias of Annual max
     click.echo("Computing Bias of Ann Max...")
@@ -163,13 +154,10 @@ def fast(
         x1_ds,
         var=var,
         season=season,
-        index_fn=indices_plus.ann_extrema,
+        index_fn=indices.ann_extrema,
         maxmin="max",
         cmean=True,
     )
-    biasannmax_path = _get_output_path(output, "annmax_bias.nc")
-    biasannmax_ds.to_netcdf(biasannmax_path)
-    click.echo(f"Saved Bias of Ann Max to {biasannmax_path}")
 
     # Compute Bias of Annual min
     click.echo("Computing Bias of Ann Min...")
@@ -178,13 +166,10 @@ def fast(
         x1_ds,
         var=var,
         season=season,
-        index_fn=indices_plus.ann_extrema,
+        index_fn=indices.ann_extrema,
         maxmin="min",
         cmean=True,
     )
-    biasannmin_path = _get_output_path(output, "annmin_bias.nc")
-    biasannmin_ds.to_netcdf(biasannmin_path)
-    click.echo(f"Saved Bias of Ann Min to {biasannmin_path}")
 
     # Compute Bias of Annual Freq > 35
     click.echo("Computing Bias of Ann Freq>35...")
@@ -193,14 +178,11 @@ def fast(
         x1_ds,
         var=var,
         season=season,
-        index_fn=indices_plus.ann_freq_wrt_array,
+        index_fn=indices.ann_freq_wrt_array,
         threshold=35.0,
         relation="gt",
         cmean=True,
     )
-    biasanngt35_path = _get_output_path(output, "anngt35_bias.nc")
-    biasanngt35_ds.to_netcdf(biasanngt35_path)
-    click.echo(f"Saved Bias of Ann Freq>35 to {biasanngt35_path}")
 
     # Compute Bias of Annual Spell < 1
     click.echo("Computing Bias of Ann Spell<1...")
@@ -209,28 +191,36 @@ def fast(
         x1_ds,
         var=var,
         season=season,
-        index_fn=indices_plus.ann_maxspell_wrt_array,
+        index_fn=indices.ann_maxspell_wrt_array,
         threshold=1.0,
         relation="lt",
         cmean=True,
     )
-    biasannsplt1_path = _get_output_path(output, "annsplt1_bias.nc")
-    biasannsplt1_ds.to_netcdf(biasannsplt1_path)
-    click.echo(f"Saved Bias of Ann Spell<1 to {biasannsplt1_path}")
 
     # Compute RMSE Map
     click.echo("Computing RMSE Field...")
     rmsef_ds = rmse_index(x0_ds, x1_ds, var=var, season=season, dim="time")
-    rmsef_path = _get_output_path(output, "rmsefld.nc")
-    rmsef_ds.to_netcdf(rmsef_path)
-    click.echo(f"Saved RMSE Field to {rmsef_path}")
 
     # Compute RMSE
     click.echo("Computing RMSE All Dims...")
     rmse_ds = rmse_index(x0_ds, x1_ds, var=var, season=season)
-    rmse_path = _get_output_path(output, "rmse.nc")
-    rmse_ds.to_netcdf(rmse_path)
-    click.echo(f"Saved RMSE to {rmse_path}")
+
+    # Save all fast-track metrics
+    click.echo("Combining and saving metrics...")
+    metrics = {
+        "mean_bias": bias_ds,
+        "98ptile_bias": bias98p_ds,
+        "annmax_bias": biasannmax_ds,
+        "annmin_bias": biasannmin_ds,
+        "anngt35_bias": biasanngt35_ds,
+        "annsplt1_bias": biasannsplt1_ds,
+        "rmsefld": rmsef_ds,
+        "rmse": rmse_ds,
+    }
+
+    metrics_path = _get_output_path(output, "metrics.zarr")
+    write_zarr(metrics, metrics_path, mode="w", var=var)
+    click.echo(f"Saved all fast-track metrics to {metrics_path}")
 
     click.echo("Fast-track evaluation complete.")
 
@@ -253,7 +243,7 @@ def fast(
     "--output",
     required=True,
     type=str,
-    help="Directory or file prefix for output NetCDF results.",
+    help="Directory or file path for the output Zarr results.",
 )
 @click.option(
     "--season",
@@ -262,13 +252,18 @@ def fast(
     help="Optional season/month to filter (e.g., DJF, MAM, JJA, SON, JAN).",
 )
 @click.option(
-    "--cal365",
+    "--align-leap-days",
     type=bool,
     default=True,
-    help="Option to convert data to non-leap year 365 day calendar.",
+    help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 def slow(
-    x0: str, x1: str, var: str, output: str, season: str | None, cal365: bool
+    x0: str,
+    x1: str,
+    var: str,
+    output: str,
+    season: str | None,
+    align_leap_days: bool,
 ) -> None:
     """
     Run the slow-track evaluation workflow.
@@ -285,11 +280,11 @@ def slow(
     var : str
         Variable name to evaluate.
     output : str
-        Directory or file prefix for output NetCDF results.
+        Directory, file prefix, or final Zarr store path.
     season : str | None
         Optional season or month standard name.
-    cal365 : bool
-        Option to convert data to non-leap year 365 day calendar.
+    align_leap_days : bool
+        Option to align datasets to standard calendar by filling missing leap days.
 
     Returns
     -------
@@ -297,19 +292,9 @@ def slow(
     """
     click.echo(f"Running slow-track evaluation for variable '{var}'...")
     click.echo(f"Loading reference: {x0}")
-    x0_ds = xr.open_dataset(x0)
+    x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
     click.echo(f"Loading prediction: {x1}")
-    x1_ds = xr.open_dataset(x1)
-
-    # Align calendars to 365 day calendar
-    # - this will not alter derived quantities such as x.time.dt.dayofyear
-    if cal365:
-        x0_ds = x0_ds.sel(
-            time=~((x0_ds.time.dt.month == 2) & (x0_ds.time.dt.day == 29))
-        )
-        x1_ds = x1_ds.sel(
-            time=~((x1_ds.time.dt.month == 2) & (x1_ds.time.dt.day == 29))
-        )
+    x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
 
     # Compute FCSS per grid point -> map
     click.echo("Computing FCSS map...")
@@ -325,9 +310,6 @@ def slow(
         bin_target_only=True,
         typedistance="fcss",
     )
-    fcss_map_path = _get_output_path(output, "fcss_map.nc")
-    fcss_map_ds.to_netcdf(fcss_map_path)
-    click.echo(f"Saved FCSS map to {fcss_map_path}")
 
     # Compute FCSS over all grid points and timesteps together (all-space)
     click.echo("Computing FCSS total...")
@@ -343,44 +325,33 @@ def slow(
         bin_target_only=False,
         typedistance="fcss",
     )
-    fcss_val_path = _get_output_path(output, "fcss_val.nc")
-    fcss_val_ds.to_netcdf(fcss_val_path)
-    click.echo(f"Saved FCSS val to {fcss_val_path}")
 
     # Compute PSD and RALSD
     click.echo("Computing Power Spectral Density (PSD)...")
     psd_x0, psd_x1 = psd(x0_ds, x1_ds, var=var, season=season)
 
-    psd_x0_path = _get_output_path(output, "psd_x0.nc")
-    psd_x1_path = _get_output_path(output, "psd_x1.nc")
-    psd_x0.to_netcdf(psd_x0_path)
-    psd_x1.to_netcdf(psd_x1_path)
-    click.echo(f"Saved PSD for reference to {psd_x0_path}")
-    click.echo(f"Saved PSD for prediction to {psd_x1_path}")
-
     click.echo("Computing Radially Averaged Log Spectral Distance (RALSD)...")
     ralsd_val = ralsd(psd_x0, psd_x1)
     click.echo(f"RALSD: {ralsd_val}")
 
-    # Save RALSD value to a tiny text file
-    ralsd_path = _get_output_path(output, "ralsd.txt")
-    with open(ralsd_path, "w") as f:
-        f.write(f"{ralsd_val}\n")
-    click.echo(f"Saved RALSD metric to {ralsd_path}")
-
     # Compute Spatial Wasserstein Distance
     click.echo("Computing Spatial Wasserstein Distance (this may take a while)...")
-    wd = calc_wasserstein_distance(x0_ds, x1_ds, var=var, season=season, spatial=True)
-    if isinstance(wd, xr.Dataset) or isinstance(wd, xr.DataArray):
-        wd_path = _get_output_path(output, "wasserstein_distance.nc")
-        wd.to_netcdf(wd_path)
-        click.echo(f"Saved Spatial Wasserstein Distance to {wd_path}")
-    else:
-        click.echo(f"Wasserstein distance returned scalar: {wd}")
-        wd_path = _get_output_path(output, "wasserstein_distance.txt")
-        with open(wd_path, "w") as f:
-            f.write(f"{wd}\n")
-        click.echo(f"Saved Wasserstein Distance metric to {wd_path}")
+    wd = wasserstein_distance(x0_ds, x1_ds, var=var, season=season, spatial=True)
+
+    # Consolidate and save all slow metrics
+    click.echo("Combining and saving metrics...")
+    metrics = {
+        "fcss_map": fcss_map_ds,
+        "fcss_val": fcss_val_ds,
+        "psd_x0": psd_x0,
+        "psd_x1": psd_x1,
+        "ralsd": ralsd_val,
+        "wasserstein_distance": wd,
+    }
+
+    metrics_path = _get_output_path(output, "metrics.zarr")
+    write_zarr(metrics, metrics_path, mode="w", var=var)
+    click.echo(f"Saved all slow-track metrics to {metrics_path}")
 
     click.echo("Slow-track evaluation complete.")
 

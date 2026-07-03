@@ -1,11 +1,63 @@
+# --- OS Metadata ---
+.DS_Store
+Thumbs.db
+
+# --- IDEs & Editors ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Environments & Package Managers ---
+.pixi/
+.venv/
+venv/
+env/
+.env
+
+# --- Jupyter Notebooks ---
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# --- Python Cache & Bytecode ---
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Python Builds & Packaging ---
+*.egg-info/
+**/ml_evaluation.egg-info/
+.eggs/
+build/
+dist/
+eggs/
+parts/
+sdist/
+develop-eggs/
+downloads/
+var/
+wheels/
+*.egg
+
+# --- Testing, Coverage & Quality Cache ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# --- Repository/Project Specific ---
 *.nc
 *.pt
 *.zip
 **/models/
-**/__pycache__/
-**/models/
 **/Bench-data/
-**/.ipynb_checkpoints/
-!format_predictions/templates/*.nc
-format_predictions/generate_templates.py
 **/submission_files/
+!format_predictions/templates/*.nc
+!**/format_predictions/templates/*.nc
+format_predictions/generate_templates.py
+**/format_predictions/generate_templates.py
