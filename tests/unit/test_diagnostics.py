@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import pytest
-from ml_evaluation.evaluation.diagnostics_plus import (
+from ml_evaluation.evaluation.diagnostics import (
     mean_bias_index,
     error_ann_index,
     pearsoncorr_ann_index,
