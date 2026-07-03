@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import xarray as xr
 import pandas as pd
+import cftime
 
 
 def align_calendar(dataset: xr.Dataset, align_leap_days: bool = False) -> xr.Dataset:
@@ -25,7 +26,15 @@ def align_calendar(dataset: xr.Dataset, align_leap_days: bool = False) -> xr.Dat
     """
     if align_leap_days:
         t = dataset.time.to_index()
-        full_time = pd.date_range(start=t[0], end=t[-1], freq="D")
+
+        if isinstance(t[0], cftime.datetime):
+            # cftime-based (e.g. noleap calendar) -> build a standard-calendar cftime range
+            full_time = xr.date_range(
+                start=t[0], end=t[-1], freq="D", calendar="standard", use_cftime=True
+            )
+        else:
+            # plain numpy/pandas datetime64
+            full_time = pd.date_range(start=t[0], end=t[-1], freq="D")
 
         dataset = dataset.reindex(time=full_time)
         dataset = dataset.ffill(dim="time")
