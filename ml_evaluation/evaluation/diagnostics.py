@@ -5,7 +5,10 @@ from typing import Any, Callable
 import numpy as np
 import xarray as xr
 from numpy import fft
-from scipy.stats import wasserstein_distance_nd, wasserstein_distance as scipy_wasserstein_distance
+from scipy.stats import (
+    wasserstein_distance_nd,
+    wasserstein_distance as scipy_wasserstein_distance,
+)
 from scipy.spatial.distance import jensenshannon
 from tqdm import tqdm
 
@@ -990,9 +993,11 @@ def calc_pdf_metric_nparray(
 
             # scipy's wasserstein_distance accepts weighted samples:
             # pass bin centers as "samples" and normalized counts as weights
-            dist_out = float(scipy_wasserstein_distance(
-                bin_centres, bin_centres, u_weights=phist, v_weights=qhist
-            ))
+            dist_out = float(
+                scipy_wasserstein_distance(
+                    bin_centres, bin_centres, u_weights=phist, v_weights=qhist
+                )
+            )
 
         elif typedistance == "wd":
             arr0_flat = arr0.reshape(np.prod(arr0.shape))
@@ -1158,7 +1163,9 @@ def calc_pdf_metric_nparray(
             arr0_flat = arr0.reshape(arr0.shape[0], np.prod(arr0.shape[1:]))
             arr1_flat = arr1.reshape(arr1.shape[0], np.prod(arr1.shape[1:]))
             for ii in range(np.prod(arr0.shape[1:])):
-                dist_out[ii] = scipy_wasserstein_distance(arr0_flat[:, ii], arr1_flat[:, ii])
+                dist_out[ii] = scipy_wasserstein_distance(
+                    arr0_flat[:, ii], arr1_flat[:, ii]
+                )
 
             dist_out = dist_out.reshape(arr0.shape[1:])
 
@@ -1248,7 +1255,7 @@ def calc_pdf_metric_xr(
 
         x0_idx = index_fn(x0, **call_kwargs)
         x1_idx = index_fn(x1, **call_kwargs)
-        
+
         if isinstance(x0_idx, xr.Dataset):
             target_xr = x0_idx[var]
         else:
@@ -1279,7 +1286,11 @@ def calc_pdf_metric_xr(
     # Detect if ensemble dim present in prediction but not target, and expand
     # target to match using expand_dims + broadcast
     extra_member_dim: str | None = None
-    if member_name is not None and member_name in prediction_xr.dims and member_name not in target_xr.dims:
+    if (
+        member_name is not None
+        and member_name in prediction_xr.dims
+        and member_name not in target_xr.dims
+    ):
         extra_member_dim = member_name
         if emean:
             # Compute ensemble mean over member_name dim

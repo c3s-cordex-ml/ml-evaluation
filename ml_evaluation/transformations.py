@@ -4,9 +4,7 @@ import numpy as np
 import xarray as xr
 
 
-def align_calendar(
-    dataset: xr.Dataset, align_leap_days: bool = False
-) -> xr.Dataset:
+def align_calendar(dataset: xr.Dataset, align_leap_days: bool = False) -> xr.Dataset:
     """
     Align the calendar of an xarray Dataset to a standard calendar.
 

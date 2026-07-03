@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -253,7 +252,9 @@ def rank_array(
         If axis is not None, int, or tuple of int.
     """
     if isinstance(axis, type(None)):
-        ranked: np.ndarray = rankdata(arr0, method="average", axis=axis, nan_policy="propagate")
+        ranked: np.ndarray = rankdata(
+            arr0, method="average", axis=axis, nan_policy="propagate"
+        )
         return ranked
 
     axis_tuple: tuple[int, ...]
@@ -268,9 +269,12 @@ def rank_array(
     new_axis = list(range(0, len(axis_tuple)))
     arr0_moved = np.moveaxis(arr0, axis_tuple, new_axis)
     arr0_reshaped = arr0_moved.reshape(
-        np.prod(arr0_moved.shape[0 : len(axis_tuple)]), *arr0_moved.shape[len(axis_tuple) :]
+        np.prod(arr0_moved.shape[0 : len(axis_tuple)]),
+        *arr0_moved.shape[len(axis_tuple) :],
     )
-    ranked_reshaped: np.ndarray = rankdata(arr0_reshaped, method="average", axis=0, nan_policy="propagate")
+    ranked_reshaped: np.ndarray = rankdata(
+        arr0_reshaped, method="average", axis=0, nan_policy="propagate"
+    )
     return ranked_reshaped
 
 
@@ -367,7 +371,9 @@ def calculate_corr_xrnp(
         dim_list = list(da0.dims)
         matches = [dim1 for dim1 in dim_list if dim1 in dim_tuple]
         if not matches:
-            raise ValueError(f"Warning: no matches found for {list(dim_tuple)} in {dim_list}")
+            raise ValueError(
+                f"Warning: no matches found for {list(dim_tuple)} in {dim_list}"
+            )
         axis_num = tuple(dim_list.index(dim1) for dim1 in matches)
     else:
         axis_num = None
@@ -481,6 +487,7 @@ def resample_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArr
     xr.DataArray
         Resampled maximum spell length.
     """
+
     def _compute(arr: xr.DataArray) -> xr.DataArray:
         return xr.apply_ufunc(
             max_spell_length,

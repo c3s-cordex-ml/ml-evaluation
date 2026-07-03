@@ -148,7 +148,7 @@ def test_calc_pdf_metric_xr(test_datasets: tuple[xr.Dataset, xr.Dataset]) -> Non
     None
     """
     x0, x1 = test_datasets
-    
+
     # Test Perkins Skill Score (pss)
     pss_res = calc_pdf_metric_xr(
         x0,
@@ -160,7 +160,7 @@ def test_calc_pdf_metric_xr(test_datasets: tuple[xr.Dataset, xr.Dataset]) -> Non
     )
     assert "tasmax" in pss_res
     assert pss_res["tasmax"].shape == (2, 2)  # lat, lon
-    
+
     # Test Fractional Contribution Skill Score (fcss)
     fcss_res = calc_pdf_metric_xr(
         x0,
