@@ -87,7 +87,7 @@ def test_cli_fast_workflow(
     """
     Test the CLI fast-track workflow execution.
 
-    Verifies that running the 'fast' command produces output NetCDF files.
+    Verifies that running the 'fast' command produces output Zarr stores.
 
     Parameters
     ----------
@@ -123,12 +123,12 @@ def test_cli_fast_workflow(
     assert "Running fast-track evaluation" in result.output
 
     # Check if files were created
-    assert os.path.exists(f"{output_prefix}_mean_bias.nc")
-    assert os.path.exists(f"{output_prefix}_rmse.nc")
+    assert os.path.exists(f"{output_prefix}_metrics.zarr")
 
     # Load and verify one of them
-    ds_mb = xr.open_dataset(f"{output_prefix}_mean_bias.nc")
-    assert float(ds_mb["tasmax"].sel(lat=45.0, lon=10.0)) == 0.5
+    ds = xr.open_zarr(f"{output_prefix}_metrics.zarr")
+    assert "value" in ds
+    assert float(ds["value"].sel(diagnostic="mean_bias", lat=45.0, lon=10.0)) == 0.5
 
 
 def test_cli_slow_workflow(
@@ -173,9 +173,16 @@ def test_cli_slow_workflow(
     assert "Running slow-track evaluation" in result.output
 
     # Check if files were created
-    assert os.path.exists(f"{output_prefix}_psd_x0.nc")
-    assert os.path.exists(f"{output_prefix}_psd_x1.nc")
-    assert os.path.exists(f"{output_prefix}_ralsd.txt")
-    assert os.path.exists(f"{output_prefix}_wasserstein_distance.nc") or os.path.exists(
-        f"{output_prefix}_wasserstein_distance.txt"
-    )
+    assert os.path.exists(f"{output_prefix}_metrics.zarr")
+
+    # Load and verify
+    ds = xr.open_zarr(f"{output_prefix}_metrics.zarr")
+    assert "value" in ds
+    assert set(ds["diagnostic"].values) == {
+        "fcss_map",
+        "fcss_val",
+        "psd_x0",
+        "psd_x1",
+        "ralsd",
+        "wasserstein_distance",
+    }

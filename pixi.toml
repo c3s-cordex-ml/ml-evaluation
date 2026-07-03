@@ -1,4 +1,5 @@
 [dependencies]
+bottleneck = ">=1.6.0,<2"
 cartopy = ">=0.20.0"
 cftime = ">=1.0.0"
 click = "*"
@@ -22,6 +23,7 @@ sympy = "*"
 torchvision = "*"
 tqdm = ">=4.0.0"
 xarray = ">=2025.0.0"
+zarr = ">=3.2.1,<4"
 
 [environments]
 default = {solve-group = "default"}
