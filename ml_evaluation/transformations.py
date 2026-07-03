@@ -39,6 +39,11 @@ def align_calendar(dataset: xr.Dataset, align_leap_days: bool = False) -> xr.Dat
         dataset = dataset.reindex(time=full_time)
         dataset = dataset.ffill(dim="time")
 
+    print("TEST OUTPUT")
+    print(dataset.time.values)
+    print(dataset["temp"].values)
+    print(len(dataset.time))
+
     #    # Original code failed for 365 day calendars with Gregorian timestamps?
     #    # as found conflicting time frequency (1 day, but 2 days for 28 Feb to 1 mar)
     #    if align_leap_days:
