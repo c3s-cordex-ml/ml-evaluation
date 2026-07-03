@@ -10,6 +10,7 @@ from ml_evaluation.evaluation.diagnostics import (
     pearsoncorr_ann_index,
     ralsd,
     psd,
+    calc_pdf_metric_xr,
 )
 
 
@@ -131,3 +132,43 @@ def test_psd_and_ralsd(test_datasets: tuple[xr.Dataset, xr.Dataset]) -> None:
     assert psd_x0.shape == psd_x1.shape
     distance = ralsd(psd_x0, psd_x1)
     assert isinstance(distance, float)
+
+
+def test_calc_pdf_metric_xr(test_datasets: tuple[xr.Dataset, xr.Dataset]) -> None:
+    """
+    Test PDF metric calculations (like Perkins Skill Score and FCSS).
+
+    Parameters
+    ----------
+    test_datasets : tuple[xr.Dataset, xr.Dataset]
+        Fixture providing the reference and prediction datasets.
+
+    Returns
+    -------
+    None
+    """
+    x0, x1 = test_datasets
+    
+    # Test Perkins Skill Score (pss)
+    pss_res = calc_pdf_metric_xr(
+        x0,
+        x1,
+        var="tasmax",
+        dim=("time",),
+        typedistance="pss",
+        nbins=10,
+    )
+    assert "tasmax" in pss_res
+    assert pss_res["tasmax"].shape == (2, 2)  # lat, lon
+    
+    # Test Fractional Contribution Skill Score (fcss)
+    fcss_res = calc_pdf_metric_xr(
+        x0,
+        x1,
+        var="tasmax",
+        dim=None,
+        typedistance="fcss",
+        nbins=10,
+    )
+    assert "tasmax" in fcss_res
+    assert isinstance(fcss_res["tasmax"].values, np.ndarray)

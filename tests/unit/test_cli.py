@@ -179,6 +179,8 @@ def test_cli_slow_workflow(
     ds = xr.open_zarr(f"{output_prefix}_metrics.zarr")
     assert "value" in ds
     assert set(ds["diagnostic"].values) == {
+        "fcss_map",
+        "fcss_val",
         "psd_x0",
         "psd_x1",
         "ralsd",
