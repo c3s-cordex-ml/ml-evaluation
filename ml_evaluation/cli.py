@@ -9,6 +9,7 @@ from ml_evaluation.evaluation.diagnostics import (
     psd,
     ralsd,
     calc_pdf_metric_xr,
+    calc_histdata_xr,
 )
 import ml_evaluation.evaluation.indices as indices
 from ml_evaluation.io import load_dataset, write_zarr
@@ -251,7 +252,7 @@ def fast(
     ralsd_val = ralsd(psd_x0, psd_x1, var)
     click.echo(f"RALSD: {ralsd_val}")
 
-    if var==pr:
+    if var == "pr":
         # Compute Bias of freq ge 1mm/day (over time): field
         # **Precipitation only metric
         click.echo("Computing Bias of freq ge 1mm/day (over time): field...")
@@ -262,6 +263,19 @@ def fast(
             season=season,
             index_fn=indices.ann_freq_wrt_array,
             threshold=1.0,
+            relation="ge",
+            cmean=True,
+        )
+        # Compute Bias of freq ge 10mm/day (over time): field
+        # **Precipitation only metric
+        click.echo("Computing Bias of freq ge 10mm/day (over time): field...")
+        biasf_r10_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_freq_wrt_array,
+            threshold=10.0,
             relation="ge",
             cmean=True,
         )
@@ -279,16 +293,39 @@ def fast(
             cmean=True,
         )
 
+        # Compute Bias of max dry spell length (over time): field
+        click.echo("Computing Bias of max dry spell length (over time): field...")
+        biasf_cdd_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_maxspell_wrt_array,
+            threshold=1.0,
+            relation="lt",
+            cmean=True,
+        )
+
+        # Compute Bias of max wet spell length (over time): field
+        click.echo("Computing Bias of max wet spell length (over time): field...")
+        biasf_cwd_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_maxspell_wrt_array,
+            threshold=1.0,
+            relation="ge",
+            cmean=True,
+        )
+
         metrics_pr = {
             "bias_r1_field": biasf_r1_ds,
+            "bias_r10_field": biasf_r10_ds,
             "bias_sdii_field": biasf_sdii_ds,
+            "bias_cdd_field": biasf_cdd_ds,
+            "bias_cwd_field": biasf_cwd_ds,
         }
-
-    # Compute Var90p, Var10p e.g. TX90p
-    # **Needs Code adjusted for leap-year calendar option**
-
-    # Compute temporal spectral distance
-    # **Needs Code**
 
     # Save all fast-track metrics
     click.echo("Combining and saving metrics...")
@@ -310,7 +347,6 @@ def fast(
         "psd_x0": psd_x0,
         "psd_x1": psd_x1,
     }
-    
 
     # tmp: also store as .nc files to check
     for name, ds in metrics.items():
@@ -321,7 +357,7 @@ def fast(
         filepath = os.path.join(output, f"{name}.nc")
         ds.to_netcdf(filepath)
         print(f"Saved {name} -> {filepath}")
-    if var=="pr":
+    if var == "pr":
         for name, ds in metrics_pr.items():
             filepath = os.path.join(output, f"{name}.nc")
             ds.to_netcdf(filepath)
@@ -332,8 +368,8 @@ def fast(
 
     metrics_psd_path = _get_output_path(output, "metrics_psd.zarr")
     write_zarr(metrics_psd, metrics_psd_path, mode="w", var=var)
-    
-    if var=="pr":
+
+    if var == "pr":
         metrics_pr_path = _get_output_path(output, "metrics_pr.zarr")
         write_zarr(metrics_pr, metrics_pr_path, mode="w", var=var)
 
@@ -424,7 +460,9 @@ def slow(
     )
 
     # Compute Spearman Correlation of daily data (over lat, lon): series
-    click.echo("Computing Spearman Correlation of daily data (over lat, lon): series...")
+    click.echo(
+        "Computing Spearman Correlation of daily data (over lat, lon): series..."
+    )
     scorrf_ds = corr_index(
         x0_ds,
         x1_ds,
@@ -559,7 +597,20 @@ def slow(
         typedistance="wdh",
     )
 
-    if var=="tasmax":
+    # Compute histogram (over flattened dims): series
+    click.echo("Computing histogram (over flattened dims): series...")
+    targ_hist_ds, pred_hist_ds, bins_hist_ds = calc_histdata_xr(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=None,
+        bins_arr=None,
+        nbins=100,
+        bin_target_only=True,
+    )
+
+    if var == "tasmax":
         # Compute Bias of freq ge 25C (over time): field
         # **Tasmax only metric Summer Days
         click.echo("Computing  Bias of freq ge 25C (over time): field...")
@@ -606,7 +657,7 @@ def slow(
             "bias_ice_field": biasf_ice_ds,
         }
 
-    if var=="tasmin":
+    if var == "tasmin":
         # Compute Bias of freq ge 20C (over time): field
         # **Tasmin only metric Tropical Nights
         click.echo("Computing  Bias of freq ge 20C (over time): field...")
@@ -639,7 +690,6 @@ def slow(
             "bias_frost_field": biasf_frost_ds,
         }
 
-
     # Consolidate and save all slow metrics
     click.echo("Combining and saving metrics...")
     metrics = {
@@ -656,17 +706,27 @@ def slow(
         "wdh_float": wdhf_ds,
     }
 
+    metrics_hist = {
+        "targ_hist_series": targ_hist_ds,
+        "pred_hist_series": pred_hist_ds,
+        "bins_hist_series": bins_hist_ds,
+    }
+
     # tmp: also store as .nc files to check
     for name, ds in metrics.items():
         filepath = os.path.join(output, f"{name}.nc")
         ds.to_netcdf(filepath)
         print(f"Saved {name} -> {filepath}")
-    if var=="tasmax":
+    for name, ds in metrics_hist.items():
+        filepath = os.path.join(output, f"{name}.nc")
+        ds.to_netcdf(filepath)
+        print(f"Saved {name} -> {filepath}")
+    if var == "tasmax":
         for name, ds in metrics_tasmax.items():
             filepath = os.path.join(output, f"{name}.nc")
             ds.to_netcdf(filepath)
             print(f"Saved {name} -> {filepath}")
-    if var=="tasmin":
+    if var == "tasmin":
         for name, ds in metrics_tasmin.items():
             filepath = os.path.join(output, f"{name}.nc")
             ds.to_netcdf(filepath)
@@ -674,18 +734,204 @@ def slow(
 
     metrics_path = _get_output_path(output, "metrics_slow.zarr")
     write_zarr(metrics, metrics_path, mode="w", var=var)
-    
-    if var=="tasmax":
+    # metrics_path = _get_output_path(output, "metrics_hist.zarr")
+    # write_zarr(metrics_hist, metrics_path, mode="w", var=var)
+
+    if var == "tasmax":
         metrics_path = _get_output_path(output, "metrics_tasmax.zarr")
         write_zarr(metrics_tasmax, metrics_path, mode="w", var=var)
-    
-    if var=="tasmin":
+
+    if var == "tasmin":
         metrics_path = _get_output_path(output, "metrics_tasmin.zarr")
         write_zarr(metrics_tasmin, metrics_path, mode="w", var=var)
-    
+
     click.echo(f"Saved all slow-track metrics to {metrics_path}")
 
     click.echo("Slow-track evaluation complete.")
+
+
+@main.command()
+@click.option(
+    "--x0",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to ground-truth NetCDF file.",
+)
+@click.option(
+    "--x1",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to predictions NetCDF file.",
+)
+@click.option("--var", required=True, type=str, help="Variable name to evaluate.")
+@click.option(
+    "--output",
+    required=True,
+    type=str,
+    help="Directory or file path for the output Zarr results.",
+)
+@click.option(
+    "--season",
+    type=str,
+    default=None,
+    help="Optional season/month to filter (e.g., DJF, MAM, JJA, SON, JAN).",
+)
+@click.option(
+    "--align-leap-days",
+    type=str,
+    default="remove",
+    help="Option to align datasets to standard calendar by filling missing leap days.",
+)
+def caldayperc365(
+    x0: str,
+    x1: str,
+    var: str,
+    output: str,
+    season: str | None,
+    align_leap_days: str | None,
+) -> None:
+    """
+    Run the slow-track evaluation workflow.
+
+    Computes Power Spectral Density (PSD), Radially Averaged Log Spectral Distance (RALSD),
+    and Spatial Wasserstein Distance.
+
+    Parameters
+    ----------
+    x0 : str
+        Path to ground-truth NetCDF file.
+    x1 : str
+        Path to predictions NetCDF file.
+    var : str
+        Variable name to evaluate.
+    output : str
+        Directory, file prefix, or final Zarr store path.
+    season : str | None
+        Optional season or month standard name.
+    align_leap_days : str | None
+        Options to align datasets to standard calendar by filling missing leap days.
+
+    Returns
+    -------
+    None
+    """
+    click.echo(
+        f"Running evaluation wrt calendar day thresholds for variable '{var}'..."
+    )
+    click.echo(f"Loading reference: {x0}")
+    x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
+    click.echo(f"Loading prediction: {x1}")
+    x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
+
+    if var == "tasmax" or var == "tasmin":
+        # Compute Bias of freq gt 90th cal_day percentile: field
+        # **Temperature only metric?
+        click.echo(
+            "Computing Bias of indices wrt 90th cal_day percentile: field... SLOW..."
+        )
+
+        # Assumes time coordinate is the 0th axis
+        targ_var90p_quantile = indices.day_noleap_quantile(
+            x0_ds, var=var, q=0.9, padding=2, axis=0
+        )
+        targ_var90p_quantile_path = _get_output_path(output, "targ_quantile_var90p.nc")
+        targ_var90p_quantile.to_netcdf(targ_var90p_quantile_path)
+        click.echo(
+            f"Saved Target 90th percentile thresholds for reference to {targ_var90p_quantile_path}"
+        )
+
+        click.echo("Computing Bias of freq gt 90th cal_day percentile: field...")
+        biasf_var90p_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_freq_wrt_array,
+            threshold=targ_var90p_quantile,
+            relation="gt",
+            cmean=True,
+        )
+
+        # Compute Bias of max warm spell duration index (over time): field
+        click.echo(
+            "Computing Bias of max warm spell duration index (over time): field..."
+        )
+        biasf_wsdi_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_maxspell_wrt_array,
+            threshold=targ_var90p_quantile,
+            relation="gt",
+            cmean=True,
+        )
+
+        # Compute time Bias of freq timesteps lt 10th cal_day percentile: field
+        # **Temperature only metric?
+        click.echo(
+            "Computing Bias of indices wrt 10th cal_day percentile: field... SLOW..."
+        )
+
+        # Assumes time coordinate is the 0th axis
+        targ_var10p_quantile = indices.day_noleap_quantile(
+            x0_ds, var=var, q=0.1, padding=2, axis=0
+        )
+        targ_var10p_quantile_path = _get_output_path(output, "targ_quantile_var10p.nc")
+        targ_var10p_quantile.to_netcdf(targ_var10p_quantile_path)
+        click.echo(
+            f"Saved Target 10th percentile thresholds for reference to {targ_var10p_quantile_path}"
+        )
+
+        click.echo("Computing time Bias of freq lt 10th cal_day percentile: field...")
+        biasf_var10p_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_freq_wrt_array,
+            threshold=targ_var10p_quantile,
+            relation="lt",
+            cmean=True,
+        )
+
+        # Compute Bias of max cold spell duration index (over time): field
+        click.echo(
+            "Computing Bias of max cold spell duration index (over time): field..."
+        )
+        biasf_csdi_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_maxspell_wrt_array,
+            threshold=targ_var10p_quantile,
+            relation="lt",
+            cmean=True,
+        )
+
+        click.echo("Combining and saving metrics...")
+        metrics_cdthresh = {
+            "bias_t90p_field": biasf_var90p_ds,
+            "bias_wsdi_field": biasf_wsdi_ds,
+            "bias_t10p_field": biasf_var10p_ds,
+            "bias_csdi_field": biasf_csdi_ds,
+        }
+
+        for name, ds in metrics_cdthresh.items():
+            filepath = os.path.join(output, f"{name}.nc")
+            ds.to_netcdf(filepath)
+            print(f"Saved {name} -> {filepath}")
+
+        metrics_path = _get_output_path(output, "metrics_cdthresh.zarr")
+        write_zarr(metrics_cdthresh, metrics_path, mode="w", var=var)
+
+        click.echo(f"Saved all slow-track metrics to {metrics_path}")
+
+        click.echo("Slow-track evaluation complete.")
+
+    else:
+        click.echo(f"var: {var}, not in list [tasmax, tasmin]")
 
 
 if __name__ == "__main__":

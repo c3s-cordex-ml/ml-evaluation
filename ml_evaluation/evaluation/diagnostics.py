@@ -1087,3 +1087,106 @@ def calc_pdf_metric_xr(
             dist_out_xr[d] = prediction_xr[d]
 
     return dist_out_xr
+
+
+def calc_histdata_xr(
+    x0: xr.Dataset,
+    x1: xr.Dataset,
+    var: str,
+    index_fn: Callable[..., xr.Dataset | xr.DataArray] | None = None,
+    season: str | None = None,
+    bins_arr: np.ndarray | None = None,
+    nbins: int = 100,
+    bin_target_only: bool = False,
+    **index_kwargs: Any,
+) -> xr.Dataset:
+    """
+    Compute histogram for two xarray Datasets.
+
+    Filters by season, applies any index functions if specified, and
+    flattens across time, lat, lon.
+
+    Copyright (c) 2026 Klima consulting
+    Author: Rosie Eade
+
+    Parameters
+    ----------
+    x0 : xr.Dataset
+        Ground truth dataset.
+    x1 : xr.Dataset
+        Predicted dataset.
+    var : str
+        Variable name to analyse.
+    index_fn : Callable[..., xr.Dataset | xr.DataArray] or None, optional
+        Optional function computing a desired index before metric calculations.
+    season : str | None, optional
+        Optional season or month standard name filter.
+    bins_arr : np.ndarray or None, optional
+        Explicitly defined bins for histogram.
+    nbins : int, default 100
+        Number of bins for histogram.
+    bin_target_only : bool, default False
+        True: base nbins range on target truth range only.
+        False: base range on truth and prediction range combined.
+    **index_kwargs : Any
+        Additional keyword arguments passed to the index function.
+
+    Returns
+    -------
+    xr.Dataset
+        Dataset of distribution comparison metrics.
+    """
+
+    if index_fn is None:
+        target_xr = filter_by_monthseason(x0, season)[var]
+        prediction_xr = filter_by_monthseason(x1, season)[var]
+    else:
+        call_kwargs = dict(index_kwargs)
+        if season is not None and "season" not in call_kwargs:
+            call_kwargs["season"] = season
+        if var is not None and "var" not in call_kwargs:
+            call_kwargs["var"] = var
+
+        x0_idx = index_fn(x0, **call_kwargs)
+        x1_idx = index_fn(x1, **call_kwargs)
+
+        if isinstance(x0_idx, xr.Dataset):
+            target_xr = x0_idx[var]
+        else:
+            target_xr = x0_idx
+
+        if isinstance(x1_idx, xr.Dataset):
+            prediction_xr = x1_idx[var]
+        else:
+            prediction_xr = x1_idx
+
+    arr0 = target_xr.values.flatten()
+    arr1 = prediction_xr.values.flatten()
+
+    if not isinstance(bins_arr, np.ndarray):
+        bins_arr = None
+
+    if bins_arr is None:
+        if nbins < 1:
+            raise ValueError(f"nbins not a positive integer: {nbins}")
+        nbins = int(nbins)
+        arr_min = np.array([arr0.min(), arr1.min()]).min()
+        arr_max = np.array([arr0.max(), arr1.max()]).max()
+        if bin_target_only:
+            # Fit bins to target truth only so same for all prediction model comparisons
+            bins_arr = np.linspace(arr_min, arr_max, nbins + 1)
+        else:
+            # Fit bins to target truth and prediction so entire distributions are captured
+            bins_arr = np.linspace(arr0.min(), arr0.max(), nbins + 1)
+
+    phist, pedge = np.histogram(arr0, bins=bins_arr, density=True)
+    qhist, qedge = np.histogram(arr1, bins=bins_arr, density=True)
+
+    #    res = xr.Dataset(
+    #        {
+    #            "targ_hist": phist,
+    #            "pred_hist": qhist,
+    #            "bin_edges": pedge,
+    #        })
+
+    return xr.Dataset({var: phist}), xr.Dataset({var: qhist}), xr.Dataset({var: pedge})

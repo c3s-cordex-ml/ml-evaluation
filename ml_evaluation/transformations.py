@@ -6,7 +6,9 @@ import pandas as pd
 import cftime
 
 
-def align_calendar(dataset: xr.Dataset, align_leap_days: str | None = None) -> xr.Dataset:
+def align_calendar(
+    dataset: xr.Dataset, align_leap_days: str | None = None
+) -> xr.Dataset:
     """
     Align the calendar of an xarray Dataset to a standard calendar.
 
@@ -28,7 +30,7 @@ def align_calendar(dataset: xr.Dataset, align_leap_days: str | None = None) -> x
     xr.Dataset
         The aligned xarray Dataset.
     """
-    if align_leap_days=="fill":
+    if align_leap_days == "fill":
         t = dataset.time.to_index()
 
         if isinstance(t[0], cftime.datetime):
@@ -47,7 +49,7 @@ def align_calendar(dataset: xr.Dataset, align_leap_days: str | None = None) -> x
             dataset = dataset.reindex(time=full_time)
             dataset = dataset.ffill(dim="time")
 
-    elif align_leap_days=="remove":
+    elif align_leap_days == "remove":
         dataset = dataset.sel(
             time=~((dataset.time.dt.month == 2) & (dataset.time.dt.day == 29))
         )
@@ -56,7 +58,6 @@ def align_calendar(dataset: xr.Dataset, align_leap_days: str | None = None) -> x
         raise ValueError(
             f"Invalid align_leap_days={align_leap_days!r}; "
             'expected "fill", "remove", or None.'
-        )   
-    
-    
+        )
+
     return dataset

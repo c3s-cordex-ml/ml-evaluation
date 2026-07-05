@@ -528,7 +528,10 @@ def ann_maxspell_wrt_array(
     else:
         ann_spell = ann_max_spell(econd_da, freq="1YE")
 
-    ann_spell_ds = xr.Dataset({var: ann_spell})
+    if isinstance(ann_spell, xr.Dataset):
+        ann_spell_ds = ann_spell
+    else:
+        ann_spell_ds = xr.Dataset({var: ann_spell})
 
     if cmean:
         output: xr.Dataset = ann_spell_ds.mean("time")
