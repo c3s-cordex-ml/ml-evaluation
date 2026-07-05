@@ -15,8 +15,6 @@ from tqdm import tqdm
 from ml_evaluation.evaluation.utils import (
     filter_by_monthseason,
     radial_average,
-    calculate_error_nparray,
-    calculate_pearsoncorr_nparray,
     calculate_corr_xrnp,
 )
 
@@ -376,7 +374,7 @@ def psd(
     x1: xr.Dataset,
     var: str,
     season: str | None = None,
-) -> tuple[xr.DataArray, xr.DataArray]:
+) -> tuple[xr.Dataset, xr.Dataset]:
     """
     Compute the power spectral density for x0 and x1 datasets.
 
@@ -395,7 +393,7 @@ def psd(
 
     Returns
     -------
-    tuple of xr.DataArray
+    tuple of xr.Dataset
         Power spectral densities for x0 and x1.
     """
     x0_filtered = filter_by_monthseason(x0, season)
@@ -422,10 +420,13 @@ def psd(
     psd_x0_da = xr.DataArray(avg_psd_x0, dims=["wavenumber"], name="PSD_x0")
     psd_x1_da = xr.DataArray(avg_psd_x1, dims=["wavenumber"], name="PSD_x1")
 
-    return psd_x0_da, psd_x1_da
+    psd_x0_ds = xr.Dataset({var: psd_x0_da})
+    psd_x1_ds = xr.Dataset({var: psd_x1_da})
+
+    return psd_x0_ds, psd_x1_ds
 
 
-def ralsd(psd_x0: xr.DataArray, psd_x1: xr.DataArray) -> float:
+def ralsd(psd_x0: xr.Dataset, psd_x1: xr.Dataset, var: str) -> xr.Dataset:
     """
     Compute the Radially Averaged Log Spectral Distance (RALSD).
 
@@ -434,47 +435,25 @@ def ralsd(psd_x0: xr.DataArray, psd_x1: xr.DataArray) -> float:
 
     Parameters
     ----------
-    psd_x0 : xr.DataArray
+    psd_x0 : xr.Dataset
         Power spectral density of the ground truth (as returned by psd function).
-    psd_x1 : xr.DataArray
+    psd_x1 : xr.Dataset
         Power spectral density of the prediction (as returned by psd function).
+    var : str
+        Variable name to analyse.
 
     Returns
     -------
-    float
+    xr.Dataset
         Scalar RALSD value.
     """
-    ratio = psd_x0.values / np.maximum(psd_x1.values, 1e-30)
+    ratio = psd_x0[var].values / np.maximum(psd_x1[var].values, 1e-30)
     log_ratio = 10.0 * np.log10(np.maximum(ratio, 1e-30))
-    return float(np.mean(log_ratio**2))
-
-
-def ralsd_ds(psd_x0: xr.DataArray, psd_x1: xr.DataArray, var: str) -> float:
-    """
-    Compute the Radially Averaged Log Spectral Distance (RALSD).
-
-    RALSD measures the distance between two radially averaged power spectra
-    in log space. Lower values indicate better agreement.
-
-    Parameters
-    ----------
-    psd_x0 : xr.DataArray
-        Power spectral density of the ground truth (as returned by psd function).
-    psd_x1 : xr.DataArray
-        Power spectral density of the prediction (as returned by psd function).
-
-    Returns
-    -------
-    float
-        Scalar RALSD value.
-    """
-    ratio = psd_x0.values / np.maximum(psd_x1.values, 1e-30)
-    log_ratio = 10.0 * np.log10(np.maximum(ratio, 1e-30))
-    res = xr.Dataset({var: ((), float(np.mean(log_ratio**2)))})
+    res = xr.Dataset({var: float(np.mean(log_ratio**2))})
     return res
 
 
-def wasserstein_distance(
+def calc_wasserstein_distance(
     x0: xr.Dataset,
     x1: xr.Dataset,
     var: str,
@@ -545,295 +524,6 @@ def wasserstein_distance(
         return wd_da
 
 
-def mean_bias_index(
-    x0: xr.Dataset,
-    x1: xr.Dataset,
-    var: str,
-    typeerror: str = "bias",
-    index_fn: Callable[..., xr.Dataset | xr.DataArray] | None = None,
-    season: str | None = None,
-    **index_kwargs: Any,
-) -> xr.Dataset | xr.DataArray:
-    """
-    Compute the time mean bias between (index function of) x0 and x1 datasets.
-
-    Parameters
-    ----------
-    x0 : xr.Dataset
-        Ground truth dataset.
-    x1 : xr.Dataset
-        Predicted dataset.
-    var : str
-        Variable name to analyse.
-    typeerror : str, default 'bias'
-        Type of error to compute, options are 'bias' or 'ratio'.
-    index_fn : Callable[..., xr.Dataset | xr.DataArray] or None, optional
-        Function computing the desired index (None for raw data).
-    season : str | None, optional
-        Season to filter before computing the index.
-    **index_kwargs : Any
-        Additional keyword arguments passed to the index function.
-
-    Returns
-    -------
-    xr.Dataset or xr.DataArray
-        Mean bias or ratio between predictions and reference.
-    """
-    x0_index: xr.Dataset | xr.DataArray
-    x1_index: xr.Dataset | xr.DataArray
-
-    if index_fn is None:
-        x0_index = filter_by_monthseason(x0, season)[[var]]
-        x1_index = filter_by_monthseason(x1, season)[[var]]
-    else:
-        call_kwargs = dict(index_kwargs)
-        if season is not None and "season" not in call_kwargs:
-            call_kwargs["season"] = season
-        if var is not None and "var" not in call_kwargs:
-            call_kwargs["var"] = var
-
-        x0_index = index_fn(x0, **call_kwargs)
-        x1_index = index_fn(x1, **call_kwargs)
-
-    dim = ("time",)
-
-    dim_list = list(x0_index.dims)
-    matches = [dim1 for dim1 in dim_list if dim1 in dim]
-
-    if matches:
-        x0_index = x0_index.mean("time")
-        x1_index = x1_index.mean("time")
-
-    bias = x1_index - x0_index
-
-    if typeerror == "ratio":
-        bias = bias / x0_index
-
-    return bias
-
-
-def error_ann_index(
-    x0: xr.Dataset,
-    x1: xr.Dataset,
-    var: str,
-    typeerror: str = "rmse",
-    dim: str | tuple[str, ...] | None = None,
-    index_fn: Callable[..., xr.Dataset | xr.DataArray] | None = None,
-    season: str | None = None,
-    **index_kwargs: Any,
-) -> xr.Dataset | xr.DataArray:
-    """
-    Compute the (rms) error between (index function of) x0 and x1 datasets.
-
-    Parameters
-    ----------
-    x0 : xr.Dataset
-        Ground truth dataset.
-    x1 : xr.Dataset
-        Predicted dataset.
-    var : str
-        Variable name to analyse.
-    typeerror : str, default 'rmse'
-        Type of error to compute, options are 'rmse', 'bias', 'abias'.
-    dim : str or tuple of str or None, optional
-        Dimension(s) along which to compute the error.
-    index_fn : Callable[..., xr.Dataset | xr.DataArray] or None, optional
-        Function computing the desired index (None for raw data).
-    season : str | None, optional
-        Season to filter before computing the index.
-    **index_kwargs : Any
-        Additional keyword arguments passed to the index function.
-
-    Returns
-    -------
-    xr.Dataset or xr.DataArray
-        Error between x0 and x1.
-    """
-    x0_index: xr.Dataset | xr.DataArray
-    x1_index: xr.Dataset | xr.DataArray
-
-    if index_fn is None:
-        x0_index = filter_by_monthseason(x0, season)[[var]]
-        x1_index = filter_by_monthseason(x1, season)[[var]]
-    else:
-        call_kwargs = dict(index_kwargs)
-        if season is not None and "season" not in call_kwargs:
-            call_kwargs["season"] = season
-        if var is not None and "var" not in call_kwargs:
-            call_kwargs["var"] = var
-
-        x0_index = index_fn(x0, **call_kwargs)
-        x1_index = index_fn(x1, **call_kwargs)
-
-    dim_tuple: tuple[str, ...] | None
-    if isinstance(dim, str):
-        dim_tuple = (dim,)
-    else:
-        dim_tuple = dim
-
-    axis_num: int | tuple[int, ...] | None
-    if isinstance(dim_tuple, tuple):
-        dim_list = list(x0_index.dims)
-        matches = [dim1 for dim1 in dim_list if dim1 in dim_tuple]
-        axis_num = tuple(dim_list.index(dim1) for dim1 in matches)
-        if not matches:
-            print(
-                f"Warning: no matches found for {list(dim_tuple)} in {dim_list} so set dim=None"
-            )
-            axis_num = None
-    else:
-        axis_num = None
-
-    if axis_num is None:
-        error_xarray = (x1_index - x0_index).mean(dim=dim) * 0.0
-        error_result = calculate_error_nparray(
-            x0_index[var].values, x1_index[var].values, axis=None, typeerror=typeerror
-        )
-        error_xarray = error_xarray + error_result
-    else:
-        error_xarray = (x1_index - x0_index).mean(dim=dim) * 0.0
-        error_result = calculate_error_nparray(
-            x0_index[var].values,
-            x1_index[var].values,
-            axis=axis_num,
-            typeerror=typeerror,
-        )
-        error_xarray = error_xarray + error_result
-
-    return error_xarray
-
-
-def pearsoncorr_ann_index(
-    x0: xr.Dataset,
-    x1: xr.Dataset,
-    var: str,
-    dim: str | tuple[str, ...] | None = None,
-    index_fn: Callable[..., xr.Dataset | xr.DataArray] | None = None,
-    season: str | None = None,
-    **index_kwargs: Any,
-) -> xr.Dataset | xr.DataArray:
-    """
-    Compute the Pearson Correlation between (index function of) x0 and x1 datasets.
-
-    Parameters
-    ----------
-    x0 : xr.Dataset
-        Ground truth dataset.
-    x1 : xr.Dataset
-        Predicted dataset.
-    var : str
-        Variable name to analyse.
-    dim : str or tuple of str or None, optional
-        Dimension(s) along which to compute the correlation.
-    index_fn : Callable[..., xr.Dataset | xr.DataArray] or None, optional
-        Function computing the desired index (None for raw data).
-    season : str | None, optional
-        Season to filter before computing the index.
-    **index_kwargs : Any
-        Additional keyword arguments passed to the index function.
-
-    Returns
-    -------
-    xr.Dataset or xr.DataArray
-        Pearson correlation between x0 and x1.
-    """
-    x0_index: xr.Dataset | xr.DataArray
-    x1_index: xr.Dataset | xr.DataArray
-
-    if index_fn is None:
-        x0_index = filter_by_monthseason(x0, season)[[var]]
-        x1_index = filter_by_monthseason(x1, season)[[var]]
-    else:
-        call_kwargs = dict(index_kwargs)
-        if season is not None and "season" not in call_kwargs:
-            call_kwargs["season"] = season
-        if var is not None and "var" not in call_kwargs:
-            call_kwargs["var"] = var
-
-        x0_index = index_fn(x0, **call_kwargs)
-        x1_index = index_fn(x1, **call_kwargs)
-
-    dim_tuple: tuple[str, ...] | None
-    if isinstance(dim, str):
-        dim_tuple = (dim,)
-    else:
-        dim_tuple = dim
-
-    axis_num: int | tuple[int, ...] | None
-    if isinstance(dim_tuple, tuple):
-        dim_list = list(x0_index.dims)
-        matches = [dim1 for dim1 in dim_list if dim1 in dim_tuple]
-        axis_num = tuple(dim_list.index(dim1) for dim1 in matches)
-        if not matches:
-            print(
-                f"Warning: no matches found for {list(dim_tuple)} in {dim_list} so set dim=None"
-            )
-            axis_num = None
-    else:
-        axis_num = None
-
-    if axis_num is None:
-        pcor_xarray = x0_index.mean(dim=dim) * 0.0
-        pcor_result = calculate_pearsoncorr_nparray(
-            x0_index[var].values, x1_index[var].values, axis=None
-        )
-        pcor_xarray = pcor_xarray + pcor_result
-    else:
-        pcor_xarray = x0_index.mean(dim=dim) * 0.0
-        pcor_result = calculate_pearsoncorr_nparray(
-            x0_index[var].values, x1_index[var].values, axis=axis_num
-        )
-        pcor_xarray = pcor_xarray + pcor_result
-
-    return pcor_xarray
-
-
-def rmse(
-    x0: xr.Dataset,
-    x1: xr.Dataset,
-    var: str,
-    season: str | None = None,
-    dim: str | tuple[str, ...] | None = None,
-) -> xr.Dataset:
-    """
-    Compute the root mean square error between x0 and x1 datasets.
-
-    Parameters
-    ----------
-    x0 : xr.Dataset
-        Ground truth dataset.
-    x1 : xr.Dataset
-        Predicted dataset.
-    var : str
-        Variable name to analyse.
-    season : str | None, optional
-        Season to filter before computing the RMSE.
-    dim : str or tuple of str or None, optional
-        Dimension(s) along which to compute the RMSE.
-
-    Returns
-    -------
-    xr.Dataset
-        Root mean square error dataset.
-    """
-    x0_filtered = filter_by_monthseason(x0, season)
-    x1_filtered = filter_by_monthseason(x1, season)
-
-    x0_da = x0_filtered[[var]]
-    x1_da = x1_filtered[[var]]
-
-    squared_diff = (x1_da - x0_da) ** 2
-
-    if dim is None:
-        mse = squared_diff.mean()
-    else:
-        mse = squared_diff.mean(dim=dim)
-
-    rmse_result: xr.Dataset = np.sqrt(mse)  # type: ignore[assignment]
-
-    return rmse_result
-
-
 def calc_pdf_metric_nparray(
     arr0: np.ndarray,
     arr1: np.ndarray,
@@ -850,6 +540,9 @@ def calc_pdf_metric_nparray(
 
     Computes bin probabilities, then calculates the requested distance or similarity
     metric using the specified method.
+
+    Copyright (c) 2026 Klima consulting
+    Author: Rosie Eade
 
     Parameters
     ----------
@@ -1057,7 +750,7 @@ def calc_pdf_metric_nparray(
             qhist = qhist / qhist.sum(axis=0)
 
             dist_out = jensenshannon(phist, qhist)
-            dist_out = dist_out.astype(float)
+            # dist_out = dist_out.astype(float)
 
         elif typedistance == "fcss":
             phist = np.apply_along_axis(
@@ -1220,6 +913,9 @@ def calc_pdf_metric_xr(
     Filters by season, applies any index functions if specified, detects and handles
     ensemble member dimensions, and flattens along the specified dimensions before
     computing distribution comparison metrics.
+
+    Copyright (c) 2026 Klima consulting
+    Author: Rosie Eade
 
     Parameters
     ----------
