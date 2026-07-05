@@ -89,8 +89,8 @@ def main() -> None:
 )
 @click.option(
     "--align-leap-days",
-    type=bool,
-    default=True,
+    type=str,
+    default="fill",
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 def fast(
@@ -99,7 +99,7 @@ def fast(
     var: str,
     output: str,
     season: str | None,
-    align_leap_days: bool,
+    align_leap_days: str | None,
 ) -> None:
     """
     Run the fast-track evaluation workflow.
@@ -119,8 +119,8 @@ def fast(
         Directory, file prefix, or final Zarr store path.
     season : str | None
         Optional season or month standard name.
-    align_leap_days : bool
-        Option to align datasets to standard calendar by filling missing leap days.
+    align_leap_days : str | None
+        Options to align datasets to standard calendar by filling missing leap days.
 
     Returns
     -------
@@ -243,33 +243,6 @@ def fast(
         cmean=True,
     )
 
-    # Compute Bias of freq ge 1mm/day (over time): field
-    # **Precipitation only metric
-    click.echo("Computing Bias of freq ge 1mm/day (over time): field...")
-    biasf_r1_ds = bias_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=indices.ann_freq_wrt_array,
-        threshold=1.0,
-        relation="ge",
-        cmean=True,
-    )
-
-    # Compute Bias of sdii (over time): field
-    # **Precipitation only metric
-    click.echo("Computing Bias of sdii (over time): field...")
-    biasf_sdii_ds = bias_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=indices.ann_sdii,
-        wet_threshold=1.0,
-        cmean=True,
-    )
-
     # Compute PSD and RALSD
     click.echo("Computing Power Spectral Density (PSD) (over lat, lon)...")
     psd_x0, psd_x1 = psd(x0_ds, x1_ds, var=var, season=season)
@@ -278,13 +251,41 @@ def fast(
     ralsd_val = ralsd(psd_x0, psd_x1, var)
     click.echo(f"RALSD: {ralsd_val}")
 
-    print(type(psd_x0))
-    print(psd_x0)
-    print(type(ralsd_val))
-    print(ralsd_val)
+    if var==pr:
+        # Compute Bias of freq ge 1mm/day (over time): field
+        # **Precipitation only metric
+        click.echo("Computing Bias of freq ge 1mm/day (over time): field...")
+        biasf_r1_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_freq_wrt_array,
+            threshold=1.0,
+            relation="ge",
+            cmean=True,
+        )
+
+        # Compute Bias of sdii (over time): field
+        # **Precipitation only metric
+        click.echo("Computing Bias of sdii (over time): field...")
+        biasf_sdii_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_sdii,
+            wet_threshold=1.0,
+            cmean=True,
+        )
+
+        metrics_pr = {
+            "bias_r1_field": biasf_r1_ds,
+            "bias_sdii_field": biasf_sdii_ds,
+        }
 
     # Compute Var90p, Var10p e.g. TX90p
-    # **Needs Code adjusted for leap-year calendar optiont**
+    # **Needs Code adjusted for leap-year calendar option**
 
     # Compute temporal spectral distance
     # **Needs Code**
@@ -302,8 +303,6 @@ def fast(
         "bias_acorr_field": biasf_acorr_ds,
         "bias_max1day_field": biasf_max1day_ds,
         "bias_min1day_field": biasf_min1day_ds,
-        "bias_r1_field": biasf_r1_ds,
-        "bias_sdii_field": biasf_sdii_ds,
         "ralsd": ralsd_val,
     }
 
@@ -311,6 +310,7 @@ def fast(
         "psd_x0": psd_x0,
         "psd_x1": psd_x1,
     }
+    
 
     # tmp: also store as .nc files to check
     for name, ds in metrics.items():
@@ -321,12 +321,21 @@ def fast(
         filepath = os.path.join(output, f"{name}.nc")
         ds.to_netcdf(filepath)
         print(f"Saved {name} -> {filepath}")
+    if var=="pr":
+        for name, ds in metrics_pr.items():
+            filepath = os.path.join(output, f"{name}.nc")
+            ds.to_netcdf(filepath)
+            print(f"Saved {name} -> {filepath}")
 
     metrics_path = _get_output_path(output, "metrics_fast.zarr")
     write_zarr(metrics, metrics_path, mode="w", var=var)
 
     metrics_psd_path = _get_output_path(output, "metrics_psd.zarr")
     write_zarr(metrics_psd, metrics_psd_path, mode="w", var=var)
+    
+    if var=="pr":
+        metrics_pr_path = _get_output_path(output, "metrics_pr.zarr")
+        write_zarr(metrics_pr, metrics_pr_path, mode="w", var=var)
 
     click.echo(f"Saved all fast-track metrics to {metrics_path}")
 
@@ -361,8 +370,8 @@ def fast(
 )
 @click.option(
     "--align-leap-days",
-    type=bool,
-    default=True,
+    type=str,
+    default="fill",
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 def slow(
@@ -371,7 +380,7 @@ def slow(
     var: str,
     output: str,
     season: str | None,
-    align_leap_days: bool,
+    align_leap_days: str | None,
 ) -> None:
     """
     Run the slow-track evaluation workflow.
@@ -391,8 +400,8 @@ def slow(
         Directory, file prefix, or final Zarr store path.
     season : str | None
         Optional season or month standard name.
-    align_leap_days : bool
-        Option to align datasets to standard calendar by filling missing leap days.
+    align_leap_days : str | None
+        Options to align datasets to standard calendar by filling missing leap days.
 
     Returns
     -------
@@ -404,8 +413,8 @@ def slow(
     click.echo(f"Loading prediction: {x1}")
     x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
 
-    # Compute lat, lon Pearson Correlation: field
-    click.echo("Computing time Pearson Correlation of daily data: series...")
+    # Compute Pearson Correlation of daily data (over lat, lon): series
+    click.echo("Computing Pearson Correlation of daily data (over lat, lon): series...")
     pcorrf_ds = corr_index(
         x0_ds,
         x1_ds,
@@ -414,8 +423,8 @@ def slow(
         dim=("time"),
     )
 
-    # Compute lat, lon Spearman Correlation: field
-    click.echo("Computing time Spearman Correlation of daily data: series...")
+    # Compute Spearman Correlation of daily data (over lat, lon): series
+    click.echo("Computing Spearman Correlation of daily data (over lat, lon): series...")
     scorrf_ds = corr_index(
         x0_ds,
         x1_ds,
@@ -425,8 +434,8 @@ def slow(
         srank=True,
     )
 
-    # Compute time Bias of std(ann mean): field
-    click.echo("Computing time Bias of std of annual means: field...")
+    # Compute Bias of std of annual means (over time): field
+    click.echo("Computing Bias of std of annual means (over time): field...")
     biasf_annstd_ds = bias_index(
         x0_ds,
         x1_ds,
@@ -550,6 +559,87 @@ def slow(
         typedistance="wdh",
     )
 
+    if var=="tasmax":
+        # Compute Bias of freq ge 25C (over time): field
+        # **Tasmax only metric Summer Days
+        click.echo("Computing  Bias of freq ge 25C (over time): field...")
+        biasf_su_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_freq_wrt_array,
+            threshold=25.0,
+            relation="ge",
+            cmean=True,
+        )
+        # Compute Bias of freq ge 35C (over time): field
+        # **Tasmax only metric Hot Days
+        click.echo("Computing  Bias of freq ge 35C (over time): field...")
+        biasf_hot_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_freq_wrt_array,
+            threshold=35.0,
+            relation="ge",
+            cmean=True,
+        )
+        # Compute Bias of freq lt 0C (over time): field
+        # **Tasmax only metric Ice Days
+        click.echo("Computing  Bias of freq lt 0C (over time): field...")
+        biasf_ice_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_freq_wrt_array,
+            threshold=0.0,
+            relation="lt",
+            cmean=True,
+        )
+
+        metrics_tasmax = {
+            "bias_su_field": biasf_su_ds,
+            "bias_hot_field": biasf_hot_ds,
+            "bias_ice_field": biasf_ice_ds,
+        }
+
+    if var=="tasmin":
+        # Compute Bias of freq ge 20C (over time): field
+        # **Tasmin only metric Tropical Nights
+        click.echo("Computing  Bias of freq ge 20C (over time): field...")
+        biasf_trop_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_freq_wrt_array,
+            threshold=20.0,
+            relation="ge",
+            cmean=True,
+        )
+        # Compute Bias of freq lt 0C (over time): field
+        # **Tasmin only metric Frost Days
+        click.echo("Computing  Bias of freq lt 0C (over time): field...")
+        biasf_frost_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_freq_wrt_array,
+            threshold=0.0,
+            relation="lt",
+            cmean=True,
+        )
+
+        metrics_tasmin = {
+            "bias_trop_field": biasf_trop_ds,
+            "bias_frost_field": biasf_frost_ds,
+        }
+
+
     # Consolidate and save all slow metrics
     click.echo("Combining and saving metrics...")
     metrics = {
@@ -571,9 +661,28 @@ def slow(
         filepath = os.path.join(output, f"{name}.nc")
         ds.to_netcdf(filepath)
         print(f"Saved {name} -> {filepath}")
+    if var=="tasmax":
+        for name, ds in metrics_tasmax.items():
+            filepath = os.path.join(output, f"{name}.nc")
+            ds.to_netcdf(filepath)
+            print(f"Saved {name} -> {filepath}")
+    if var=="tasmin":
+        for name, ds in metrics_tasmin.items():
+            filepath = os.path.join(output, f"{name}.nc")
+            ds.to_netcdf(filepath)
+            print(f"Saved {name} -> {filepath}")
 
     metrics_path = _get_output_path(output, "metrics_slow.zarr")
     write_zarr(metrics, metrics_path, mode="w", var=var)
+    
+    if var=="tasmax":
+        metrics_path = _get_output_path(output, "metrics_tasmax.zarr")
+        write_zarr(metrics_tasmax, metrics_path, mode="w", var=var)
+    
+    if var=="tasmin":
+        metrics_path = _get_output_path(output, "metrics_tasmin.zarr")
+        write_zarr(metrics_tasmin, metrics_path, mode="w", var=var)
+    
     click.echo(f"Saved all slow-track metrics to {metrics_path}")
 
     click.echo("Slow-track evaluation complete.")

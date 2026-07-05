@@ -32,7 +32,7 @@ def get_output_path(base: str, suffix: str) -> str:
     return f"{base}_{suffix}"
 
 
-def load_dataset(path: str, align_leap_days: bool = False) -> xr.Dataset:
+def load_dataset(path: str, align_leap_days: str | None = None) -> xr.Dataset:
     """
     Load a NetCDF file into an xarray Dataset.
 
@@ -44,9 +44,10 @@ def load_dataset(path: str, align_leap_days: bool = False) -> xr.Dataset:
     ----------
     path : str
         The absolute or relative path to the NetCDF file.
-    align_leap_days : bool, optional
-        Whether to align the dataset to a standard calendar by filling
-        in missing February 29th values (default is False).
+    align_leap_days : str | None
+        Whether to align the calendar by filling missing leap days (default is None).
+        "fill" : fill using February 28th
+        "remove" : remove February 29th
 
     Returns
     -------
