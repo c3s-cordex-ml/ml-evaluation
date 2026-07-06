@@ -89,8 +89,8 @@ def main() -> None:
 )
 @click.option(
     "--align-leap-days",
-    type=bool,
-    default=True,
+    type=str,
+    default="fill",
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 def fast(
@@ -99,7 +99,7 @@ def fast(
     var: str,
     output: str,
     season: str | None,
-    align_leap_days: bool,
+    align_leap_days: str | None,
 ) -> None:
     """
     Run the fast-track evaluation workflow.
@@ -119,7 +119,7 @@ def fast(
         Directory, file prefix, or final Zarr store path.
     season : str | None
         Optional season or month standard name.
-    align_leap_days : bool
+    align_leap_days : str | None
         Option to align datasets to standard calendar by filling missing leap days.
 
     Returns
@@ -253,8 +253,8 @@ def fast(
 )
 @click.option(
     "--align-leap-days",
-    type=bool,
-    default=True,
+    type=str,
+    default="fill",
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 def slow(
@@ -263,7 +263,7 @@ def slow(
     var: str,
     output: str,
     season: str | None,
-    align_leap_days: bool,
+    align_leap_days: str | None,
 ) -> None:
     """
     Run the slow-track evaluation workflow.
@@ -283,7 +283,7 @@ def slow(
         Directory, file prefix, or final Zarr store path.
     season : str | None
         Optional season or month standard name.
-    align_leap_days : bool
+    align_leap_days : str | None
         Option to align datasets to standard calendar by filling missing leap days.
 
     Returns

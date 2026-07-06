@@ -27,7 +27,7 @@ def test_load_dataset_no_align(tmp_path: pathlib.Path) -> None:
     file_path = tmp_path / "test.nc"
     ds.to_netcdf(file_path)
 
-    loaded = load_dataset(str(file_path), align_leap_days=False)
+    loaded = load_dataset(str(file_path), align_leap_days=None)
     xr.testing.assert_identical(ds, loaded)
 
 
@@ -56,7 +56,7 @@ def test_load_dataset_align_leap_days(tmp_path: pathlib.Path) -> None:
     file_path = tmp_path / "noleap.nc"
     ds.to_netcdf(file_path)
 
-    loaded = load_dataset(str(file_path), align_leap_days=True)
+    loaded = load_dataset(str(file_path), align_leap_days="fill")
 
     # The loaded dataset should now have a standard calendar with 5 timestamps (including Feb 29)
     assert len(loaded.time) == 5

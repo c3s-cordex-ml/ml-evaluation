@@ -7,7 +7,7 @@ from ml_evaluation.transformations import align_calendar
 
 def test_align_calendar_no_align() -> None:
     """
-    Test align_calendar function when align_leap_days is False.
+    Test align_calendar function when align_leap_days is None.
 
     Returns
     -------
@@ -18,13 +18,13 @@ def test_align_calendar_no_align() -> None:
         {"temp": (["time"], np.arange(len(times), dtype=float))},
         coords={"time": times},
     )
-    aligned = align_calendar(ds, align_leap_days=False)
+    aligned = align_calendar(ds, align_leap_days=None)
     xr.testing.assert_identical(ds, aligned)
 
 
 def test_align_calendar_align_leap_days() -> None:
     """
-    Test align_calendar function when align_leap_days is True.
+    Test align_calendar function when align_leap_days is "fill".
 
     Converts a no-leap calendar dataset to a standard calendar and
     verifies that February 29th is added and forward-filled.
@@ -38,7 +38,7 @@ def test_align_calendar_align_leap_days() -> None:
         {"temp": (["time"], np.arange(len(times), dtype=float))},
         coords={"time": times},
     )
-    aligned = align_calendar(ds, align_leap_days=True)
+    aligned = align_calendar(ds, align_leap_days="fill")
 
     # The aligned dataset should now have a standard calendar with 5 timestamps (including Feb 29)
     assert len(aligned.time) == 5
