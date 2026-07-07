@@ -90,7 +90,7 @@ def main() -> None:
 @click.option(
     "--align-leap-days",
     type=str,
-    default="fill",
+    default=None,
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 def fast(
@@ -254,7 +254,7 @@ def fast(
 @click.option(
     "--align-leap-days",
     type=str,
-    default="fill",
+    default=None,
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 def slow(
