@@ -91,7 +91,7 @@ def main() -> None:
 @click.option(
     "--align-leap-days",
     type=str,
-    default="fill",
+    default=None,
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 def fast(
@@ -407,7 +407,7 @@ def fast(
 @click.option(
     "--align-leap-days",
     type=str,
-    default="fill",
+    default=None,
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 def slow(
@@ -779,7 +779,7 @@ def slow(
 @click.option(
     "--align-leap-days",
     type=str,
-    default="remove",
+    default=None,
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 def caldayperc365(
@@ -819,9 +819,9 @@ def caldayperc365(
         f"Running evaluation wrt calendar day thresholds for variable '{var}'..."
     )
     click.echo(f"Loading reference: {x0}")
-    x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
+    x0_ds = load_dataset(x0, align_leap_days="remove")
     click.echo(f"Loading prediction: {x1}")
-    x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
+    x1_ds = load_dataset(x1, align_leap_days="remove")
 
     if var == "tasmax" or var == "tasmin":
         # Compute Bias of freq gt 90th cal_day percentile: field
