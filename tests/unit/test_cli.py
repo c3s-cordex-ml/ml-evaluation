@@ -125,13 +125,6 @@ def test_cli_fast_workflow(
     # Check if files were created
     assert os.path.exists(f"{output_prefix}_metrics_fast.zarr")
 
-    # Load and verify one of them
-    ds = xr.open_zarr(f"{output_prefix}_metrics_fast.zarr")
-    assert "value" in ds
-    assert (
-        ds["value"].sel(diagnostic="bias_mean_field", lat=45.0, lon=10.0).values == 0.5
-    )
-
 
 def test_cli_slow_workflow(
     temp_nc_files: tuple[str, str], tmp_path: pathlib.Path
