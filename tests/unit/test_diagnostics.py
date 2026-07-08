@@ -5,8 +5,6 @@ import pandas as pd
 import xarray as xr
 import pytest
 from ml_evaluation.evaluation.diagnostics import (
-    ralsd,
-    psd,
     calc_pdf_metric_xr,
 )
 
