@@ -71,7 +71,7 @@ def test_psd_and_ralsd(test_datasets: tuple[xr.Dataset, xr.Dataset]) -> None:
     psd_x0, psd_x1 = psd(x0, x1, var="tasmax")
     assert psd_x0["tasmax"].shape == psd_x1["tasmax"].shape
     distance = ralsd(psd_x0, psd_x1, var="tasmax")
-    assert isinstance(distance["tasmax"].values, float)
+    assert isinstance(distance["tasmax"].values, (float, np.floating))
 
 
 def test_calc_pdf_metric_xr(test_datasets: tuple[xr.Dataset, xr.Dataset]) -> None:

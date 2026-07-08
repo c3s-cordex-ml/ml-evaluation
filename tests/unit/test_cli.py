@@ -101,7 +101,7 @@ def test_cli_fast_workflow(
     None
     """
     x0, x1 = temp_nc_files
-    output_prefix = str(tmp_path / "eval_out_")
+    output_prefix = str(tmp_path / "eval_out")
 
     runner = CliRunner()
     result = runner.invoke(
@@ -123,10 +123,10 @@ def test_cli_fast_workflow(
     assert "Running fast-track evaluation" in result.output
 
     # Check if files were created
-    assert os.path.exists(f"{output_prefix}metrics_fast.zarr")
+    assert os.path.exists(f"{output_prefix}_metrics_fast.zarr")
 
     # Load and verify one of them
-    ds = xr.open_zarr(f"{output_prefix}metrics_fast.zarr")
+    ds = xr.open_zarr(f"{output_prefix}_metrics_fast.zarr")
     assert "value" in ds
     assert (
         float(ds["value"].sel(diagnostic="bias_mean_field", lat=45.0, lon=10.0)) == 0.5
@@ -153,7 +153,7 @@ def test_cli_slow_workflow(
     None
     """
     x0, x1 = temp_nc_files
-    output_prefix = str(tmp_path / "eval_out_")
+    output_prefix = str(tmp_path / "eval_out")
 
     runner = CliRunner()
     result = runner.invoke(
@@ -175,10 +175,10 @@ def test_cli_slow_workflow(
     assert "Running slow-track evaluation" in result.output
 
     # Check if files were created
-    assert os.path.exists(f"{output_prefix}metrics_slow.zarr")
+    assert os.path.exists(f"{output_prefix}_metrics_slow.zarr")
 
     # Load and verify
-    ds = xr.open_zarr(f"{output_prefix}metrics_slow.zarr")
+    ds = xr.open_zarr(f"{output_prefix}_metrics_slow.zarr")
     assert "value" in ds
     assert set(ds["diagnostic"].values) == {
         "pcorr_field",
