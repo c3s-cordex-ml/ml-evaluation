@@ -340,28 +340,13 @@ def fast(
         "bias_acorr_field": biasf_acorr_ds,
         "bias_max1day_field": biasf_max1day_ds,
         "bias_min1day_field": biasf_min1day_ds,
-        "ralsd": ralsd_val,
+        "ralsd_float": ralsd_val,
     }
 
     metrics_psd = {
         "psd_x0": psd_x0,
         "psd_x1": psd_x1,
     }
-
-    # tmp: also store as .nc files to check
-    for name, ds in metrics.items():
-        filepath = os.path.join(output, f"{name}.nc")
-        ds.to_netcdf(filepath)
-        print(f"Saved {name} -> {filepath}")
-    for name, ds in metrics_psd.items():
-        filepath = os.path.join(output, f"{name}.nc")
-        ds.to_netcdf(filepath)
-        print(f"Saved {name} -> {filepath}")
-    if var == "pr":
-        for name, ds in metrics_pr.items():
-            filepath = os.path.join(output, f"{name}.nc")
-            ds.to_netcdf(filepath)
-            print(f"Saved {name} -> {filepath}")
 
     metrics_path = _get_output_path(output, "metrics_fast.zarr")
     write_zarr(metrics, metrics_path, mode="w", var=var)
@@ -686,7 +671,7 @@ def slow(
         )
 
         metrics_tasmin = {
-            "bias_trop_field": biasf_trop_ds,
+            "bias_tropnight_field": biasf_trop_ds,
             "bias_frost_field": biasf_frost_ds,
         }
 
@@ -712,30 +697,8 @@ def slow(
         "bins_hist_series": bins_hist_ds,
     }
 
-    # tmp: also store as .nc files to check
-    for name, ds in metrics.items():
-        filepath = os.path.join(output, f"{name}.nc")
-        ds.to_netcdf(filepath)
-        print(f"Saved {name} -> {filepath}")
-    for name, ds in metrics_hist.items():
-        filepath = os.path.join(output, f"{name}.nc")
-        ds.to_netcdf(filepath)
-        print(f"Saved {name} -> {filepath}")
-    if var == "tasmax":
-        for name, ds in metrics_tasmax.items():
-            filepath = os.path.join(output, f"{name}.nc")
-            ds.to_netcdf(filepath)
-            print(f"Saved {name} -> {filepath}")
-    if var == "tasmin":
-        for name, ds in metrics_tasmin.items():
-            filepath = os.path.join(output, f"{name}.nc")
-            ds.to_netcdf(filepath)
-            print(f"Saved {name} -> {filepath}")
-
     metrics_path = _get_output_path(output, "metrics_slow.zarr")
     write_zarr(metrics, metrics_path, mode="w", var=var)
-    # metrics_path = _get_output_path(output, "metrics_hist.zarr")
-    # write_zarr(metrics_hist, metrics_path, mode="w", var=var)
 
     if var == "tasmax":
         metrics_path = _get_output_path(output, "metrics_tasmax.zarr")
@@ -745,9 +708,13 @@ def slow(
         metrics_path = _get_output_path(output, "metrics_tasmin.zarr")
         write_zarr(metrics_tasmin, metrics_path, mode="w", var=var)
 
+    metrics_path = _get_output_path(output, "metrics_hist.zarr")
+    write_zarr(metrics_hist, metrics_path, mode="w", var=var)
+
     click.echo(f"Saved all slow-track metrics to {metrics_path}")
 
     click.echo("Slow-track evaluation complete.")
+
 
 if __name__ == "__main__":
     main()

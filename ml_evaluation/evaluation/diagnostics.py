@@ -1099,7 +1099,7 @@ def calc_histdata_xr(
     nbins: int = 100,
     bin_target_only: bool = False,
     **index_kwargs: Any,
-) -> xr.Dataset:
+) -> tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
     """
     Compute histogram for two xarray Datasets.
 
@@ -1182,11 +1182,8 @@ def calc_histdata_xr(
     phist, pedge = np.histogram(arr0, bins=bins_arr, density=True)
     qhist, qedge = np.histogram(arr1, bins=bins_arr, density=True)
 
-    #    res = xr.Dataset(
-    #        {
-    #            "targ_hist": phist,
-    #            "pred_hist": qhist,
-    #            "bin_edges": pedge,
-    #        })
-
-    return xr.Dataset({var: phist}), xr.Dataset({var: qhist}), xr.Dataset({var: pedge})
+    return (
+        xr.Dataset({var: ("density", phist)}),
+        xr.Dataset({var: ("density", qhist)}),
+        xr.Dataset({var: ("bin_edge", pedge)}),
+    )
