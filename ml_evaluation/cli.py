@@ -349,6 +349,7 @@ def fast(
     }
 
     metrics_path = _get_output_path(output, "metrics_fast.zarr")
+    print(metrics_path)
     write_zarr(metrics, metrics_path, mode="w", var=var)
 
     metrics_psd_path = _get_output_path(output, "metrics_psd.zarr")
@@ -698,6 +699,7 @@ def slow(
     }
 
     metrics_path = _get_output_path(output, "metrics_slow.zarr")
+    print(metrics_path)
     write_zarr(metrics, metrics_path, mode="w", var=var)
 
     if var == "tasmax":

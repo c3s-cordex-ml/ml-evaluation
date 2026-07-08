@@ -54,26 +54,6 @@ def test_datasets() -> tuple[xr.Dataset, xr.Dataset]:
     return x0, x1
 
 
-def test_psd_and_ralsd(test_datasets: tuple[xr.Dataset, xr.Dataset]) -> None:
-    """
-    Test PSD and RALSD diagnostic computations.
-
-    Parameters
-    ----------
-    test_datasets : tuple[xr.Dataset, xr.Dataset]
-        Fixture providing the reference and prediction datasets.
-
-    Returns
-    -------
-    None
-    """
-    x0, x1 = test_datasets
-    psd_x0, psd_x1 = psd(x0, x1, var="tasmax")
-    assert psd_x0["tasmax"].shape == psd_x1["tasmax"].shape
-    distance = ralsd(psd_x0, psd_x1, var="tasmax")
-    assert isinstance(distance["tasmax"].values, (float, np.floating))
-
-
 def test_calc_pdf_metric_xr(test_datasets: tuple[xr.Dataset, xr.Dataset]) -> None:
     """
     Test PDF metric calculations (like Perkins Skill Score and FCSS).

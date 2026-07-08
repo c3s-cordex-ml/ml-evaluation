@@ -123,6 +123,7 @@ def test_cli_fast_workflow(
     assert "Running fast-track evaluation" in result.output
 
     # Check if files were created
+    print(f"{output_prefix}_metrics_fast.zarr")
     assert os.path.exists(f"{output_prefix}_metrics_fast.zarr")
 
     # Load and verify one of them
@@ -175,6 +176,7 @@ def test_cli_slow_workflow(
     assert "Running slow-track evaluation" in result.output
 
     # Check if files were created
+    print(f"{output_prefix}_metrics_slow.zarr")
     assert os.path.exists(f"{output_prefix}_metrics_slow.zarr")
 
     # Load and verify
