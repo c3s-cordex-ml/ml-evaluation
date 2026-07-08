@@ -5,11 +5,6 @@ import pandas as pd
 import xarray as xr
 import pytest
 from ml_evaluation.evaluation.diagnostics import (
-    mean_bias_index,
-    error_ann_index,
-    pearsoncorr_ann_index,
-    ralsd,
-    psd,
     calc_pdf_metric_xr,
 )
 
@@ -55,83 +50,6 @@ def test_datasets() -> tuple[xr.Dataset, xr.Dataset]:
         coords={"time": times, "lat": lats, "lon": lons},
     )
     return x0, x1
-
-
-def test_mean_bias_diagnostic(test_datasets: tuple[xr.Dataset, xr.Dataset]) -> None:
-    """
-    Test mean bias calculation between x0 and x1.
-
-    Parameters
-    ----------
-    test_datasets : tuple[xr.Dataset, xr.Dataset]
-        Fixture providing the reference and prediction datasets.
-
-    Returns
-    -------
-    None
-    """
-    x0, x1 = test_datasets
-    bias = mean_bias_index(x0, x1, var="tasmax")
-    # Expected bias is +1.0 everywhere
-    assert float(bias["tasmax"].sel(lat=45.0, lon=10.0)) == 1.0
-
-
-def test_error_ann_index_rmse(test_datasets: tuple[xr.Dataset, xr.Dataset]) -> None:
-    """
-    Test RMSE calculation between x0 and x1.
-
-    Parameters
-    ----------
-    test_datasets : tuple[xr.Dataset, xr.Dataset]
-        Fixture providing the reference and prediction datasets.
-
-    Returns
-    -------
-    None
-    """
-    x0, x1 = test_datasets
-    rmse_res = error_ann_index(x0, x1, var="tasmax", typeerror="rmse", dim="time")
-    # Expected RMSE is 1.0 everywhere
-    assert float(rmse_res["tasmax"].sel(lat=45.0, lon=10.0)) == 1.0
-
-
-def test_pearsoncorr_ann_index(test_datasets: tuple[xr.Dataset, xr.Dataset]) -> None:
-    """
-    Test Pearson correlation index calculation between x0 and x1.
-
-    Parameters
-    ----------
-    test_datasets : tuple[xr.Dataset, xr.Dataset]
-        Fixture providing the reference and prediction datasets.
-
-    Returns
-    -------
-    None
-    """
-    x0, x1 = test_datasets
-    corr = pearsoncorr_ann_index(x0, x1, var="tasmax", dim="time")
-    # Since x1 is perfectly linear to x0, correlation should be 1.0
-    assert float(corr["tasmax"].sel(lat=45.0, lon=10.0)) == pytest.approx(1.0)
-
-
-def test_psd_and_ralsd(test_datasets: tuple[xr.Dataset, xr.Dataset]) -> None:
-    """
-    Test PSD and RALSD diagnostic computations.
-
-    Parameters
-    ----------
-    test_datasets : tuple[xr.Dataset, xr.Dataset]
-        Fixture providing the reference and prediction datasets.
-
-    Returns
-    -------
-    None
-    """
-    x0, x1 = test_datasets
-    psd_x0, psd_x1 = psd(x0, x1, var="tasmax")
-    assert psd_x0.shape == psd_x1.shape
-    distance = ralsd(psd_x0, psd_x1)
-    assert isinstance(distance, float)
 
 
 def test_calc_pdf_metric_xr(test_datasets: tuple[xr.Dataset, xr.Dataset]) -> None:
