@@ -129,7 +129,7 @@ def test_cli_fast_workflow(
     ds = xr.open_zarr(f"{output_prefix}_metrics_fast.zarr")
     assert "value" in ds
     assert (
-        ds["value"].sel(diagnostic="bias_mean_field", lat=45.0, lon=10.0).item() == 0.5
+        ds["value"].sel(diagnostic="bias_mean_field", lat=45.0, lon=10.0).values == 0.5
     )
 
 
