@@ -175,10 +175,10 @@ def test_cli_slow_workflow(
     assert "Running slow-track evaluation" in result.output
 
     # Check if files were created
-    assert os.path.exists(f"{output_prefix}_metrics_slow.zarr")
+    assert os.path.exists(f"{output_prefix}metrics_slow.zarr")
 
     # Load and verify
-    ds = xr.open_zarr(f"{output_prefix}_metrics_slow.zarr")
+    ds = xr.open_zarr(f"{output_prefix}metrics_slow.zarr")
     assert "value" in ds
     assert set(ds["diagnostic"].values) == {
         "pcorr_field",
