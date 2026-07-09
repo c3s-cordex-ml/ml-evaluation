@@ -15,7 +15,6 @@ from tqdm import tqdm
 from ml_evaluation.evaluation.utils import (
     filter_by_monthseason,
     radial_average,
-    calculate_corr_xrnp,
     xr_spearman_corr,
 )
 
@@ -205,13 +204,12 @@ def corr_index(
     index_fn: Callable[..., xr.Dataset | xr.DataArray] | None = None,
     season: str | None = None,
     srank: bool = False,
-    npcorr: bool = False,
     **index_kwargs: Any,
 ) -> xr.Dataset | xr.DataArray:
     """
     Compute the Correlation between x0 and x1 for a supplied index function.
 
-    Default is Pearson's correlation, with options for Spearman's rank correlation.
+    Default is Pearson's correlation, with option for Spearman's rank correlation.
 
     Parameters
     ----------
@@ -229,8 +227,6 @@ def corr_index(
         Season to filter before computing the index.
     srank : bool, default False
         If True, return the Spearman's rank correlation instead.
-    npcorr : bool, default False
-        If True, use numpy version of correlation instead of xarray.
     **index_kwargs : Any
         Additional keyword arguments passed to the index function.
 
@@ -262,19 +258,11 @@ def corr_index(
     corr_result = x0_index.mean(dim=dim) * 0.0
 
     # xr.corr requires DataArray
-    if pcorr and npcorr:
-        corr_result = corr_result + calculate_corr_xrnp(
-            x1_index[var], x0_index[var], dim=dim, corrtype="Pearson"
-        )
-    elif pcorr and not npcorr:
+    if pcorr:
         corr_result = corr_result + xr.corr(x1_index[var], x0_index[var], dim=dim)
-    elif srank and not npcorr:
+    elif srank:
         corr_result = corr_result + xr_spearman_corr(
             x1_index[var], x0_index[var], dim=dim
-        )
-    elif srank and npcorr:
-        corr_result = corr_result + calculate_corr_xrnp(
-            x1_index[var], x0_index[var], dim=dim, corrtype="Spearman"
         )
 
     return corr_result
@@ -287,12 +275,13 @@ def bias_multivariable_correlation(
     var_y: str,
     season: str | None = None,
     srank: bool = False,
-    npcorr: bool = False,
 ) -> xr.Dataset:
     """
     Compute correlations between two variables for x0 and x1 datasets.
 
-    Returns the correlation bias between the reference and predicted datasets.
+    Default is Pearson's correlation, with option for Spearman's rank correlation.
+
+    Returns the correlations and bias between the reference and predicted datasets.
 
     Parameters
     ----------
@@ -308,8 +297,6 @@ def bias_multivariable_correlation(
         Season to filter before computing the correlations.
     srank : bool, default False
         If True, return the Spearman's rank correlation instead.
-    npcorr : bool, default False
-        If True, use numpy version of correlation instead of xarray.
 
     Returns
     -------
@@ -339,33 +326,19 @@ def bias_multivariable_correlation(
     x1_corr_xarray = x1_filtered[var_x].mean(dim=dim) * 0.0
 
     # xr.corr requires DataArray
-    if pcorr and npcorr:
-        x0_corr_xarray = x0_corr_xarray + calculate_corr_xrnp(
-            x0_filtered[var_x], x0_filtered[var_y], dim=dim, corrtype="Pearson"
-        )
-        x1_corr_xarray = x1_corr_xarray + calculate_corr_xrnp(
-            x1_filtered[var_x], x1_filtered[var_y], dim=dim, corrtype="Pearson"
-        )
-    elif pcorr and not npcorr:
+    if pcorr:
         x0_corr_xarray = x0_corr_xarray + xr.corr(
             x0_filtered[var_x], x0_filtered[var_y], dim=dim
         )
         x1_corr_xarray = x1_corr_xarray + xr.corr(
             x1_filtered[var_x], x1_filtered[var_y], dim=dim
         )
-    elif srank and not npcorr:
+    elif srank:
         x0_corr_xarray = x0_corr_xarray + xr_spearman_corr(
             x0_filtered[var_x], x0_filtered[var_y], dim=dim
         )
         x1_corr_xarray = x1_corr_xarray + xr_spearman_corr(
             x1_filtered[var_x], x1_filtered[var_y], dim=dim
-        )
-    elif srank and npcorr:
-        x0_corr_xarray = x0_corr_xarray + calculate_corr_xrnp(
-            x0_filtered[var_x], x0_filtered[var_y], dim=dim, corrtype="Spearman"
-        )
-        x1_corr_xarray = x1_corr_xarray + calculate_corr_xrnp(
-            x1_filtered[var_x], x1_filtered[var_y], dim=dim, corrtype="Spearman"
         )
 
     correlation_bias = x1_corr_xarray - x0_corr_xarray
