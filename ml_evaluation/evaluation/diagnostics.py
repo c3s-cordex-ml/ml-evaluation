@@ -400,18 +400,28 @@ def psd(
     tuple of xr.Dataset
         Power spectral densities for x0 and x1.
     """
+    # Spot member dimension name if exists
+    extra_dim = None
+    x0_dims = set(x0.dims)
+    x1_dims = set(x1.dims)
+    extra_dim = x1_dims - x0_dims
+    if len(extra_dim) > 1:
+        raise ValueError("Error: can't handle x1 with more than one extra dim than x0")
+    extra_dim = list(extra_dim)[0]
+
     x0_filtered = filter_by_monthseason(x0, season)
     x1_filtered = filter_by_monthseason(x1, season)
 
     x0_da = x0_filtered[var]
     x1_da = x1_filtered[var]
 
+    # Construct dims for psd output
     x0_da_dims = list(x0_da.dims)
     x1_da_dims = list(x1_da.dims)
     x0_new_dims = x0_da_dims[:-3] + ["wavenumber"]
     x1_new_dims = x1_da_dims[:-3] + ["wavenumber"]
 
-    x0_np = np.nan_to_num(x0_da.values, nan=0.0)
+    x0_np = np.nan_to_num(x0_da.values, nan=0.0)  # 0 only sensible for precip
     x1_np = np.nan_to_num(x1_da.values, nan=0.0)
 
     fft_x0 = fft.fftshift(fft.fft2(x0_np, axes=(-2, -1)), axes=(-2, -1))
@@ -421,19 +431,29 @@ def psd(
     power_x1 = np.abs(fft_x1) ** 2
 
     psd_x0_list = [radial_average(p) for p in power_x0]
-    # psd_x1_list = [radial_average(p) for p in power_x1] 
+    # psd_x1_list = [radial_average(p) for p in power_x1]
     # ensemble -> too many values to unpack as expects p shape [lat, lon]
     # flatten power_x1 then put back together
-    flat_power_x1 = power_x1.reshape((np.prod(power_x1.shape[:-2]), *power_x1.shape[-2:]))
+    flat_power_x1 = power_x1.reshape(
+        (np.prod(power_x1.shape[:-2]), *power_x1.shape[-2:])
+    )
     psd_x1_list = [radial_average(p) for p in flat_power_x1]
-    psd_x1_np=np.array(psd_x1_list)
-    psd_x1_np=psd_x1_np.reshape(*power_x1.shape[:-2], psd_x1_np.shape[-1])
+    psd_x1_np = np.array(psd_x1_list)
+    psd_x1_np = psd_x1_np.reshape(*power_x1.shape[:-2], psd_x1_np.shape[-1])
 
     avg_psd_x0 = np.mean(psd_x0_list, axis=-2)
     avg_psd_x1 = np.mean(psd_x1_np, axis=-2)
 
     psd_x0_da = xr.DataArray(avg_psd_x0, dims=x0_new_dims, name="PSD_x0")
-    psd_x1_da = xr.DataArray(avg_psd_x1, dims=x1_new_dims, name="PSD_x1")
+    if extra_dim is None:
+        psd_x1_da = xr.DataArray(avg_psd_x1, dims=x1_new_dims, name="PSD_x1")
+    else:
+        psd_x1_da = xr.DataArray(
+            avg_psd_x1,
+            dims=x1_new_dims,
+            coords={"member": x1.coords["member"]},
+            name="PSD_x1",
+        )
 
     psd_x0_ds = xr.Dataset({var: psd_x0_da})
     psd_x1_ds = xr.Dataset({var: psd_x1_da})
@@ -462,14 +482,14 @@ def ralsd(psd_x0: xr.Dataset, psd_x1: xr.Dataset, var: str) -> xr.Dataset:
     xr.Dataset
         Scalar RALSD value.
     """
-    #ratio = psd_x0[var].values / np.maximum(psd_x1[var].values, 1e-30)
-    #log_ratio = 10.0 * np.log10(np.maximum(ratio, 1e-30))
-    #res = xr.Dataset({var: float(np.mean(log_ratio**2))})
+    # ratio = psd_x0[var].values / np.maximum(psd_x1[var].values, 1e-30)
+    # log_ratio = 10.0 * np.log10(np.maximum(ratio, 1e-30))
+    # res = xr.Dataset({var: float(np.mean(log_ratio**2))})
 
     # check update for enxemble also copes with single member
     ratio = psd_x0[var] / psd_x1[var].clip(min=1e-30)
     log_ratio = 10.0 * np.log10(ratio.clip(min=1e-30))
-    res = xr.Dataset({var: (log_ratio ** 2).mean(dim="wavenumber")})
+    res = xr.Dataset({var: (log_ratio**2).mean(dim="wavenumber")})
 
     return res
 

@@ -15,6 +15,7 @@ import ml_evaluation.evaluation.indices as indices
 from ml_evaluation.io import load_dataset, write_zarr
 from ml_evaluation.transformations import ensure_member_coords
 
+
 def _get_output_path(base: str, default_name: str) -> str:
     """
     Construct the output path based on a base path and a default filename.
@@ -132,31 +133,37 @@ def fast(
     x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
     click.echo(f"Loading prediction: {x1}")
     x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
-    
+
     x0_ds = x0_ds[[var]]
     x1_ds = x1_ds[[var]]
-    
-    # tmp: for testing subset of data
-    x0_ds = x0_ds.sel(time=((x0_ds.time.dt.year <= 2055) & (x0_ds.time.dt.year >= 2050)))
-    x1_ds = x1_ds.sel(time=((x1_ds.time.dt.year <= 2055) & (x1_ds.time.dt.year >= 2050)))
 
-    
+    # tmp: for testing subset of data
+    x0_ds = x0_ds.sel(
+        time=((x0_ds.time.dt.year <= 2055) & (x0_ds.time.dt.year >= 2050))
+    )
+    x1_ds = x1_ds.sel(
+        time=((x1_ds.time.dt.year <= 2055) & (x1_ds.time.dt.year >= 2050))
+    )
+
     # Check that lat and lon coords exactly match
     import numpy as np
+
     CheckEqual = np.array_equal(x0_ds.lat.values, x1_ds.lat.values)
     CheckClose = np.allclose(x0_ds.lat.values, x1_ds.lat.values)
-    if not(CheckEqual) and CheckClose: 
+    if not (CheckEqual) and CheckClose:
         x1_ds = x1_ds.assign_coords(lat=x0_ds.lat, lon=x0_ds.lon)
-    
+
     # Spot member dimension name if exists
     x0_dims = set(x0_ds.dims)
     x1_dims = set(x1_ds.dims)
     extra_dim = x1_dims - x0_dims
-    #if there is more than one extra dim, we cannot handle this case
+    # if there is more than one extra dim, we cannot handle this case
     if len(extra_dim) > 1:
-        raise ValueError("Error: mae and mse can't both be True")
+        raise ValueError("Error: can't handle x1 with more than one extra dim than x0")
 
-    x1_ds = ensure_member_coords(x1_ds, dim="ensemble")    
+    extra_dim = list(extra_dim)[0]
+    x1_ds = ensure_member_coords(x1_ds, dim=extra_dim, new_name="member")
+    extra_dim = "member"
 
     # Compute Bias (over time) of Mean: field
     click.echo("Computing time Bias of Mean daily data: field...")
@@ -373,9 +380,6 @@ def fast(
         "psd_x1": psd_x1,
     }
 
-    import pdb
-    pdb.set_trace()
-
     # tmp: also store as .nc files to check
     for name, ds in metrics.items():
         filepath = os.path.join(output, f"{name}.nc")
@@ -397,7 +401,6 @@ def fast(
     if var == "pr":
         metrics_pr_path = _get_output_path(output, "metrics_pr.zarr")
         write_zarr(metrics_pr, metrics_pr_path, mode="w", var=var)
-
 
     metrics_psd_path = _get_output_path(output, "metrics_psd.zarr")
     write_zarr(metrics_psd, metrics_psd_path, mode="w", var=var)
