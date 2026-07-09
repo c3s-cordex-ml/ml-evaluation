@@ -15,7 +15,7 @@ from tqdm import tqdm
 from ml_evaluation.evaluation.utils import (
     filter_by_monthseason,
     radial_average,
-    calculate_corr_xrnp,
+    xr_spearman_corr,
 )
 
 
@@ -158,7 +158,7 @@ def rmse_index(
         rmse_flag = False
 
     if mae and mse:
-        raise ValueError("Warning: mae and mse can't both be True")
+        raise ValueError("Error: mae and mse can't both be True")
 
     x0_index: xr.Dataset | xr.DataArray
     x1_index: xr.Dataset | xr.DataArray
@@ -204,13 +204,12 @@ def corr_index(
     index_fn: Callable[..., xr.Dataset | xr.DataArray] | None = None,
     season: str | None = None,
     srank: bool = False,
-    npcorr: bool = False,
     **index_kwargs: Any,
 ) -> xr.Dataset | xr.DataArray:
     """
     Compute the Correlation between x0 and x1 for a supplied index function.
 
-    Default is Pearson's correlation, with options for Spearman's rank correlation.
+    Default is Pearson's correlation, with option for Spearman's rank correlation.
 
     Parameters
     ----------
@@ -228,8 +227,6 @@ def corr_index(
         Season to filter before computing the index.
     srank : bool, default False
         If True, return the Spearman's rank correlation instead.
-    npcorr : bool, default False
-        If True, use numpy version of correlation instead of xarray.
     **index_kwargs : Any
         Additional keyword arguments passed to the index function.
 
@@ -241,7 +238,6 @@ def corr_index(
     pcorr = True
     if srank:
         pcorr = False
-        npcorr = True
 
     x0_index: xr.Dataset | xr.DataArray
     x1_index: xr.Dataset | xr.DataArray
@@ -262,15 +258,11 @@ def corr_index(
     corr_result = x0_index.mean(dim=dim) * 0.0
 
     # xr.corr requires DataArray
-    if pcorr and npcorr:
-        corr_result = corr_result + calculate_corr_xrnp(
-            x1_index[var], x0_index[var], dim=dim, corrtype="Pearson"
-        )
-    elif pcorr and not npcorr:
+    if pcorr:
         corr_result = corr_result + xr.corr(x1_index[var], x0_index[var], dim=dim)
-    elif srank and npcorr:
-        corr_result = corr_result + calculate_corr_xrnp(
-            x1_index[var], x0_index[var], dim=dim, corrtype="Spearman"
+    elif srank:
+        corr_result = corr_result + xr_spearman_corr(
+            x1_index[var], x0_index[var], dim=dim
         )
 
     return corr_result
@@ -283,12 +275,13 @@ def bias_multivariable_correlation(
     var_y: str,
     season: str | None = None,
     srank: bool = False,
-    npcorr: bool = False,
 ) -> xr.Dataset:
     """
     Compute correlations between two variables for x0 and x1 datasets.
 
-    Returns the correlation bias between the reference and predicted datasets.
+    Default is Pearson's correlation, with option for Spearman's rank correlation.
+
+    Returns the correlations and bias between the reference and predicted datasets.
 
     Parameters
     ----------
@@ -304,8 +297,6 @@ def bias_multivariable_correlation(
         Season to filter before computing the correlations.
     srank : bool, default False
         If True, return the Spearman's rank correlation instead.
-    npcorr : bool, default False
-        If True, use numpy version of correlation instead of xarray.
 
     Returns
     -------
@@ -320,7 +311,6 @@ def bias_multivariable_correlation(
     pcorr = True
     if srank:
         pcorr = False
-        npcorr = True
 
     x0_filtered = filter_by_monthseason(x0, season)
     x1_filtered = filter_by_monthseason(x1, season)
@@ -330,32 +320,25 @@ def bias_multivariable_correlation(
     dim_list = list(x0_filtered.dims)
     matches = [dim1 for dim1 in dim_list if dim1 in dim]
     if not matches:
-        raise ValueError(f"Warning: no matches found for {list(dim)} in {dim_list}")
+        raise ValueError(f"Error: no matches found for {list(dim)} in {dim_list}")
 
     x0_corr_xarray = x0_filtered[var_x].mean(dim=dim) * 0.0
     x1_corr_xarray = x1_filtered[var_x].mean(dim=dim) * 0.0
 
     # xr.corr requires DataArray
-    if pcorr and npcorr:
-        x0_corr_xarray = x0_corr_xarray + calculate_corr_xrnp(
-            x0_filtered[var_x], x0_filtered[var_y], dim=dim, corrtype="Pearson"
-        )
-        x1_corr_xarray = x1_corr_xarray + calculate_corr_xrnp(
-            x1_filtered[var_x], x1_filtered[var_y], dim=dim, corrtype="Pearson"
-        )
-    elif pcorr and not npcorr:
+    if pcorr:
         x0_corr_xarray = x0_corr_xarray + xr.corr(
             x0_filtered[var_x], x0_filtered[var_y], dim=dim
         )
         x1_corr_xarray = x1_corr_xarray + xr.corr(
             x1_filtered[var_x], x1_filtered[var_y], dim=dim
         )
-    elif srank and npcorr:
-        x0_corr_xarray = x0_corr_xarray + calculate_corr_xrnp(
-            x0_filtered[var_x], x0_filtered[var_y], dim=dim, corrtype="Spearman"
+    elif srank:
+        x0_corr_xarray = x0_corr_xarray + xr_spearman_corr(
+            x0_filtered[var_x], x0_filtered[var_y], dim=dim
         )
-        x1_corr_xarray = x1_corr_xarray + calculate_corr_xrnp(
-            x1_filtered[var_x], x1_filtered[var_y], dim=dim, corrtype="Spearman"
+        x1_corr_xarray = x1_corr_xarray + xr_spearman_corr(
+            x1_filtered[var_x], x1_filtered[var_y], dim=dim
         )
 
     correlation_bias = x1_corr_xarray - x0_corr_xarray
@@ -396,13 +379,29 @@ def psd(
     tuple of xr.Dataset
         Power spectral densities for x0 and x1.
     """
+    # Spot member dimension name if exists
+    member_dim = None
+    x0_dims = set(x0.dims)
+    x1_dims = set(x1.dims)
+    extra_dim = x1_dims - x0_dims
+    if len(extra_dim) > 1:
+        raise ValueError("Error: can't handle x1 with more than one extra dim than x0")
+    if len(extra_dim) == 1:
+        member_dim = list(extra_dim)[0]
+
     x0_filtered = filter_by_monthseason(x0, season)
     x1_filtered = filter_by_monthseason(x1, season)
 
     x0_da = x0_filtered[var]
     x1_da = x1_filtered[var]
 
-    x0_np = np.nan_to_num(x0_da.values, nan=0.0)
+    # Construct dims for psd output
+    x0_da_dims = list(x0_da.dims)
+    x1_da_dims = list(x1_da.dims)
+    x0_new_dims = x0_da_dims[:-3] + ["wavenumber"]
+    x1_new_dims = x1_da_dims[:-3] + ["wavenumber"]
+
+    x0_np = np.nan_to_num(x0_da.values, nan=0.0)  # 0 only sensible for precip
     x1_np = np.nan_to_num(x1_da.values, nan=0.0)
 
     fft_x0 = fft.fftshift(fft.fft2(x0_np, axes=(-2, -1)), axes=(-2, -1))
@@ -412,13 +411,29 @@ def psd(
     power_x1 = np.abs(fft_x1) ** 2
 
     psd_x0_list = [radial_average(p) for p in power_x0]
-    psd_x1_list = [radial_average(p) for p in power_x1]
+    # psd_x1_list = [radial_average(p) for p in power_x1]
+    # ensemble -> too many values to unpack as expects p shape [lat, lon]
+    # flatten power_x1 then put back together
+    flat_power_x1 = power_x1.reshape(
+        (np.prod(power_x1.shape[:-2]), *power_x1.shape[-2:])
+    )
+    psd_x1_list = [radial_average(p) for p in flat_power_x1]
+    psd_x1_np = np.array(psd_x1_list)
+    psd_x1_np = psd_x1_np.reshape(*power_x1.shape[:-2], psd_x1_np.shape[-1])
 
-    avg_psd_x0 = np.mean(psd_x0_list, axis=0)
-    avg_psd_x1 = np.mean(psd_x1_list, axis=0)
+    avg_psd_x0 = np.mean(psd_x0_list, axis=-2)
+    avg_psd_x1 = np.mean(psd_x1_np, axis=-2)
 
-    psd_x0_da = xr.DataArray(avg_psd_x0, dims=["wavenumber"], name="PSD_x0")
-    psd_x1_da = xr.DataArray(avg_psd_x1, dims=["wavenumber"], name="PSD_x1")
+    psd_x0_da = xr.DataArray(avg_psd_x0, dims=x0_new_dims, name="PSD_x0")
+    if member_dim is None:
+        psd_x1_da = xr.DataArray(avg_psd_x1, dims=x1_new_dims, name="PSD_x1")
+    else:
+        psd_x1_da = xr.DataArray(
+            avg_psd_x1,
+            dims=x1_new_dims,
+            coords={"member": x1.coords["member"]},
+            name="PSD_x1",
+        )
 
     psd_x0_ds = xr.Dataset({var: psd_x0_da})
     psd_x1_ds = xr.Dataset({var: psd_x1_da})
@@ -447,9 +462,15 @@ def ralsd(psd_x0: xr.Dataset, psd_x1: xr.Dataset, var: str) -> xr.Dataset:
     xr.Dataset
         Scalar RALSD value.
     """
-    ratio = psd_x0[var].values / np.maximum(psd_x1[var].values, 1e-30)
-    log_ratio = 10.0 * np.log10(np.maximum(ratio, 1e-30))
-    res = xr.Dataset({var: float(np.mean(log_ratio**2))})
+    # ratio = psd_x0[var].values / np.maximum(psd_x1[var].values, 1e-30)
+    # log_ratio = 10.0 * np.log10(np.maximum(ratio, 1e-30))
+    # res = xr.Dataset({var: float(np.mean(log_ratio**2))})
+
+    # check update for enxemble also copes with single member
+    ratio = psd_x0[var] / psd_x1[var].clip(min=1e-30)
+    log_ratio = 10.0 * np.log10(ratio.clip(min=1e-30))
+    res = xr.Dataset({var: (log_ratio**2).mean(dim="wavenumber")})
+
     return res
 
 
@@ -574,11 +595,11 @@ def calc_pdf_metric_nparray(
     """
     distance_list = ["pss", "jsd", "fcss", "lhd", "alhd", "wdh", "wd"]
     if typedistance not in distance_list:
-        raise ValueError(f"typedistance not recognised: {typedistance}")
+        raise ValueError(f"Error: typedistance not recognised: {typedistance}")
 
     axis_list = [None, 0]
     if axis not in axis_list:
-        raise ValueError(f"axis not recognised as None or 0: {axis}")
+        raise ValueError(f"Error: axis not recognised as None or 0: {axis}")
 
     dist_out: np.ndarray | float = np.nan
 
@@ -587,7 +608,7 @@ def calc_pdf_metric_nparray(
 
     if bins_arr is None:
         if nbins < 1:
-            raise ValueError(f"nbins not a positive integer: {nbins}")
+            raise ValueError(f"Error: nbins not a positive integer: {nbins}")
         nbins = int(nbins)
         arr_min = np.array([arr0.min(), arr1.min()]).min()
         arr_max = np.array([arr0.max(), arr1.max()]).max()
@@ -959,7 +980,7 @@ def calc_pdf_metric_xr(
     """
     distance_list = ["pss", "jsd", "fcss", "lhd", "alhd", "wdh", "wd"]
     if typedistance not in distance_list:
-        raise ValueError(f"typedistance not recognised: {typedistance}")
+        raise ValueError(f"Error: typedistance not recognised: {typedistance}")
 
     target_xr: xr.DataArray
     prediction_xr: xr.DataArray
@@ -1000,7 +1021,7 @@ def calc_pdf_metric_xr(
     for dname in dim_tuple:
         if dname not in pred_dims:
             raise ValueError(
-                f"dim dimension '{dname}' not found in dims {pred_dims}. "
+                f"Error; dim dimension '{dname}' not found in dims {pred_dims}. "
                 f"Expected something like 'time', 'member', etc."
             )
 
@@ -1027,7 +1048,7 @@ def calc_pdf_metric_xr(
 
     if target_xr.values.shape != prediction_xr.values.shape:
         raise ValueError(
-            f"Shape mismatch: Target ({target_xr.values.shape}), "
+            f"Error: Shape mismatch: Target ({target_xr.values.shape}), "
             f"Prediction ({prediction_xr.values.shape}). "
             f"Specify member_name if ensemble prediction."
         )
@@ -1168,7 +1189,7 @@ def calc_histdata_xr(
 
     if bins_arr is None:
         if nbins < 1:
-            raise ValueError(f"nbins not a positive integer: {nbins}")
+            raise ValueError(f"Error: nbins not a positive integer: {nbins}")
         nbins = int(nbins)
         arr_min = np.array([arr0.min(), arr1.min()]).min()
         arr_max = np.array([arr0.max(), arr1.max()]).max()

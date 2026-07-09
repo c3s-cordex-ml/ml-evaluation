@@ -13,6 +13,9 @@ from ml_evaluation.evaluation.diagnostics import (
 )
 import ml_evaluation.evaluation.indices as indices
 from ml_evaluation.io import load_dataset, write_zarr
+from ml_evaluation.transformations import (
+    align_dims,
+)
 
 
 def _get_output_path(base: str, default_name: str) -> str:
@@ -94,6 +97,12 @@ def main() -> None:
     default=None,
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
+@click.option(
+    "--force-load",
+    type=bool,
+    default=False,
+    help="Option to load data into memory for quick testing of small datasets.",
+)
 def fast(
     x0: str,
     x1: str,
@@ -101,6 +110,7 @@ def fast(
     output: str,
     season: str | None,
     align_leap_days: str | None,
+    force_load: bool,
 ) -> None:
     """
     Run the fast-track evaluation workflow.
@@ -122,6 +132,8 @@ def fast(
         Optional season or month standard name.
     align_leap_days : str | None
         Options to align datasets to standard calendar by filling missing leap days.
+    force_load : bool
+        Option to load data into memory for quick testing of small datasets.
 
     Returns
     -------
@@ -132,6 +144,17 @@ def fast(
     x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
     click.echo(f"Loading prediction: {x1}")
     x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
+
+    x0_ds = x0_ds[[var]]
+    x1_ds = x1_ds[[var]]
+
+    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds)
+
+    # Force loading when testing on smaller datasets so quick to run
+    # Works well on 6 years 3 members
+    if force_load:
+        x0_ds.load()
+        x1_ds.load()
 
     # Compute Bias (over time) of Mean: field
     click.echo("Computing time Bias of Mean daily data: field...")
@@ -351,12 +374,12 @@ def fast(
     metrics_path = _get_output_path(output, "metrics_fast.zarr")
     write_zarr(metrics, metrics_path, mode="w", var=var)
 
-    metrics_psd_path = _get_output_path(output, "metrics_psd.zarr")
-    write_zarr(metrics_psd, metrics_psd_path, mode="w", var=var)
-
     if var == "pr":
         metrics_pr_path = _get_output_path(output, "metrics_pr.zarr")
         write_zarr(metrics_pr, metrics_pr_path, mode="w", var=var)
+
+    metrics_psd_path = _get_output_path(output, "metrics_psd.zarr")
+    write_zarr(metrics_psd, metrics_psd_path, mode="w", var=var)
 
     click.echo(f"Saved all fast-track metrics to {metrics_path}")
 
@@ -395,6 +418,12 @@ def fast(
     default=None,
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
+@click.option(
+    "--force-load",
+    type=bool,
+    default=False,
+    help="Option to load data into memory for quick testing of small datasets.",
+)
 def slow(
     x0: str,
     x1: str,
@@ -402,6 +431,7 @@ def slow(
     output: str,
     season: str | None,
     align_leap_days: str | None,
+    force_load: bool,
 ) -> None:
     """
     Run the slow-track evaluation workflow.
@@ -423,6 +453,8 @@ def slow(
         Optional season or month standard name.
     align_leap_days : str | None
         Options to align datasets to standard calendar by filling missing leap days.
+    force_load : bool
+        Option to load data into memory for quick testing of small datasets.
 
     Returns
     -------
@@ -433,6 +465,17 @@ def slow(
     x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
     click.echo(f"Loading prediction: {x1}")
     x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
+
+    x0_ds = x0_ds[[var]]
+    x1_ds = x1_ds[[var]]
+
+    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds)
+
+    # Force loading when testing on smaller datasets so quick to run
+    # Works well on 6 years 3 members
+    if force_load:
+        x0_ds.load()
+        x1_ds.load()
 
     # Compute Pearson Correlation of daily data (over lat, lon): series
     click.echo("Computing Pearson Correlation of daily data (over lat, lon): series...")
@@ -488,6 +531,7 @@ def slow(
         index_fn=None,
         dim=("time",),
         typedistance="wd",
+        member_name=member_dim,
     )
 
     # Compute Wasserstein Distance hist method (over time): field
@@ -503,6 +547,7 @@ def slow(
         nbins=100,
         bin_target_only=True,
         typedistance="wdh",
+        member_name=member_dim,
     )
 
     # Compute FCSS (over time): field
@@ -518,6 +563,7 @@ def slow(
         nbins=100,
         bin_target_only=True,
         typedistance="fcss",
+        member_name=member_dim,
     )
 
     # Compute PSS (over time): field
@@ -533,6 +579,7 @@ def slow(
         nbins=100,
         bin_target_only=True,
         typedistance="pss",
+        member_name=member_dim,
     )
 
     # Compute LHD (over time): field
@@ -548,6 +595,7 @@ def slow(
         nbins=100,
         bin_target_only=True,
         typedistance="lhd",
+        member_name=member_dim,
     )
 
     # Compute FCSS (over time, lat, lon): float
@@ -563,6 +611,7 @@ def slow(
         nbins=100,
         bin_target_only=False,
         typedistance="fcss",
+        member_name=member_dim,
     )
 
     # Compute Wasserstein Distance hist method (over time, lat, lon): field
@@ -580,6 +629,7 @@ def slow(
         nbins=100,
         bin_target_only=True,
         typedistance="wdh",
+        member_name=member_dim,
     )
 
     # Compute histogram (over flattened dims): series
