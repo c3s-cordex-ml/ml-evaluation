@@ -324,7 +324,6 @@ def bias_multivariable_correlation(
     pcorr = True
     if srank:
         pcorr = False
-        npcorr = True
 
     x0_filtered = filter_by_monthseason(x0, season)
     x1_filtered = filter_by_monthseason(x1, season)
@@ -352,6 +351,13 @@ def bias_multivariable_correlation(
             x0_filtered[var_x], x0_filtered[var_y], dim=dim
         )
         x1_corr_xarray = x1_corr_xarray + xr.corr(
+            x1_filtered[var_x], x1_filtered[var_y], dim=dim
+        )
+    elif srank and not npcorr:
+        x0_corr_xarray = x0_corr_xarray + xr_spearman_corr(
+            x0_filtered[var_x], x0_filtered[var_y], dim=dim
+        )
+        x1_corr_xarray = x1_corr_xarray + xr_spearman_corr(
             x1_filtered[var_x], x1_filtered[var_y], dim=dim
         )
     elif srank and npcorr:
@@ -401,13 +407,14 @@ def psd(
         Power spectral densities for x0 and x1.
     """
     # Spot member dimension name if exists
-    extra_dim = None
+    member_dim = None
     x0_dims = set(x0.dims)
     x1_dims = set(x1.dims)
     extra_dim = x1_dims - x0_dims
     if len(extra_dim) > 1:
         raise ValueError("Error: can't handle x1 with more than one extra dim than x0")
-    extra_dim = list(extra_dim)[0]
+    if len(extra_dim) == 1:
+        member_dim = list(extra_dim)[0]
 
     x0_filtered = filter_by_monthseason(x0, season)
     x1_filtered = filter_by_monthseason(x1, season)
@@ -445,7 +452,7 @@ def psd(
     avg_psd_x1 = np.mean(psd_x1_np, axis=-2)
 
     psd_x0_da = xr.DataArray(avg_psd_x0, dims=x0_new_dims, name="PSD_x0")
-    if extra_dim is None:
+    if member_dim is None:
         psd_x1_da = xr.DataArray(avg_psd_x1, dims=x1_new_dims, name="PSD_x1")
     else:
         psd_x1_da = xr.DataArray(

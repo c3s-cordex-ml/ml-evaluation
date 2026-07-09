@@ -63,6 +63,66 @@ def align_calendar(
     return dataset
 
 
+def align_dims(x0_ds, x1_ds):
+    """
+    Align x0_ds and x1_ds along lat/lon and time, and detect a member dimension.
+
+    - Verifies lat/lon coordinates match (exactly or within tolerance), and
+      snaps x1_ds's coords to x0_ds's if they're only "close".
+    - Subsets both datasets to their common time steps, so the returned
+      datasets are time-aligned.
+    - Detects an extra "member"-like dimension in x1_ds relative to x0_ds
+      and standardizes its coordinate/name to "member".
+
+    Returns
+    -------
+    x0_ds : xr.Dataset
+        Possibly subset to the common time steps.
+    x1_ds : xr.Dataset
+        Possibly subset to the common time steps, with coords aligned to x0_ds,
+        and member dimension standardized if present.
+    member_dim : str or None
+        Name of the standardized member dimension in x1_ds, if any.
+    """
+
+    # Check that lat and lon coords exactly match
+    CheckEqual = np.array_equal(x0_ds.lat.values, x1_ds.lat.values)
+    CheckClose = np.allclose(x0_ds.lat.values, x1_ds.lat.values)
+    if not CheckEqual and not CheckClose:
+        raise ValueError("lat and/or lon coordinates don't match")
+    if not CheckEqual and CheckClose:
+        print("Warning: lat and/or lon coordinates close but needed aligning")
+        x1_ds = x1_ds.assign_coords(lat=x0_ds.lat, lon=x0_ds.lon)
+
+    # Align time steps: subset both datasets to their common times
+    if "time" in x0_ds.dims and "time" in x1_ds.dims:
+        common_times = np.intersect1d(x0_ds.time.values, x1_ds.time.values)
+        if common_times.size == 0:
+            raise ValueError("x0_ds and x1_ds have no overlapping time steps")
+        if not np.array_equal(x0_ds.time.values, common_times):
+            x0_ds = x0_ds.sel(time=common_times)
+        if not np.array_equal(x1_ds.time.values, common_times):
+            x1_ds = x1_ds.sel(time=common_times)
+
+    # Spot member dimension name if exists
+    member_dim = None
+    x0_dims = set(x0_ds.dims)
+    x1_dims = set(x1_ds.dims)
+    extra_dim = x1_dims - x0_dims
+    # if there is more than one extra dim, we cannot handle this case
+    if len(extra_dim) > 1:
+        raise ValueError(
+            f"Error: can't handle x1 dims {x1_dims} with more than "
+            f"one extra dim than x0 dims {x0_dims}"
+        )
+    if len(extra_dim) == 1:
+        member_dim = list(extra_dim)[0]
+        x1_ds = ensure_member_coords(x1_ds, dim=member_dim, new_name="member")
+        member_dim = "member"
+
+    return x0_ds, x1_ds, member_dim
+
+
 def ensure_member_coords(ds, dim="ensemble", labels=None, new_name="member"):
     """
     Check if `dim` has real coordinates on ds; assign default ones if not.
@@ -81,7 +141,9 @@ def ensure_member_coords(ds, dim="ensemble", labels=None, new_name="member"):
         Set to None to skip renaming.
     """
     if dim not in ds.dims:
-        print(f"WARNING: '{dim}' is not a dimension of this dataset")
+        print(
+            f"WARNING: '{dim}' is not a dimension of this dataset. Return dataset unchanged."
+        )
         return ds
 
     # A dimension has "real" coordinates only if it appears in ds.coords
@@ -98,7 +160,7 @@ def ensure_member_coords(ds, dim="ensemble", labels=None, new_name="member"):
                     f"size of '{dim}' ({size})"
                 )
 
-        print(f"'{dim}' has no coordinates \u2014 assigning: {labels}")
+        print(f"'{dim}' has no coordinates - assigning: {labels}")
         ds = ds.assign_coords({dim: labels})
 
     # Rename the dimension (and its coordinate, since they share the name)

@@ -13,7 +13,9 @@ from ml_evaluation.evaluation.diagnostics import (
 )
 import ml_evaluation.evaluation.indices as indices
 from ml_evaluation.io import load_dataset, write_zarr
-from ml_evaluation.transformations import ensure_member_coords
+from ml_evaluation.transformations import (
+    align_dims,
+)
 
 
 def _get_output_path(base: str, default_name: str) -> str:
@@ -95,6 +97,12 @@ def main() -> None:
     default=None,
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
+@click.option(
+    "--force-load",
+    type=bool,
+    default=False,
+    help="Option to load data into memory for quick testing of small datasets.",
+)
 def fast(
     x0: str,
     x1: str,
@@ -102,6 +110,7 @@ def fast(
     output: str,
     season: str | None,
     align_leap_days: str | None,
+    force_load: bool,
 ) -> None:
     """
     Run the fast-track evaluation workflow.
@@ -123,6 +132,8 @@ def fast(
         Optional season or month standard name.
     align_leap_days : str | None
         Options to align datasets to standard calendar by filling missing leap days.
+    force_load : bool
+        Option to load data into memory for quick testing of small datasets.
 
     Returns
     -------
@@ -137,33 +148,13 @@ def fast(
     x0_ds = x0_ds[[var]]
     x1_ds = x1_ds[[var]]
 
-    # tmp: for testing subset of data
-    x0_ds = x0_ds.sel(
-        time=((x0_ds.time.dt.year <= 2055) & (x0_ds.time.dt.year >= 2050))
-    )
-    x1_ds = x1_ds.sel(
-        time=((x1_ds.time.dt.year <= 2055) & (x1_ds.time.dt.year >= 2050))
-    )
+    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds)
 
-    # Check that lat and lon coords exactly match
-    import numpy as np
-
-    CheckEqual = np.array_equal(x0_ds.lat.values, x1_ds.lat.values)
-    CheckClose = np.allclose(x0_ds.lat.values, x1_ds.lat.values)
-    if not (CheckEqual) and CheckClose:
-        x1_ds = x1_ds.assign_coords(lat=x0_ds.lat, lon=x0_ds.lon)
-
-    # Spot member dimension name if exists
-    x0_dims = set(x0_ds.dims)
-    x1_dims = set(x1_ds.dims)
-    extra_dim = x1_dims - x0_dims
-    # if there is more than one extra dim, we cannot handle this case
-    if len(extra_dim) > 1:
-        raise ValueError("Error: can't handle x1 with more than one extra dim than x0")
-
-    extra_dim = list(extra_dim)[0]
-    x1_ds = ensure_member_coords(x1_ds, dim=extra_dim, new_name="member")
-    extra_dim = "member"
+    # Force loading when testing on smaller datasets so quick to run
+    # Works well on 6 years 3 members
+    if force_load:
+        x0_ds.load()
+        x1_ds.load()
 
     # Compute Bias (over time) of Mean: field
     click.echo("Computing time Bias of Mean daily data: field...")
@@ -442,6 +433,12 @@ def fast(
     default=None,
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
+@click.option(
+    "--force-load",
+    type=bool,
+    default=False,
+    help="Option to load data into memory for quick testing of small datasets.",
+)
 def slow(
     x0: str,
     x1: str,
@@ -449,6 +446,7 @@ def slow(
     output: str,
     season: str | None,
     align_leap_days: str | None,
+    force_load: bool,
 ) -> None:
     """
     Run the slow-track evaluation workflow.
@@ -470,6 +468,8 @@ def slow(
         Optional season or month standard name.
     align_leap_days : str | None
         Options to align datasets to standard calendar by filling missing leap days.
+    force_load : bool
+        Option to load data into memory for quick testing of small datasets.
 
     Returns
     -------
@@ -480,6 +480,19 @@ def slow(
     x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
     click.echo(f"Loading prediction: {x1}")
     x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
+
+    x0_ds = x0_ds[[var]]
+    x1_ds = x1_ds[[var]]
+
+    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds)
+
+    # Force loading when testing on smaller datasets so quick to run
+    # Works well on 6 years 3 members
+    # Force loading when testing on smaller datasets so quick to run
+    # Works well on 6 years 3 members
+    if force_load:
+        x0_ds.load()
+        x1_ds.load()
 
     # Compute Pearson Correlation of daily data (over lat, lon): series
     click.echo("Computing Pearson Correlation of daily data (over lat, lon): series...")
@@ -535,6 +548,7 @@ def slow(
         index_fn=None,
         dim=("time",),
         typedistance="wd",
+        member_name=member_dim,
     )
 
     # Compute Wasserstein Distance hist method (over time): field
@@ -550,6 +564,7 @@ def slow(
         nbins=100,
         bin_target_only=True,
         typedistance="wdh",
+        member_name=member_dim,
     )
 
     # Compute FCSS (over time): field
@@ -565,6 +580,7 @@ def slow(
         nbins=100,
         bin_target_only=True,
         typedistance="fcss",
+        member_name=member_dim,
     )
 
     # Compute PSS (over time): field
@@ -580,6 +596,7 @@ def slow(
         nbins=100,
         bin_target_only=True,
         typedistance="pss",
+        member_name=member_dim,
     )
 
     # Compute LHD (over time): field
@@ -595,6 +612,7 @@ def slow(
         nbins=100,
         bin_target_only=True,
         typedistance="lhd",
+        member_name=member_dim,
     )
 
     # Compute FCSS (over time, lat, lon): float
@@ -610,6 +628,7 @@ def slow(
         nbins=100,
         bin_target_only=False,
         typedistance="fcss",
+        member_name=member_dim,
     )
 
     # Compute Wasserstein Distance hist method (over time, lat, lon): field
@@ -627,6 +646,7 @@ def slow(
         nbins=100,
         bin_target_only=True,
         typedistance="wdh",
+        member_name=member_dim,
     )
 
     # Compute histogram (over flattened dims): series
