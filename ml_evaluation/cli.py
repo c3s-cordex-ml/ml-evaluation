@@ -13,7 +13,7 @@ from ml_evaluation.evaluation.diagnostics import (
 )
 import ml_evaluation.evaluation.indices as indices
 from ml_evaluation.io import load_dataset, write_zarr
-from ml_evaluation.evaluation.utils import make_ensemble_target_ds
+from ml_evaluation.transformations import ensure_member_coords
 
 def _get_output_path(base: str, default_name: str) -> str:
     """
@@ -139,9 +139,24 @@ def fast(
     # tmp: for testing subset of data
     x0_ds = x0_ds.sel(time=((x0_ds.time.dt.year <= 2055) & (x0_ds.time.dt.year >= 2050)))
     x1_ds = x1_ds.sel(time=((x1_ds.time.dt.year <= 2055) & (x1_ds.time.dt.year >= 2050)))
+
     
-    #import pdb
-    #pdb.set_trace()
+    # Check that lat and lon coords exactly match
+    import numpy as np
+    CheckEqual = np.array_equal(x0_ds.lat.values, x1_ds.lat.values)
+    CheckClose = np.allclose(x0_ds.lat.values, x1_ds.lat.values)
+    if not(CheckEqual) and CheckClose: 
+        x1_ds = x1_ds.assign_coords(lat=x0_ds.lat, lon=x0_ds.lon)
+    
+    # Spot member dimension name if exists
+    x0_dims = set(x0_ds.dims)
+    x1_dims = set(x1_ds.dims)
+    extra_dim = x1_dims - x0_dims
+    #if there is more than one extra dim, we cannot handle this case
+    if len(extra_dim) > 1:
+        raise ValueError("Error: mae and mse can't both be True")
+
+    x1_ds = ensure_member_coords(x1_ds, dim="ensemble")    
 
     # Compute Bias (over time) of Mean: field
     click.echo("Computing time Bias of Mean daily data: field...")
@@ -183,18 +198,18 @@ def fast(
         dim=("lat", "lon"),
     )
 
-#    # Compute Spearman Correlation of daily data (over lat, lon): series
-#    click.echo(
-#        "Computing Spearman Correlation of daily data (over lat, lon): series..."
-#    )
-#    scorrs_ds = corr_index(
-#        x0_ds,
-#        x1_ds,
-#        var=var,
-#        season=season,
-#        dim=("lat", "lon"),
-#        srank=True,
-#    )
+    # Compute Spearman Correlation of daily data (over lat, lon): series
+    click.echo(
+        "Computing Spearman Correlation of daily data (over lat, lon): series..."
+    )
+    scorrs_ds = corr_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        dim=("lat", "lon"),
+        srank=True,
+    )
 
     # Compute Bias of 99th percentile (over time): field
     click.echo("Computing Bias of 99th percentile (over time): field...")
@@ -344,7 +359,7 @@ def fast(
         "rmse_field": rmsef_ds,
         "rmse_float": rmse_ds,
         "pcorr_series": pcorrs_ds,
-#        "scorr_series": scorrs_ds,
+        "scorr_series": scorrs_ds,
         "bias_p99_field": biasf_p99_ds,
         "bias_p1_field": biasf_p1_ds,
         "bias_acorr_field": biasf_acorr_ds,
@@ -358,15 +373,34 @@ def fast(
         "psd_x1": psd_x1,
     }
 
+    import pdb
+    pdb.set_trace()
+
+    # tmp: also store as .nc files to check
+    for name, ds in metrics.items():
+        filepath = os.path.join(output, f"{name}.nc")
+        ds.to_netcdf(filepath)
+        print(f"Saved {name} -> {filepath}")
+    for name, ds in metrics_psd.items():
+        filepath = os.path.join(output, f"{name}.nc")
+        ds.to_netcdf(filepath)
+        print(f"Saved {name} -> {filepath}")
+    if var == "pr":
+        for name, ds in metrics_pr.items():
+            filepath = os.path.join(output, f"{name}.nc")
+            ds.to_netcdf(filepath)
+            print(f"Saved {name} -> {filepath}")
+
     metrics_path = _get_output_path(output, "metrics_fast.zarr")
     write_zarr(metrics, metrics_path, mode="w", var=var)
-
-    metrics_psd_path = _get_output_path(output, "metrics_psd.zarr")
-    write_zarr(metrics_psd, metrics_psd_path, mode="w", var=var)
 
     if var == "pr":
         metrics_pr_path = _get_output_path(output, "metrics_pr.zarr")
         write_zarr(metrics_pr, metrics_pr_path, mode="w", var=var)
+
+
+    metrics_psd_path = _get_output_path(output, "metrics_psd.zarr")
+    write_zarr(metrics_psd, metrics_psd_path, mode="w", var=var)
 
     click.echo(f"Saved all fast-track metrics to {metrics_path}")
 

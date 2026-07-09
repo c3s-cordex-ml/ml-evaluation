@@ -16,6 +16,7 @@ from ml_evaluation.evaluation.utils import (
     filter_by_monthseason,
     radial_average,
     calculate_corr_xrnp,
+    xr_spearman_corr,
 )
 
 
@@ -158,7 +159,7 @@ def rmse_index(
         rmse_flag = False
 
     if mae and mse:
-        raise ValueError("Warning: mae and mse can't both be True")
+        raise ValueError("Error: mae and mse can't both be True")
 
     x0_index: xr.Dataset | xr.DataArray
     x1_index: xr.Dataset | xr.DataArray
@@ -241,7 +242,6 @@ def corr_index(
     pcorr = True
     if srank:
         pcorr = False
-        npcorr = True
 
     x0_index: xr.Dataset | xr.DataArray
     x1_index: xr.Dataset | xr.DataArray
@@ -268,6 +268,10 @@ def corr_index(
         )
     elif pcorr and not npcorr:
         corr_result = corr_result + xr.corr(x1_index[var], x0_index[var], dim=dim)
+    elif srank and not npcorr:
+        corr_result = corr_result + xr_spearman_corr(
+            x1_index[var], x0_index[var], dim=dim
+        )
     elif srank and npcorr:
         corr_result = corr_result + calculate_corr_xrnp(
             x1_index[var], x0_index[var], dim=dim, corrtype="Spearman"
@@ -330,7 +334,7 @@ def bias_multivariable_correlation(
     dim_list = list(x0_filtered.dims)
     matches = [dim1 for dim1 in dim_list if dim1 in dim]
     if not matches:
-        raise ValueError(f"Warning: no matches found for {list(dim)} in {dim_list}")
+        raise ValueError(f"Error: no matches found for {list(dim)} in {dim_list}")
 
     x0_corr_xarray = x0_filtered[var_x].mean(dim=dim) * 0.0
     x1_corr_xarray = x1_filtered[var_x].mean(dim=dim) * 0.0
@@ -591,11 +595,11 @@ def calc_pdf_metric_nparray(
     """
     distance_list = ["pss", "jsd", "fcss", "lhd", "alhd", "wdh", "wd"]
     if typedistance not in distance_list:
-        raise ValueError(f"typedistance not recognised: {typedistance}")
+        raise ValueError(f"Error: typedistance not recognised: {typedistance}")
 
     axis_list = [None, 0]
     if axis not in axis_list:
-        raise ValueError(f"axis not recognised as None or 0: {axis}")
+        raise ValueError(f"Error: axis not recognised as None or 0: {axis}")
 
     dist_out: np.ndarray | float = np.nan
 
@@ -604,7 +608,7 @@ def calc_pdf_metric_nparray(
 
     if bins_arr is None:
         if nbins < 1:
-            raise ValueError(f"nbins not a positive integer: {nbins}")
+            raise ValueError(f"Error: nbins not a positive integer: {nbins}")
         nbins = int(nbins)
         arr_min = np.array([arr0.min(), arr1.min()]).min()
         arr_max = np.array([arr0.max(), arr1.max()]).max()
@@ -976,7 +980,7 @@ def calc_pdf_metric_xr(
     """
     distance_list = ["pss", "jsd", "fcss", "lhd", "alhd", "wdh", "wd"]
     if typedistance not in distance_list:
-        raise ValueError(f"typedistance not recognised: {typedistance}")
+        raise ValueError(f"Error: typedistance not recognised: {typedistance}")
 
     target_xr: xr.DataArray
     prediction_xr: xr.DataArray
@@ -1017,7 +1021,7 @@ def calc_pdf_metric_xr(
     for dname in dim_tuple:
         if dname not in pred_dims:
             raise ValueError(
-                f"dim dimension '{dname}' not found in dims {pred_dims}. "
+                f"Error; dim dimension '{dname}' not found in dims {pred_dims}. "
                 f"Expected something like 'time', 'member', etc."
             )
 
@@ -1044,7 +1048,7 @@ def calc_pdf_metric_xr(
 
     if target_xr.values.shape != prediction_xr.values.shape:
         raise ValueError(
-            f"Shape mismatch: Target ({target_xr.values.shape}), "
+            f"Error: Shape mismatch: Target ({target_xr.values.shape}), "
             f"Prediction ({prediction_xr.values.shape}). "
             f"Specify member_name if ensemble prediction."
         )
@@ -1185,7 +1189,7 @@ def calc_histdata_xr(
 
     if bins_arr is None:
         if nbins < 1:
-            raise ValueError(f"nbins not a positive integer: {nbins}")
+            raise ValueError(f"Error: nbins not a positive integer: {nbins}")
         nbins = int(nbins)
         arr_min = np.array([arr0.min(), arr1.min()]).min()
         arr_max = np.array([arr0.max(), arr1.max()]).max()

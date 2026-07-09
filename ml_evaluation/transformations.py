@@ -61,3 +61,49 @@ def align_calendar(
         )
 
     return dataset
+
+
+def ensure_member_coords(ds, dim="ensemble", labels=None, new_name="member"):
+    """
+    Check if `dim` has real coordinates on ds; assign default ones if not.
+    Then rename the dimension (and its coordinate) to `new_name`.
+    
+    Parameters
+    ----------
+    ds : xarray.Dataset or DataArray
+    dim : str
+        Name of the dimension to check.
+    labels : list-like, optional
+        Coordinate values to assign if missing. Defaults to
+        [0, 1, 2, ...] based on the dimension size.
+    new_name : str, optional
+        New name to give the dimension after assigning coordinates.
+        Set to None to skip renaming.
+    """
+    if dim not in ds.dims:
+        print(f"WARNING: '{dim}' is not a dimension of this dataset")
+        return ds
+    
+    # A dimension has "real" coordinates only if it appears in ds.coords
+    if dim in ds.coords:
+        print(f"'{dim}' already has coordinates: {ds.coords[dim].values}")
+    else:
+        size = ds.sizes[dim]
+        if labels is None:
+            labels = list(range(size))
+        else:
+            if len(labels) != size:
+                raise ValueError(
+                    f"Length of labels ({len(labels)}) does not match "
+                    f"size of '{dim}' ({size})"
+                )
+        
+        print(f"'{dim}' has no coordinates \u2014 assigning: {labels}")
+        ds = ds.assign_coords({dim: labels})
+    
+    # Rename the dimension (and its coordinate, since they share the name)
+    if new_name is not None and dim in ds.dims and dim != new_name:
+        print(f"Renaming dimension '{dim}' -> '{new_name}'")
+        ds = ds.rename({dim: new_name})
+    
+    return ds

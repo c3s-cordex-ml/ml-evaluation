@@ -323,6 +323,44 @@ def calculate_spearmancorr_nparray(
     return correlations
 
 
+def xr_spearman_corr(da_a, da_b, dim=None):
+    """
+    Spearman rank correlation between two DataArrays, mirroring xr.corr's API.
+
+    Computed as Pearson correlation (xr.corr) on rank-transformed data,
+    which is the standard definition of Spearman's rho.
+
+    Parameters
+    ----------
+    da_a, da_b : xr.DataArray
+        Arrays to correlate. Must share the dimension(s) given in `dim`.
+    dim : str, Sequence[str], or None
+        Dimension(s) to reduce over. If None, uses all dims shared by
+        da_a and da_b (same default behavior as xr.corr).
+
+    Returns
+    -------
+    xr.DataArray
+        Spearman correlation coefficient, with `dim` reduced out.
+    """
+    if dim is None:
+        dim = list(set(da_a.dims) & set(da_b.dims))
+
+    dims = [dim] if isinstance(dim, str) else list(dim)
+
+    if len(dims) == 1:
+        rank_a = da_a.rank(dim=dims[0])
+        rank_b = da_b.rank(dim=dims[0])
+    else:
+        # DataArray.rank only supports a single dim, so stack the
+        # requested dims into one before ranking, then unstack.
+        stacked = "__spearman_stack__"
+        rank_a = da_a.stack({stacked: dims}).rank(dim=stacked).unstack(stacked)
+        rank_b = da_b.stack({stacked: dims}).rank(dim=stacked).unstack(stacked)
+
+    return xr.corr(rank_a, rank_b, dim=dim)
+
+
 def calculate_corr_xrnp(
     da0: xr.DataArray,
     da1: xr.DataArray,
