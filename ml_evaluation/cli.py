@@ -371,21 +371,6 @@ def fast(
         "psd_x1": psd_x1,
     }
 
-    # tmp: also store as .nc files to check
-    for name, ds in metrics.items():
-        filepath = os.path.join(output, f"{name}.nc")
-        ds.to_netcdf(filepath)
-        print(f"Saved {name} -> {filepath}")
-    for name, ds in metrics_psd.items():
-        filepath = os.path.join(output, f"{name}.nc")
-        ds.to_netcdf(filepath)
-        print(f"Saved {name} -> {filepath}")
-    if var == "pr":
-        for name, ds in metrics_pr.items():
-            filepath = os.path.join(output, f"{name}.nc")
-            ds.to_netcdf(filepath)
-            print(f"Saved {name} -> {filepath}")
-
     metrics_path = _get_output_path(output, "metrics_fast.zarr")
     write_zarr(metrics, metrics_path, mode="w", var=var)
 
@@ -486,8 +471,6 @@ def slow(
 
     x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds)
 
-    # Force loading when testing on smaller datasets so quick to run
-    # Works well on 6 years 3 members
     # Force loading when testing on smaller datasets so quick to run
     # Works well on 6 years 3 members
     if force_load:
