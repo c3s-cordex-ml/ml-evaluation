@@ -25,4 +25,6 @@ dependencies:
 - pytorch
 - torchvision
 - click
+- zarr
+- bottleneck
 - pip
