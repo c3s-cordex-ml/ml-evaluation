@@ -15,6 +15,7 @@ import ml_evaluation.evaluation.indices as indices
 from ml_evaluation.io import load_dataset, write_zarr
 from ml_evaluation.transformations import (
     align_dims,
+    convert_threshold_units,
 )
 
 
@@ -156,6 +157,8 @@ def fast(
         x0_ds.load()
         x1_ds.load()
 
+    scale, shift = convert_threshold_units(x0_ds, var)
+
     # Compute Bias (over time) of Mean: field
     click.echo("Computing time Bias of Mean daily data: field...")
     biasf_ds = bias_index(
@@ -285,7 +288,7 @@ def fast(
             var=var,
             season=season,
             index_fn=indices.ann_freq_wrt_array,
-            threshold=1.0,
+            threshold=1.0 * scale + shift,
             relation="ge",
             cmean=True,
         )
@@ -298,7 +301,7 @@ def fast(
             var=var,
             season=season,
             index_fn=indices.ann_freq_wrt_array,
-            threshold=10.0,
+            threshold=10.0 * scale + shift,
             relation="ge",
             cmean=True,
         )
@@ -312,7 +315,7 @@ def fast(
             var=var,
             season=season,
             index_fn=indices.ann_sdii,
-            wet_threshold=1.0,
+            wet_threshold=1.0 * scale + shift,
             cmean=True,
         )
 
@@ -324,7 +327,7 @@ def fast(
             var=var,
             season=season,
             index_fn=indices.ann_maxspell_wrt_array,
-            threshold=1.0,
+            threshold=1.0 * scale + shift,
             relation="lt",
             cmean=True,
         )
@@ -337,7 +340,7 @@ def fast(
             var=var,
             season=season,
             index_fn=indices.ann_maxspell_wrt_array,
-            threshold=1.0,
+            threshold=1.0 * scale + shift,
             relation="ge",
             cmean=True,
         )
@@ -476,6 +479,8 @@ def slow(
     if force_load:
         x0_ds.load()
         x1_ds.load()
+
+    scale, shift = convert_threshold_units(x0_ds, var)
 
     # Compute Pearson Correlation of daily data (over lat, lon): series
     click.echo("Computing Pearson Correlation of daily data (over lat, lon): series...")
@@ -655,7 +660,7 @@ def slow(
             var=var,
             season=season,
             index_fn=indices.ann_freq_wrt_array,
-            threshold=25.0,
+            threshold=25.0 * scale + shift,
             relation="ge",
             cmean=True,
         )
@@ -668,7 +673,7 @@ def slow(
             var=var,
             season=season,
             index_fn=indices.ann_freq_wrt_array,
-            threshold=35.0,
+            threshold=35.0 * scale + shift,
             relation="ge",
             cmean=True,
         )
@@ -681,7 +686,7 @@ def slow(
             var=var,
             season=season,
             index_fn=indices.ann_freq_wrt_array,
-            threshold=0.0,
+            threshold=0.0 * scale + shift,
             relation="lt",
             cmean=True,
         )
@@ -702,7 +707,7 @@ def slow(
             var=var,
             season=season,
             index_fn=indices.ann_freq_wrt_array,
-            threshold=20.0,
+            threshold=20.0 * scale + shift,
             relation="ge",
             cmean=True,
         )
@@ -715,7 +720,7 @@ def slow(
             var=var,
             season=season,
             index_fn=indices.ann_freq_wrt_array,
-            threshold=0.0,
+            threshold=0.0 * scale + shift,
             relation="lt",
             cmean=True,
         )
