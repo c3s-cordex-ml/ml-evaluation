@@ -13,7 +13,7 @@ from ml_evaluation.evaluation.diagnostics import (
 )
 import ml_evaluation.evaluation.indices as indices
 from ml_evaluation.io import load_dataset, write_zarr
-
+from ml_evaluation.evaluation.utils import make_ensemble_target_ds
 
 def _get_output_path(base: str, default_name: str) -> str:
     """
@@ -132,6 +132,16 @@ def fast(
     x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
     click.echo(f"Loading prediction: {x1}")
     x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
+    
+    x0_ds = x0_ds[[var]]
+    x1_ds = x1_ds[[var]]
+    
+    # tmp: for testing subset of data
+    x0_ds = x0_ds.sel(time=((x0_ds.time.dt.year <= 2055) & (x0_ds.time.dt.year >= 2050)))
+    x1_ds = x1_ds.sel(time=((x1_ds.time.dt.year <= 2055) & (x1_ds.time.dt.year >= 2050)))
+    
+    #import pdb
+    #pdb.set_trace()
 
     # Compute Bias (over time) of Mean: field
     click.echo("Computing time Bias of Mean daily data: field...")
@@ -173,18 +183,18 @@ def fast(
         dim=("lat", "lon"),
     )
 
-    # Compute Spearman Correlation of daily data (over lat, lon): series
-    click.echo(
-        "Computing Spearman Correlation of daily data (over lat, lon): series..."
-    )
-    scorrs_ds = corr_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        dim=("lat", "lon"),
-        srank=True,
-    )
+#    # Compute Spearman Correlation of daily data (over lat, lon): series
+#    click.echo(
+#        "Computing Spearman Correlation of daily data (over lat, lon): series..."
+#    )
+#    scorrs_ds = corr_index(
+#        x0_ds,
+#        x1_ds,
+#        var=var,
+#        season=season,
+#        dim=("lat", "lon"),
+#        srank=True,
+#    )
 
     # Compute Bias of 99th percentile (over time): field
     click.echo("Computing Bias of 99th percentile (over time): field...")
@@ -334,7 +344,7 @@ def fast(
         "rmse_field": rmsef_ds,
         "rmse_float": rmse_ds,
         "pcorr_series": pcorrs_ds,
-        "scorr_series": scorrs_ds,
+#        "scorr_series": scorrs_ds,
         "bias_p99_field": biasf_p99_ds,
         "bias_p1_field": biasf_p1_ds,
         "bias_acorr_field": biasf_acorr_ds,
