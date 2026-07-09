@@ -63,6 +63,44 @@ def align_calendar(
     return dataset
 
 
+def convert_threshold_units(x0_ds, var):
+    """
+    Hardcoded index functions thresholds assume units:
+    * Temperature in degC
+    * Precipitation in mm/day
+    Read in units of var in x0_ds and output conversions
+    needed to apply to thresholds in index functions.
+
+    Parameters
+    ----------
+    dataset : xr.Dataset
+        The input xarray Dataset to be aligned.
+    var : str
+        Variable name
+
+    Returns
+    -------
+    (float, float)
+
+    """
+
+    scale = 1.0
+    shift = 0.0
+
+    ds_units = x0_ds[var].attrs.get("units")
+
+    if ds_units in ["K", "k", "degk", "kelvin", "degrees_k"]:
+        shift = +273.15  # deg C threshold to K
+
+    if ds_units in ["kg m-2 s-1", "kg/m2/s", "kg m^-2 s^-1"]:
+        scale = 1 / 86400.0  # mm/day threshold to kg m-2 s-1
+
+    if isinstance(ds_units, type(None)):
+        print(f"Warning: Units not detected for variable {var}")
+
+    return scale, shift
+
+
 def align_dims(x0_ds, x1_ds):
     """
     Align x0_ds and x1_ds along lat/lon and time, and detect a member dimension.
