@@ -379,7 +379,7 @@ def fast(
             cmean=True,
         )
 
-        metrics_pr = {
+        metrics_pr_field = {
             "bias_p98wet_field": biasf_p98wet_ds,
             "bias_p90wet_field": biasf_p90wet_ds,
             "bias_r1_field": biasf_r1_ds,
@@ -391,18 +391,25 @@ def fast(
 
     # Save all fast-track metrics
     click.echo("Combining and saving metrics...")
-    metrics = {
+    metrics_field = {
         "bias_mean_field": biasf_ds,
         "rmse_field": rmsef_ds,
         "rmse_float": rmse_ds,
-        "rmse_series": rmses_ds,
-        "pcorr_series": pcorrs_ds,
-        "scorr_series": scorrs_ds,
         "bias_p99_field": biasf_p99_ds,
         "bias_p1_field": biasf_p1_ds,
         "bias_acorr_field": biasf_acorr_ds,
         "bias_max1day_field": biasf_max1day_ds,
         "bias_min1day_field": biasf_min1day_ds,
+    }
+
+    metrics_series = {
+        "rmse_series": rmses_ds,
+        "pcorr_series": pcorrs_ds,
+        "scorr_series": scorrs_ds,
+    }
+
+    metrics_float = {
+        "rmse_float": rmse_ds,
         "ralsd_float": ralsd_val,
     }
 
@@ -411,17 +418,21 @@ def fast(
         "psd_x1": psd_x1,
     }
 
-    metrics_path = _get_output_path(output, "metrics_fast.zarr")
-    write_zarr(metrics, metrics_path, mode="w", var=var)
+    metrics_path_field = _get_output_path(output, "metrics_fast_field.zarr")
+    write_zarr(metrics_field, metrics_path_field, mode="w", var=var)
+    metrics_path_series = _get_output_path(output, "metrics_fast_series.zarr")
+    write_zarr(metrics_series, metrics_path_series, mode="w", var=var)
+    metrics_path_float = _get_output_path(output, "metrics_fast_float.zarr")
+    write_zarr(metrics_float, metrics_path_float, mode="w", var=var)
 
     if var == "pr":
-        metrics_pr_path = _get_output_path(output, "metrics_pr.zarr")
-        write_zarr(metrics_pr, metrics_pr_path, mode="w", var=var)
+        metrics_pr_path = _get_output_path(output, "metrics_pr_field.zarr")
+        write_zarr(metrics_pr_field, metrics_pr_path, mode="w", var=var)
 
     metrics_psd_path = _get_output_path(output, "metrics_psd.zarr")
     write_zarr(metrics_psd, metrics_psd_path, mode="w", var=var)
 
-    click.echo(f"Saved all fast-track metrics to {metrics_path}")
+    click.echo(f"Saved all fast-track metrics to {metrics_path_field} etc...")
 
     click.echo("Fast-track evaluation complete.")
 
@@ -777,31 +788,31 @@ def slow(
         "fcss_field": fcssf_ds,
         "pss_field": pssf_ds,
         "lhd_field": lhdf_ds,
-        "fcss_float": fcss_ds,
-        "wdh_float": wdhf_ds,
     }
 
     metrics_hist = {
         "targ_hist_series": targ_hist_ds,
         "pred_hist_series": pred_hist_ds,
         "bins_hist_series": bins_hist_ds,
+        "fcss_float": fcss_ds,
+        "wdh_float": wdhf_ds,
     }
 
-    metrics_path = _get_output_path(output, "metrics_slow.zarr")
+    metrics_path = _get_output_path(output, "metrics_slow_field.zarr")
     write_zarr(metrics, metrics_path, mode="w", var=var)
 
     if var == "tasmax":
-        metrics_path = _get_output_path(output, "metrics_tasmax.zarr")
+        metrics_path = _get_output_path(output, "metrics_tasmax_field.zarr")
         write_zarr(metrics_tasmax, metrics_path, mode="w", var=var)
 
     if var == "tasmin":
-        metrics_path = _get_output_path(output, "metrics_tasmin.zarr")
+        metrics_path = _get_output_path(output, "metrics_tasmin_field.zarr")
         write_zarr(metrics_tasmin, metrics_path, mode="w", var=var)
 
     metrics_path = _get_output_path(output, "metrics_hist.zarr")
     write_zarr(metrics_hist, metrics_path, mode="w", var=var)
 
-    click.echo(f"Saved all slow-track metrics to {metrics_path}")
+    click.echo(f"Saved all slow-track metrics to {metrics_path} etc...")
 
     click.echo("Slow-track evaluation complete.")
 
