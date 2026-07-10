@@ -379,6 +379,63 @@ def fast(
             cmean=True,
         )
 
+        # Compute Relative Bias of annual max (over time): field
+        # **precip Rx1day fast track
+        click.echo("Computing Relative Bias of annual max (over time): field...")
+        relbiasf_max1day_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            relative=True,
+            index_fn=indices.ann_extrema,
+            maxmin="max",
+            cmean=True,
+        )
+
+        # Compute Relative Bias of sdii (over time): field
+        # **Precipitation only metric
+        click.echo("Computing Relative Bias of sdii (over time): field...")
+        relbiasf_sdii_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            relative=True,
+            index_fn=indices.ann_sdii,
+            wet_threshold=1.0 * scale + shift,
+            cmean=True,
+        )
+
+        # Compute Relative Bias of 98th wet day percentile (over time): field
+        click.echo(
+            "Computing Relative Bias of 98th wet day percentile (over time): field..."
+        )
+        relbiasf_p98wet_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            relative=True,
+            index_fn=indices.season_quantile,
+            q=0.98,
+            wet_threshold=1.0 * scale + shift,
+        )
+        # Compute Relative Bias of 90th wet day percentile (over time): field
+        click.echo(
+            "Computing Relative Bias of 90th wet day percentile (over time): field..."
+        )
+        relbiasf_p90wet_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            relative=True,
+            index_fn=indices.season_quantile,
+            q=0.9,
+            wet_threshold=1.0 * scale + shift,
+        )
+
         metrics_pr_field = {
             "bias_p98wet_field": biasf_p98wet_ds,
             "bias_p90wet_field": biasf_p90wet_ds,
@@ -387,6 +444,10 @@ def fast(
             "bias_sdii_field": biasf_sdii_ds,
             "bias_cdd_field": biasf_cdd_ds,
             "bias_cwd_field": biasf_cwd_ds,
+            "relbias_rx1day_field": relbiasf_max1day_ds,
+            "relbias_sdii_field": relbiasf_sdii_ds,
+            "relbias_p98wet_field": relbiasf_p98wet_ds,
+            "relbias_p90wet_field": relbiasf_p90wet_ds,
         }
 
     # Save all fast-track metrics
