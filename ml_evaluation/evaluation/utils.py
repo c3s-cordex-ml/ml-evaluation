@@ -246,9 +246,8 @@ def resample_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArr
     xr.DataArray
         Resampled maximum spell length.
     """
-
+    tdim="time"
     def _compute(arr: xr.DataArray) -> xr.DataArray:
-        tdim="time"
         return xr.apply_ufunc(
             max_spell_length,
             arr.chunk({tdim:-1}),
