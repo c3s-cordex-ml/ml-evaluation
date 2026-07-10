@@ -64,13 +64,19 @@ def quantile(x: xr.Dataset, var: str, q: float) -> xr.Dataset:
 
 
 def season_quantile(
-    x: xr.Dataset, var: str, q: float, season: str | None = None
+    x: xr.Dataset,
+    var: str,
+    q: float,
+    season: str | None = None,
+    wet_threshold: float | None = None,
 ) -> xr.Dataset:
     """
     Compute the specified time quantile of a variable in a dataset.
 
     Filters the dataset by season or month if specified, before computing
     the quantile.
+    
+    Also option for precip to first ignore values below wet_threshold.
 
     Parameters
     ----------
@@ -82,6 +88,8 @@ def season_quantile(
         Quantile value in the interval [0, 1].
     season : str | None, optional
         Season or Month standard name to filter before computing the quantile.
+    wet_threshold : float | None
+        Precipitation threshold to qualify as a wet day e.g. 1mm/day.
 
     Returns
     -------
@@ -90,6 +98,9 @@ def season_quantile(
     """
     x_filtered = filter_by_monthseason(x, season)
     da = x_filtered[[var]]
+
+    if wet_threshold is not None:
+        da = da.where(da >= wet_threshold)
 
     result = da.quantile(q, dim="time", skipna=True)
     if "quantile" in result.dims:
