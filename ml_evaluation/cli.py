@@ -12,7 +12,7 @@ from ml_evaluation.evaluation.diagnostics import (
     calc_histdata_xr,
 )
 import ml_evaluation.evaluation.indices as indices
-from ml_evaluation.io import load_dataset, write_zarr
+from ml_evaluation.io import load_dataset, write_zarr, dask_default_params
 from ml_evaluation.transformations import (
     align_dims,
     convert_threshold_units,
@@ -104,6 +104,12 @@ def main() -> None:
     default=False,
     help="Option to load data into memory for quick testing of small datasets.",
 )
+@click.option(
+    "--use-dask",
+    type=bool,
+    default=False,
+    help="Option to use Dask for parallel processing.",
+)
 def fast(
     x0: str,
     x1: str,
@@ -112,6 +118,7 @@ def fast(
     season: str | None,
     align_leap_days: str | None,
     force_load: bool,
+    use_dask: bool
 ) -> None:
     """
     Run the fast-track evaluation workflow.
@@ -140,6 +147,11 @@ def fast(
     -------
     None
     """
+    if use_dask:
+        from dask.distributed import Client
+        client=Client(**dask_default_params)
+        click.echo('Using dask')
+
     click.echo(f"Running fast-track evaluation for variable '{var}'...")
     click.echo(f"Loading reference: {x0}")
     x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
@@ -536,6 +548,12 @@ def fast(
     default=False,
     help="Option to load data into memory for quick testing of small datasets.",
 )
+@click.option(
+    "--use-dask",
+    type=bool,
+    default=False,
+    help="Option to use Dask for parallel processing.",
+)
 def slow(
     x0: str,
     x1: str,
@@ -544,6 +562,7 @@ def slow(
     season: str | None,
     align_leap_days: str | None,
     force_load: bool,
+    use_dask: bool
 ) -> None:
     """
     Run the slow-track evaluation workflow.
@@ -572,6 +591,10 @@ def slow(
     -------
     None
     """
+    if use_dask:
+        from dask.distributed import Client
+        client=Client(**dask_default_params)
+        click.echo('Using dask')
     click.echo(f"Running slow-track evaluation for variable '{var}'...")
     click.echo(f"Loading reference: {x0}")
     x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
