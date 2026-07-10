@@ -143,14 +143,14 @@ def xr_spearman_corr(da_a, da_b, dim=None):
     dims = [dim] if isinstance(dim, str) else list(dim)
 
     if len(dims) == 1:
-        rank_a = da_a.rank(dim=dims[0])
-        rank_b = da_b.rank(dim=dims[0])
+        rank_a = da_a.chunk({dims[0]: -1}).rank(dim=dims[0])
+        rank_b = da_b.chunk({dims[0]: -1}).rank(dim=dims[0])
     else:
         # DataArray.rank only supports a single dim, so stack the
         # requested dims into one before ranking, then unstack.
         stacked = "__spearman_stack__"
-        rank_a = da_a.stack({stacked: dims}).rank(dim=stacked).unstack(stacked)
-        rank_b = da_b.stack({stacked: dims}).rank(dim=stacked).unstack(stacked)
+        rank_a = da_a.stack({stacked: dims}).chunk({stacked:-1}).rank(dim=stacked).unstack(stacked)
+        rank_b = da_b.stack({stacked: dims}).chunk({stacked:-1}).rank(dim=stacked).unstack(stacked)
 
     return xr.corr(rank_a, rank_b, dim=dim)
 
@@ -195,10 +195,11 @@ def compute_max_spell_per_year(arr: xr.DataArray) -> xr.DataArray:
     xr.DataArray
         Resampled maximum spell length.
     """
+    tdim="time"
     output: xr.DataArray = xr.apply_ufunc(
         max_spell_length,
-        arr,
-        input_core_dims=[["time"]],
+        arr.chunk({tdim:-1}),
+        input_core_dims=[[tdim]],
         output_core_dims=[[]],
         vectorize=True,
         dask="parallelized",
@@ -247,14 +248,15 @@ def resample_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArr
     """
 
     def _compute(arr: xr.DataArray) -> xr.DataArray:
+        tdim="time"
         return xr.apply_ufunc(
             max_spell_length,
-            arr,
-            input_core_dims=[["time"]],
+            arr.chunk({tdim:-1}),
+            input_core_dims=[[tdim]],
             output_core_dims=[[]],
             vectorize=True,
             dask="parallelized",
             output_dtypes=[float],
         )
 
-    return condition.resample(time=freq).map(_compute).mean("time")
+    return condition.resample({tdim:freq}).map(_compute).mean(tdim)
