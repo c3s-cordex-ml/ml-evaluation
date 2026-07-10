@@ -311,7 +311,7 @@ def fast(
             q=0.9,
             wet_threshold=1.0 * scale + shift,
         )
-    
+
         # Compute Bias of freq ge 1mm/day (over time): field
         # **Precipitation only metric
         click.echo("Computing Bias of freq ge 1mm/day (over time): field...")
@@ -380,8 +380,8 @@ def fast(
         )
 
         metrics_pr = {
-            "bias_p98wet_field":biasf_p98wet_ds,
-            "bias_p90wet_field":biasf_p90wet_ds,
+            "bias_p98wet_field": biasf_p98wet_ds,
+            "bias_p90wet_field": biasf_p90wet_ds,
             "bias_r1_field": biasf_r1_ds,
             "bias_r10_field": biasf_r10_ds,
             "bias_sdii_field": biasf_sdii_ds,
@@ -530,9 +530,7 @@ def slow(
     )
 
     # Compute Spearman's Correlation of daily data (over time): field
-    click.echo(
-        "Computing Spearman's Correlation of daily data (over time): field..."
-    )
+    click.echo("Computing Spearman's Correlation of daily data (over time): field...")
     scorrf_ds = corr_index(
         x0_ds,
         x1_ds,

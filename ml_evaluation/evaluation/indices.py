@@ -75,7 +75,7 @@ def season_quantile(
 
     Filters the dataset by season or month if specified, before computing
     the quantile.
-    
+
     Also option for precip to first ignore values below wet_threshold.
 
     Parameters
