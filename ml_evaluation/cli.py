@@ -189,6 +189,16 @@ def fast(
         dim=("time", "lat", "lon"),
     )
 
+    # Compute RMSE of daily data (over lat, lon): series
+    click.echo("Computing RMSE of daily data (over lat, lon): series...")
+    rmses_ds = rmse_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        dim=("lat", "lon"),
+    )
+
     # Compute Pearson Correlation of daily data (over lat, lon): series
     click.echo("Computing Pearson Correlation of daily data (over lat, lon): series...")
     pcorrs_ds = corr_index(
@@ -279,6 +289,29 @@ def fast(
     click.echo(f"RALSD: {ralsd_val}")
 
     if var == "pr":
+        # Compute Bias of 98th wet day percentile (over time): field
+        click.echo("Computing Bias of 98th wet day percentile (over time): field...")
+        biasf_p98wet_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.season_quantile,
+            q=0.98,
+            wet_threshold=1.0 * scale + shift,
+        )
+        # Compute Bias of 90th wet day percentile (over time): field
+        click.echo("Computing Bias of 90th wet day percentile (over time): field...")
+        biasf_p90wet_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.season_quantile,
+            q=0.9,
+            wet_threshold=1.0 * scale + shift,
+        )
+
         # Compute Bias of freq ge 1mm/day (over time): field
         # **Precipitation only metric
         click.echo("Computing Bias of freq ge 1mm/day (over time): field...")
@@ -292,6 +325,7 @@ def fast(
             relation="ge",
             cmean=True,
         )
+
         # Compute Bias of freq ge 10mm/day (over time): field
         # **Precipitation only metric
         click.echo("Computing Bias of freq ge 10mm/day (over time): field...")
@@ -346,6 +380,8 @@ def fast(
         )
 
         metrics_pr = {
+            "bias_p98wet_field": biasf_p98wet_ds,
+            "bias_p90wet_field": biasf_p90wet_ds,
             "bias_r1_field": biasf_r1_ds,
             "bias_r10_field": biasf_r10_ds,
             "bias_sdii_field": biasf_sdii_ds,
@@ -359,6 +395,7 @@ def fast(
         "bias_mean_field": biasf_ds,
         "rmse_field": rmsef_ds,
         "rmse_float": rmse_ds,
+        "rmse_series": rmses_ds,
         "pcorr_series": pcorrs_ds,
         "scorr_series": scorrs_ds,
         "bias_p99_field": biasf_p99_ds,
@@ -482,8 +519,8 @@ def slow(
 
     scale, shift = convert_threshold_units(x0_ds, var)
 
-    # Compute Pearson Correlation of daily data (over lat, lon): series
-    click.echo("Computing Pearson Correlation of daily data (over lat, lon): series...")
+    # Compute Pearson Correlation of daily data (over time): field
+    click.echo("Computing Pearson Correlation of daily data (over time): field...")
     pcorrf_ds = corr_index(
         x0_ds,
         x1_ds,
@@ -492,10 +529,8 @@ def slow(
         dim=("time"),
     )
 
-    # Compute Spearman Correlation of daily data (over lat, lon): series
-    click.echo(
-        "Computing Spearman Correlation of daily data (over lat, lon): series..."
-    )
+    # Compute Spearman's Correlation of daily data (over time): field
+    click.echo("Computing Spearman's Correlation of daily data (over time): field...")
     scorrf_ds = corr_index(
         x0_ds,
         x1_ds,
