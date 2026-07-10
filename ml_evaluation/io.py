@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from ml_evaluation.transformations import align_calendar
 
+dask_default_params=dict(n_workers=4,threads_per_worker=1)
 
 def get_output_path(base: str, suffix: str) -> str:
     """
@@ -54,7 +55,7 @@ def load_dataset(path: str, align_leap_days: str | None = None) -> xr.Dataset:
     xr.Dataset
         The loaded NetCDF dataset.
     """
-    dataset = xr.open_dataset(path)
+    dataset = xr.open_dataset(path,chunks='auto')
     dataset = align_calendar(dataset, align_leap_days=align_leap_days)
     return dataset
 
@@ -144,7 +145,7 @@ def write_netcdf(
         chunks = get_optimized_chunks(ds, "value")
         encoding["value"] = {"zlib": True, "complevel": 5, "chunksizes": chunks}
 
-    ds.to_netcdf(path, encoding=encoding)
+    ds.load().to_netcdf(path, encoding=encoding)
 
 
 def write_zarr(
@@ -196,7 +197,7 @@ def write_zarr(
             "compressors": [{"name": "zstd", "configuration": {"level": 5}}],
         }
 
-    ds.to_zarr(path, encoding=encoding, mode=mode)
+    ds.load().to_zarr(path, encoding=encoding, mode=mode)
 
 
 def write_text(content: str, path: str) -> None:
