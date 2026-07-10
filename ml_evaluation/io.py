@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from ml_evaluation.transformations import align_calendar
 
-dask_default_params=dict(n_workers=4,threads_per_worker=1)
+dask_default_params=dict(n_workers=4,threads_per_worker=1,memory_limit="4GiB")
 
 def get_output_path(base: str, suffix: str) -> str:
     """
