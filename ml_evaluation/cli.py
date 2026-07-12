@@ -10,6 +10,7 @@ from ml_evaluation.evaluation.diagnostics import (
     ralsd,
     calc_pdf_metric_xr,
     calc_histdata_xr,
+    bias_multivariable_correlation,
 )
 import ml_evaluation.evaluation.indices as indices
 from ml_evaluation.io import load_dataset, write_zarr
@@ -159,8 +160,8 @@ def fast(
 
     scale, shift = convert_threshold_units(x0_ds, var)
 
-    # Compute Bias (over time) of Mean: field
-    click.echo("Computing time Bias of Mean daily data: field...")
+    # Compute Bias of Mean (over time): field
+    click.echo("Computing Bias of Mean (over time): field...")
     biasf_ds = bias_index(
         x0_ds,
         x1_ds,
@@ -875,6 +876,150 @@ def slow(
     click.echo(f"Saved all slow-track metrics to {metrics_path} etc...")
 
     click.echo("Slow-track evaluation complete.")
+
+
+@main.command()
+@click.option(
+    "--x0",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to ground-truth NetCDF file.",
+)
+@click.option(
+    "--x1",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to predictions NetCDF file.",
+)
+@click.option("--var", required=True, type=str, help="Variable name to evaluate.")
+@click.option("--var2", required=True, type=str, help="2nd Variable name to evaluate.")
+@click.option(
+    "--output",
+    required=True,
+    type=str,
+    help="Directory or file path for the output Zarr results.",
+)
+@click.option(
+    "--season",
+    type=str,
+    default=None,
+    help="Optional season/month to filter (e.g., DJF, MAM, JJA, SON, JAN).",
+)
+@click.option(
+    "--align-leap-days",
+    type=str,
+    default=None,
+    help="Option to align datasets to standard calendar by filling missing leap days.",
+)
+@click.option(
+    "--force-load",
+    type=bool,
+    default=False,
+    help="Option to load data into memory for quick testing of small datasets.",
+)
+def multivar(
+    x0: str,
+    x1: str,
+    var: str,
+    var2: str,
+    output: str,
+    season: str | None,
+    align_leap_days: str | None,
+    force_load: bool,
+) -> None:
+    """
+    Run the multi-variate evaluation workflow.
+
+    Computes Bias of multi-variate Pearson and Spearman's correlation between x0
+    and x1 for the specified variable pair and optionally filters by season.
+
+    Parameters
+    ----------
+    x0 : str
+        Path to ground-truth NetCDF file.
+    x1 : str
+        Path to predictions NetCDF file.
+    var : str
+        Variable name to evaluate.
+    var2 : str
+        2nd Variable name to evaluate.
+    output : str
+        Directory, file prefix, or final Zarr store path.
+    season : str | None
+        Optional season or month standard name.
+    align_leap_days : str | None
+        Options to align datasets to standard calendar by filling missing leap days.
+    force_load : bool
+        Option to load data into memory for quick testing of small datasets.
+
+    Returns
+    -------
+    None
+    """
+    click.echo(f"Running multi-variate evaluation for variables '{var}', '{var2}'...")
+    click.echo(f"Loading reference: {x0}")
+    x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
+    click.echo(f"Loading prediction: {x1}")
+    x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
+
+    x0_ds = x0_ds.sel(time=(x0_ds.time.dt.year >= 2050) & (x0_ds.time.dt.year <= 2055))
+    x1_ds = x1_ds.sel(time=(x1_ds.time.dt.year >= 2050) & (x1_ds.time.dt.year <= 2055))
+
+    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds)
+
+    # Force loading when testing on smaller datasets so quick to run
+    # Works well on 6 years 3 members
+    if force_load:
+        x0_ds.load()
+        x1_ds.load()
+
+    scale, shift = convert_threshold_units(x0_ds, var)
+
+    # Compute Pearson Correlation of daily data between variables (over time): field
+    click.echo(
+        "Computing Pearson Correlation of daily data between variables (over time): field..."
+    )
+    targ_mv_pcorrf_ds, pred_mv_pcorrf_ds, bias_mv_pcorrf_ds = (
+        bias_multivariable_correlation(
+            x0_ds,
+            x1_ds,
+            var_x=var,
+            var_y=var2,
+            season=season,
+        )
+    )
+
+    # Compute Pearson Correlation of daily data between variables (over time): field
+    click.echo(
+        "Computing Spearman's Correlation of daily data between variables (over time): field..."
+    )
+    targ_mv_scorrf_ds, pred_mv_scorrf_ds, bias_mv_scorrf_ds = (
+        bias_multivariable_correlation(
+            x0_ds,
+            x1_ds,
+            var_x=var,
+            var_y=var2,
+            season=season,
+            srank=True,
+        )
+    )
+
+    # Consolidate and save all slow metrics
+    click.echo("Combining and saving metrics...")
+    metrics = {
+        "targ_mv_pcorr_field": targ_mv_pcorrf_ds,
+        "pred_mv_pcorr_field": pred_mv_pcorrf_ds,
+        "bias_mv_pcorr_field": bias_mv_pcorrf_ds,
+        "targ_mv_scorr_field": targ_mv_pcorrf_ds,
+        "pred_mv_scorr_field": pred_mv_pcorrf_ds,
+        "bias_mv_scorr_field": bias_mv_pcorrf_ds,
+    }
+    metrics_path = _get_output_path(output, "metrics_mv_field.zarr")
+    write_zarr(metrics, metrics_path, mode="w", var=var + var2)
+
+    click.echo(f"Saved all multi-variate metrics to {metrics_path} etc...")
+
+    click.echo("Multi-variate evaluation complete.")
 
 
 if __name__ == "__main__":
