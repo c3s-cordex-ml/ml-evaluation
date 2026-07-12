@@ -962,9 +962,6 @@ def multivar(
     click.echo(f"Loading prediction: {x1}")
     x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
 
-    x0_ds = x0_ds.sel(time=(x0_ds.time.dt.year >= 2050) & (x0_ds.time.dt.year <= 2055))
-    x1_ds = x1_ds.sel(time=(x1_ds.time.dt.year >= 2050) & (x1_ds.time.dt.year <= 2055))
-
     x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds)
 
     # Force loading when testing on smaller datasets so quick to run
