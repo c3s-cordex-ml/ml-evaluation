@@ -455,7 +455,6 @@ def fast(
     metrics_field = {
         "bias_mean_field": biasf_ds,
         "rmse_field": rmsef_ds,
-        "rmse_float": rmse_ds,
         "bias_p99_field": biasf_p99_ds,
         "bias_p1_field": biasf_p1_ds,
         "bias_acorr_field": biasf_acorr_ds,
