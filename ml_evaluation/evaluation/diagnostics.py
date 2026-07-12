@@ -275,7 +275,7 @@ def bias_multivariable_correlation(
     var_y: str,
     season: str | None = None,
     srank: bool = False,
-) -> xr.Dataset:
+) -> tuple[xr.DataArray, xr.DataArray, xr.DataArray]:
     """
     Compute correlations between two variables for x0 and x1 datasets.
 
@@ -300,7 +300,7 @@ def bias_multivariable_correlation(
 
     Returns
     -------
-    xr.Dataset
+    tuple of xr.DataArray
         Dataset containing the correlation bias and individual correlations.
 
     Raises
@@ -343,13 +343,13 @@ def bias_multivariable_correlation(
 
     correlation_bias = x1_corr_xarray - x0_corr_xarray
 
-    return xr.Dataset(
-        {
-            "correlation_x0": x0_corr_xarray,
-            "correlation_x1": x1_corr_xarray,
-            "correlation_bias": correlation_bias,
-        }
+    output_ds = (
+        x0_corr_xarray,
+        x1_corr_xarray,
+        correlation_bias,
     )
+
+    return output_ds
 
 
 def psd(
