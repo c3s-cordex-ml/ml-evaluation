@@ -388,10 +388,15 @@ def ann_freq_wrt_array(
     else:
         ann_freq = econdition.resample(time="1YE").sum("time")
 
-    if cmean:
-        output: xr.Dataset = ann_freq.mean("time")
+    if isinstance(ann_freq, xr.Dataset):
+        ann_freq_ds = ann_freq
     else:
-        output = ann_freq
+        ann_freq_ds = xr.Dataset({var: ann_freq})
+
+    if cmean:
+        output: xr.Dataset = ann_freq_ds.mean("time")
+    else:
+        output = ann_freq_ds
 
     return output
 
