@@ -108,6 +108,26 @@ def season_quantile(
     return result
 
 
+def calday_quantile(x: xr.Dataset, var: str, q: float, padding: int = 2) -> xr.Dataset:
+    da = x[[var]]
+    n_members = padding * 2 + 1
+    center = n_members // 2  # = 2
+    shifts = [i - center for i in range(n_members)]  # [-2, -1, 0, 1, 2]
+    members = [da.roll(time=s, roll_coords=False) for s in shifts]
+    da_members = xr.concat(members, dim="member")
+    da_members = da_members.assign_coords(member=range(n_members))
+
+    # Group by calendar day-of-year, then take the quantile over
+    # both the member (day-window) and time (all years) dimensions
+    result = da_members.groupby("time.dayofyear").quantile(
+        q, dim=("member", "time"), skipna=True
+    )
+
+    if "quantile" in result.dims:
+        result = result.sel(quantile=q)
+    return result
+
+
 def day_noleap_quantile(
     x: xr.Dataset, var: str, q: float, padding: int = 2, axis: int = 0
 ) -> xr.Dataset:
@@ -315,40 +335,17 @@ def ann_freq_wrt_array(
                 f"!= threshold ({threshold.sizes['lat']}, {threshold.sizes['lon']})"
             )
 
-        dims_input = set(da.dims)
-
         dims_thresh = set(threshold.dims)
         other_dims_thresh = dims_thresh - {"lat", "lon"}
 
         if not other_dims_thresh:
             threshold_new = threshold
-        elif other_dims_thresh == {"doy_noleap"}:
-            # Should include check that shape matches
-            threshold_assigned = xr_assign_dayofyear_noleap(da)
-            # This will become a matched array containing percentile based thresholds
-            # (matched to doy)
-            input_doy = threshold_assigned["doy_noleap"].values  # doy for input array
-            thresh_doy = threshold[
-                "doy_noleap"
-            ].values  # doy for daily percentile threshold array
-            # Check of all doy needed for input x are present in threshold
-            missing = set(np.unique(input_doy)) - set(thresh_doy)
-            if missing:
-                raise ValueError(
-                    f"Threshold doy doesn't cover all input doy, missing:"
-                    f" {sorted(int(val) for val in missing)}"
-                )
 
-            for dcount in range(len(input_doy)):
-                threshold_assigned[var].values[dcount] = threshold[var].values[
-                    np.where(thresh_doy == input_doy[dcount])[0]
-                ]
-            threshold_new = threshold_assigned
         else:
-            raise ValueError(
-                f"threshold dimensions {set(threshold.dims)} do not match "
-                f"x input full dims {dims_input}: Expected doy_noleap in threshold."
-            )
+            # Broadcast the threshold back onto actual time axis via dayofyear
+            doy = da["time"].dt.dayofyear
+            threshold_new = threshold.sel(dayofyear=doy)
+
     else:
         threshold_new = threshold
 
@@ -359,19 +356,19 @@ def ann_freq_wrt_array(
 
     # Event Condition
     if relation == "gt":
-        econdition = da > threshold_new
+        econdition = da[var] > threshold_new
     elif relation == "ge":
-        econdition = da >= threshold_new
+        econdition = da[var] >= threshold_new
     elif relation == "lt":
-        econdition = da < threshold_new
+        econdition = da[var] < threshold_new
     elif relation == "le":
-        econdition = da <= threshold_new
+        econdition = da[var] <= threshold_new
     elif relation == "eq":
-        econdition = da == threshold_new
+        econdition = da[var] == threshold_new
     elif relation == "ne":
-        econdition = da != threshold_new
+        econdition = da[var] != threshold_new
     else:
-        econdition = da > threshold_new
+        econdition = da[var] > threshold_new
 
     if season == "DJF":
         # Compute on consecutive months across year boundary ending at the end of Feb
@@ -391,10 +388,15 @@ def ann_freq_wrt_array(
     else:
         ann_freq = econdition.resample(time="1YE").sum("time")
 
-    if cmean:
-        output: xr.Dataset = ann_freq.mean("time")
+    if isinstance(ann_freq, xr.Dataset):
+        ann_freq_ds = ann_freq
     else:
-        output = ann_freq
+        ann_freq_ds = xr.Dataset({var: ann_freq})
+
+    if cmean:
+        output: xr.Dataset = ann_freq_ds.mean("time")
+    else:
+        output = ann_freq_ds
 
     return output
 
@@ -458,40 +460,15 @@ def ann_maxspell_wrt_array(
                 f"!= threshold ({threshold.sizes['lat']}, {threshold.sizes['lon']})"
             )
 
-        dims_input = set(da.dims)
-
         dims_thresh = set(threshold.dims)
         other_dims_thresh = dims_thresh - {"lat", "lon"}
 
         if not other_dims_thresh:
             threshold_new = threshold
-        elif other_dims_thresh == {"doy_noleap"}:
-            # Should include check that shape matches
-            threshold_assigned = xr_assign_dayofyear_noleap(da)
-            # This will become a matched array containing percentile based
-            # thresholds (matched to doy)
-            input_doy = threshold_assigned["doy_noleap"].values  # doy for input array
-            thresh_doy = threshold[
-                "doy_noleap"
-            ].values  # doy for daily percentile threshold array
-            # Check of all doy needed for input x are present in threshold
-            missing = set(np.unique(input_doy)) - set(thresh_doy)
-            if missing:
-                raise ValueError(
-                    f"Threshold doy doesn't cover all input doy, missing: "
-                    f"{sorted(int(val) for val in missing)}"
-                )
-
-            for dcount in range(len(input_doy)):
-                threshold_assigned[var].values[dcount] = threshold[var].values[
-                    np.where(thresh_doy == input_doy[dcount])[0]
-                ]
-            threshold_new = threshold_assigned
         else:
-            raise ValueError(
-                f"threshold dimensions {set(threshold.dims)} do not match "
-                f"x input full dims {dims_input}: Expected doy_noleap in threshold."
-            )
+            # Broadcast the threshold back onto actual time axis via dayofyear
+            doy = da["time"].dt.dayofyear
+            threshold_new = threshold.sel(dayofyear=doy)
     else:
         threshold_new = threshold
 
@@ -502,26 +479,23 @@ def ann_maxspell_wrt_array(
 
     # Event Condition
     if relation == "gt":
-        econdition = da > threshold_new
+        econdition = da[var] > threshold_new
     elif relation == "ge":
-        econdition = da >= threshold_new
+        econdition = da[var] >= threshold_new
     elif relation == "lt":
-        econdition = da < threshold_new
+        econdition = da[var] < threshold_new
     elif relation == "le":
-        econdition = da <= threshold_new
+        econdition = da[var] <= threshold_new
     elif relation == "eq":
-        econdition = da == threshold_new
+        econdition = da[var] == threshold_new
     elif relation == "ne":
-        econdition = da != threshold_new
+        econdition = da[var] != threshold_new
     else:
-        econdition = da > threshold_new
-
-    # We need to extract the DataArray from Dataset for resample mapping
-    econd_da = econdition[var]
+        econdition = da[var] > threshold_new
 
     if season == "DJF":
         # Compute on consecutive months across year boundary ending at the end of Feb
-        ann_spell = ann_max_spell(econd_da, freq="1YE-FEB")
+        ann_spell = ann_max_spell(econdition, freq="1YE-FEB")
         years = np.unique(da["time.year"])
         counts = da.resample(time="1YE-FEB").count()
         # If data covers n years going from Jan Year1 to Dec YearN, there will be
@@ -537,7 +511,7 @@ def ann_maxspell_wrt_array(
             if len(counts[var]) > len(years):
                 ann_spell = ann_spell.where(counts >= 59, drop=True)
     else:
-        ann_spell = ann_max_spell(econd_da, freq="1YE")
+        ann_spell = ann_max_spell(econdition, freq="1YE")
 
     if isinstance(ann_spell, xr.Dataset):
         ann_spell_ds = ann_spell
