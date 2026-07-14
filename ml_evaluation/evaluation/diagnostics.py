@@ -1,1210 +1,880 @@
 from __future__ import annotations
 
-from typing import Any, Callable
-
 import numpy as np
 import xarray as xr
-from numpy import fft
-from scipy.stats import (
-    wasserstein_distance_nd,
-    wasserstein_distance as scipy_wasserstein_distance,
-)
-from scipy.spatial.distance import jensenshannon
-from tqdm import tqdm
 
 from ml_evaluation.evaluation.utils import (
     filter_by_monthseason,
-    radial_average,
-    xr_spearman_corr,
+    xr_assign_dayofyear_noleap,
+    ann_max_spell,
+    resample_max_spell,
 )
 
 
-def bias_index(
-    x0: xr.Dataset,
-    x1: xr.Dataset,
-    index_fn: Callable[..., xr.Dataset | xr.DataArray],
-    season: str | None = None,
-    relative: bool = False,
-    **index_kwargs: Any,
-) -> xr.Dataset | xr.DataArray:
+def mean(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     """
-    Compute the bias between x0 and x1 for a supplied index function.
+    Compute the mean of a variable in a dataset over the time dimension.
 
-    Filters datasets using the season filter before computing index values.
+    Filters the dataset by season or month if specified, before computing
+    the mean.
 
     Parameters
     ----------
-    x0 : xr.Dataset
-        Ground truth dataset.
-    x1 : xr.Dataset
-        Predicted dataset.
-    index_fn : Callable[..., xr.Dataset | xr.DataArray]
-        Function computing the desired index.
-    season : str | None, optional
-        Season to filter before computing the index.
-    relative : bool, default False
-        If True, return the relative bias.
-    **index_kwargs : Any
-        Additional keyword arguments passed to the index function.
-
-    Returns
-    -------
-    xr.Dataset or xr.DataArray
-        Absolute or relative bias of the selected index.
-    """
-    call_kwargs = dict(index_kwargs)
-    if season is not None and "season" not in call_kwargs:
-        call_kwargs["season"] = season
-
-    x0_index = index_fn(x0, **call_kwargs)
-    x1_index = index_fn(x1, **call_kwargs)
-    bias = x1_index - x0_index
-
-    if relative:
-        return bias / x0_index
-    else:
-        return bias
-
-
-def ratio_index(
-    x0: xr.Dataset,
-    x1: xr.Dataset,
-    index_fn: Callable[..., xr.Dataset | xr.DataArray],
-    season: str | None = None,
-    **index_kwargs: Any,
-) -> xr.Dataset | xr.DataArray:
-    """
-    Compute the ratio between x1 and x0 for a supplied index function.
-
-    Filters datasets using the season filter before computing index values.
-
-    Parameters
-    ----------
-    x0 : xr.Dataset
-        Ground truth dataset.
-    x1 : xr.Dataset
-        Predicted dataset.
-    index_fn : Callable[..., xr.Dataset | xr.DataArray]
-        Function computing the desired index.
-    season : str | None, optional
-        Season to filter before computing the index.
-    **index_kwargs : Any
-        Additional keyword arguments passed to the index function.
-
-    Returns
-    -------
-    xr.Dataset or xr.DataArray
-        Ratio of the selected index (x1 / x0).
-    """
-    call_kwargs = dict(index_kwargs)
-    if season is not None and "season" not in call_kwargs:
-        call_kwargs["season"] = season
-
-    x0_index = index_fn(x0, **call_kwargs)
-    x1_index = index_fn(x1, **call_kwargs)
-    ratio = x1_index / x0_index
-    return ratio
-
-
-def rmse_index(
-    x0: xr.Dataset,
-    x1: xr.Dataset,
-    var: str,
-    dim: str | tuple[str, ...] | None = None,
-    index_fn: Callable[..., xr.Dataset | xr.DataArray] | None = None,
-    season: str | None = None,
-    mae: bool = False,
-    mse: bool = False,
-    **index_kwargs: Any,
-) -> xr.Dataset | xr.DataArray:
-    """
-    Compute the RMSE between x0 and x1 for a supplied index function.
-
-    Provides options for alternative error types like MAE or MSE.
-
-    Parameters
-    ----------
-    x0 : xr.Dataset
-        Ground truth dataset.
-    x1 : xr.Dataset
-        Predicted dataset.
+    x : xr.Dataset
+        Dataset containing the target variable.
     var : str
-        Variable name to analyse.
-    dim : str or tuple of str or None, optional
-        Dimension(s) along which to compute the RMSE.
-    index_fn : Callable[..., xr.Dataset | xr.DataArray] or None, optional
-        Function computing the desired index (None for raw data).
+        Variable name to compute the mean for.
     season : str | None, optional
-        Season to filter before computing the index.
-    mae : bool, default False
-        If True, return the mean absolute error.
-    mse : bool, default False
-        If True, return the mean squared error.
-    **index_kwargs : Any
-        Additional keyword arguments passed to the index function.
-
-    Returns
-    -------
-    xr.Dataset or xr.DataArray
-        RMSE, MAE, or MSE for the selected index.
-
-    Raises
-    ------
-    ValueError
-        If mae and mse can't both be True.
-    """
-    rmse_flag = True
-    if mae or mse:
-        rmse_flag = False
-
-    if mae and mse:
-        raise ValueError("Error: mae and mse can't both be True")
-
-    x0_index: xr.Dataset | xr.DataArray
-    x1_index: xr.Dataset | xr.DataArray
-
-    if index_fn is None:
-        x0_index = filter_by_monthseason(x0, season)[[var]]
-        x1_index = filter_by_monthseason(x1, season)[[var]]
-    else:
-        call_kwargs = dict(index_kwargs)
-        if season is not None and "season" not in call_kwargs:
-            call_kwargs["season"] = season
-        if var is not None and "var" not in call_kwargs:
-            call_kwargs["var"] = var
-
-        x0_index = index_fn(x0, **call_kwargs)
-        x1_index = index_fn(x1, **call_kwargs)
-
-    diff = x1_index - x0_index
-
-    error_result: xr.Dataset | xr.DataArray
-    if dim is None:
-        if rmse_flag or mse:
-            error_result = (diff**2).mean()
-        elif mae:
-            error_result = abs(diff).mean()
-    else:
-        if rmse_flag or mse:
-            error_result = (diff**2).mean(dim=dim)
-        elif mae:
-            error_result = abs(diff).mean(dim=dim)
-
-    if rmse_flag:
-        error_result = np.sqrt(error_result)  # type: ignore[assignment]
-
-    return error_result
-
-
-def corr_index(
-    x0: xr.Dataset,
-    x1: xr.Dataset,
-    var: str,
-    dim: str | tuple[str, ...] | None = None,
-    index_fn: Callable[..., xr.Dataset | xr.DataArray] | None = None,
-    season: str | None = None,
-    srank: bool = False,
-    **index_kwargs: Any,
-) -> xr.Dataset | xr.DataArray:
-    """
-    Compute the Correlation between x0 and x1 for a supplied index function.
-
-    Default is Pearson's correlation, with option for Spearman's rank correlation.
-
-    Parameters
-    ----------
-    x0 : xr.Dataset
-        Ground truth dataset.
-    x1 : xr.Dataset
-        Predicted dataset.
-    var : str
-        Variable name to analyse.
-    dim : str or tuple of str or None, optional
-        Dimension(s) along which to compute the correlation.
-    index_fn : Callable[..., xr.Dataset | xr.DataArray] or None, optional
-        Function computing the desired index (None for raw data).
-    season : str | None, optional
-        Season to filter before computing the index.
-    srank : bool, default False
-        If True, return the Spearman's rank correlation instead.
-    **index_kwargs : Any
-        Additional keyword arguments passed to the index function.
-
-    Returns
-    -------
-    xr.Dataset or xr.DataArray
-        Correlation result for the selected index.
-    """
-    pcorr = True
-    if srank:
-        pcorr = False
-
-    x0_index: xr.Dataset | xr.DataArray
-    x1_index: xr.Dataset | xr.DataArray
-
-    if index_fn is None:
-        x0_index = filter_by_monthseason(x0, season)[[var]]
-        x1_index = filter_by_monthseason(x1, season)[[var]]
-    else:
-        call_kwargs = dict(index_kwargs)
-        if season is not None and "season" not in call_kwargs:
-            call_kwargs["season"] = season
-        if var is not None and "var" not in call_kwargs:
-            call_kwargs["var"] = var
-
-        x0_index = index_fn(x0, **call_kwargs)
-        x1_index = index_fn(x1, **call_kwargs)
-
-    corr_result = x0_index.mean(dim=dim) * 0.0
-
-    # xr.corr requires DataArray
-    if pcorr:
-        corr_result = corr_result + xr.corr(x1_index[var], x0_index[var], dim=dim)
-    elif srank:
-        corr_result = corr_result + xr_spearman_corr(
-            x1_index[var], x0_index[var], dim=dim
-        )
-
-    return corr_result
-
-
-def bias_multivariable_correlation(
-    x0: xr.Dataset,
-    x1: xr.Dataset,
-    var_x: str,
-    var_y: str,
-    season: str | None = None,
-    srank: bool = False,
-) -> tuple[xr.DataArray, xr.DataArray, xr.DataArray]:
-    """
-    Compute correlations between two variables for x0 and x1 datasets.
-
-    Default is Pearson's correlation, with option for Spearman's rank correlation.
-
-    Returns the correlations and bias between the reference and predicted datasets.
-
-    Parameters
-    ----------
-    x0 : xr.Dataset
-        Ground truth dataset containing ``var_x`` and ``var_y``.
-    x1 : xr.Dataset
-        Predicted dataset containing ``var_x`` and ``var_y``.
-    var_x : str
-        Name of the first variable used in the correlation computation.
-    var_y : str
-        Name of the second variable used in the correlation computation.
-    season : str | None, optional
-        Season to filter before computing the correlations.
-    srank : bool, default False
-        If True, return the Spearman's rank correlation instead.
-
-    Returns
-    -------
-    tuple of xr.DataArray
-        Dataset containing the correlation bias and individual correlations.
-
-    Raises
-    ------
-    ValueError
-        If no matches found for dimensions.
-    """
-    pcorr = True
-    if srank:
-        pcorr = False
-
-    x0_filtered = filter_by_monthseason(x0, season)
-    x1_filtered = filter_by_monthseason(x1, season)
-
-    dim = ("time",)
-
-    dim_list = list(x0_filtered.dims)
-    matches = [dim1 for dim1 in dim_list if dim1 in dim]
-    if not matches:
-        raise ValueError(f"Error: no matches found for {list(dim)} in {dim_list}")
-
-    x0_corr_xarray = x0_filtered[var_x].mean(dim=dim) * 0.0
-    x1_corr_xarray = x1_filtered[var_x].mean(dim=dim) * 0.0
-
-    # xr.corr requires DataArray
-    if pcorr:
-        x0_corr_xarray = x0_corr_xarray + xr.corr(
-            x0_filtered[var_x], x0_filtered[var_y], dim=dim
-        )
-        x1_corr_xarray = x1_corr_xarray + xr.corr(
-            x1_filtered[var_x], x1_filtered[var_y], dim=dim
-        )
-    elif srank:
-        x0_corr_xarray = x0_corr_xarray + xr_spearman_corr(
-            x0_filtered[var_x], x0_filtered[var_y], dim=dim
-        )
-        x1_corr_xarray = x1_corr_xarray + xr_spearman_corr(
-            x1_filtered[var_x], x1_filtered[var_y], dim=dim
-        )
-
-    correlation_bias = x1_corr_xarray - x0_corr_xarray
-
-    output_ds = (
-        x0_corr_xarray,
-        x1_corr_xarray,
-        correlation_bias,
-    )
-
-    return output_ds
-
-
-def psd(
-    x0: xr.Dataset,
-    x1: xr.Dataset,
-    var: str,
-    season: str | None = None,
-) -> tuple[xr.Dataset, xr.Dataset]:
-    """
-    Compute the power spectral density for x0 and x1 datasets.
-
-    Performs a 2D FFT and radially averages to get the power spectral densities.
-
-    Parameters
-    ----------
-    x0 : xr.Dataset
-        Ground truth dataset.
-    x1 : xr.Dataset
-        Predicted dataset.
-    var : str
-        Variable name to analyse.
-    season : str | None, optional
-        Season to filter before computing the PSD.
-
-    Returns
-    -------
-    tuple of xr.Dataset
-        Power spectral densities for x0 and x1.
-    """
-    # Spot member dimension name if exists
-    member_dim = None
-    x0_dims = set(x0.dims)
-    x1_dims = set(x1.dims)
-    extra_dim = x1_dims - x0_dims
-    if len(extra_dim) > 1:
-        raise ValueError("Error: can't handle x1 with more than one extra dim than x0")
-    if len(extra_dim) == 1:
-        member_dim = list(extra_dim)[0]
-
-    x0_filtered = filter_by_monthseason(x0, season)
-    x1_filtered = filter_by_monthseason(x1, season)
-
-    x0_da = x0_filtered[var]
-    x1_da = x1_filtered[var]
-
-    # Construct dims for psd output
-    x0_da_dims = list(x0_da.dims)
-    x1_da_dims = list(x1_da.dims)
-    x0_new_dims = x0_da_dims[:-3] + ["wavenumber"]
-    x1_new_dims = x1_da_dims[:-3] + ["wavenumber"]
-
-    x0_np = np.nan_to_num(x0_da.values, nan=0.0)  # 0 only sensible for precip
-    x1_np = np.nan_to_num(x1_da.values, nan=0.0)
-
-    fft_x0 = fft.fftshift(fft.fft2(x0_np, axes=(-2, -1)), axes=(-2, -1))
-    fft_x1 = fft.fftshift(fft.fft2(x1_np, axes=(-2, -1)), axes=(-2, -1))
-
-    power_x0 = np.abs(fft_x0) ** 2
-    power_x1 = np.abs(fft_x1) ** 2
-
-    psd_x0_list = [radial_average(p) for p in power_x0]
-    # psd_x1_list = [radial_average(p) for p in power_x1]
-    # ensemble -> too many values to unpack as expects p shape [lat, lon]
-    # flatten power_x1 then put back together
-    flat_power_x1 = power_x1.reshape(
-        (np.prod(power_x1.shape[:-2]), *power_x1.shape[-2:])
-    )
-    psd_x1_list = [radial_average(p) for p in flat_power_x1]
-    psd_x1_np = np.array(psd_x1_list)
-    psd_x1_np = psd_x1_np.reshape(*power_x1.shape[:-2], psd_x1_np.shape[-1])
-
-    avg_psd_x0 = np.mean(psd_x0_list, axis=-2)
-    avg_psd_x1 = np.mean(psd_x1_np, axis=-2)
-
-    psd_x0_da = xr.DataArray(avg_psd_x0, dims=x0_new_dims, name="PSD_x0")
-    if member_dim is None:
-        psd_x1_da = xr.DataArray(avg_psd_x1, dims=x1_new_dims, name="PSD_x1")
-    else:
-        psd_x1_da = xr.DataArray(
-            avg_psd_x1,
-            dims=x1_new_dims,
-            coords={"member": x1.coords["member"]},
-            name="PSD_x1",
-        )
-
-    psd_x0_ds = xr.Dataset({var: psd_x0_da})
-    psd_x1_ds = xr.Dataset({var: psd_x1_da})
-
-    return psd_x0_ds, psd_x1_ds
-
-
-def ralsd(psd_x0: xr.Dataset, psd_x1: xr.Dataset, var: str) -> xr.Dataset:
-    """
-    Compute the Radially Averaged Log Spectral Distance (RALSD).
-
-    RALSD measures the distance between two radially averaged power spectra
-    in log space. Lower values indicate better agreement.
-
-    Parameters
-    ----------
-    psd_x0 : xr.Dataset
-        Power spectral density of the ground truth (as returned by psd function).
-    psd_x1 : xr.Dataset
-        Power spectral density of the prediction (as returned by psd function).
-    var : str
-        Variable name to analyse.
+        Season or Month standard name to filter before computing the mean.
 
     Returns
     -------
     xr.Dataset
-        Scalar RALSD value.
+        Mean of the input data over time.
     """
-    # ratio = psd_x0[var].values / np.maximum(psd_x1[var].values, 1e-30)
-    # log_ratio = 10.0 * np.log10(np.maximum(ratio, 1e-30))
-    # res = xr.Dataset({var: float(np.mean(log_ratio**2))})
-
-    # check update for enxemble also copes with single member
-    ratio = psd_x0[var] / psd_x1[var].clip(min=1e-30)
-    log_ratio = 10.0 * np.log10(ratio.clip(min=1e-30))
-    res = xr.Dataset({var: (log_ratio**2).mean(dim="wavenumber")})
-
-    return res
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
+    result = da.mean(dim="time", skipna=True)
+    return result
 
 
-def calc_wasserstein_distance(
-    x0: xr.Dataset,
-    x1: xr.Dataset,
-    var: str,
-    season: str | None = None,
-    spatial: bool = False,
-) -> float | xr.Dataset:
+def quantile(x: xr.Dataset, var: str, q: float) -> xr.Dataset:
     """
-    Compute the Wasserstein distance between x0 and x1 datasets.
-
-    Can compute either a spatial field of distances or a single flattened scalar distance.
+    Compute the specified time quantile of a variable in a dataset.
 
     Parameters
     ----------
-    x0 : xr.Dataset
-        Ground truth dataset.
-    x1 : xr.Dataset
-        Predicted dataset.
+    x : xr.Dataset
+        Dataset containing the target variable.
     var : str
-        Variable name to analyse.
-    season : str | None, optional
-        Season to filter before computing the Wasserstein distance.
-    spatial : bool, default False
-        If True, compute distance at each grid point across time dimension.
+        Variable name to compute the quantile for.
+    q : float
+        Quantile value in the interval [0, 1].
 
     Returns
     -------
-    float or xr.Dataset
-        If spatial=False: single Wasserstein distance value.
-        If spatial=True: Wasserstein distance field dataset.
+    xr.Dataset
+        Quantile of the input data.
     """
-    x0_filtered = filter_by_monthseason(x0, season)
-    x1_filtered = filter_by_monthseason(x1, season)
-
-    x0_da = x0_filtered[var]
-    x1_da = x1_filtered[var]
-
-    if not spatial:
-        x0_flat = np.nan_to_num(x0_da.values, nan=0.0).flatten()
-        x1_flat = np.nan_to_num(x1_da.values, nan=0.0).flatten()
-
-        print("Computing Wasserstein distance...")
-        distance: float = wasserstein_distance_nd(u_values=x0_flat, v_values=x1_flat)
-        return distance
-
-    else:
-        x0_np = np.nan_to_num(x0_da.values, nan=0.0)
-        x1_np = np.nan_to_num(x1_da.values, nan=0.0)
-
-        time_dim = x0_np.shape[0]
-        spatial_shape = x0_np.shape[1:]
-        x0_reshaped = x0_np.reshape(time_dim, -1)
-        x1_reshaped = x1_np.reshape(time_dim, -1)
-
-        n_spatial = x0_reshaped.shape[1]
-        distances = np.zeros(n_spatial)
-
-        for i in tqdm(range(n_spatial), desc="Computing Wasserstein distances"):
-            x0_temporal = x0_reshaped[:, i].flatten()
-            x1_temporal = x1_reshaped[:, i].flatten()
-            distances[i] = wasserstein_distance_nd(x0_temporal, x1_temporal)
-
-        distance_field = distances.reshape(spatial_shape)
-
-        wd_da = x0_filtered.isel(time=0).copy(deep=True)
-        wd_da.attrs = {}
-        wd_da[var].values = distance_field
-
-        return wd_da
-
-
-def calc_pdf_metric_nparray(
-    arr0: np.ndarray,
-    arr1: np.ndarray,
-    axis: int | None = 0,
-    bins_arr: np.ndarray | None = None,
-    nbins: int = 100,
-    bin_target_only: bool = False,
-    typedistance: str = "pss",
-    printBins: bool = False,
-    min_freq: int = 10,
-) -> np.ndarray | float:
-    """
-    Calculate distribution comparison metrics between two N-dimensional numpy arrays.
-
-    Computes bin probabilities, then calculates the requested distance or similarity
-    metric using the specified method.
-
-    Copyright (c) 2026 Klima consulting
-    Author: Rosie Eade
-
-    Parameters
-    ----------
-    arr0 : np.ndarray
-        First N-dimensional array (Target).
-    arr1 : np.ndarray
-        Second N-dimensional array (must have same shape as arr0) (Prediction).
-    axis : int or None, default 0
-        None : compute over all axes.
-        0 : compute over 0th axis so output has N-1 dimensions.
-    bins_arr : np.ndarray or None, optional
-        Explicitly define bins for histogram (default method, else use nbins).
-    nbins : int, default 100
-        Define bins using default hist method with nbins based on target arr0.
-    bin_target_only : bool, default False
-        True: for nbins option, base on target truth range only.
-        False: for nbins option, base on truth and prediction range.
-    typedistance : str, default 'pss'
-        Define type of distance or score to compute ('pss', 'jsd', 'fcss', 'lhd', 'alhd', 'wdh', 'wd').
-    printBins : bool, default False
-        True: Option to print info regarding number bins and edge values.
-    min_freq : int, default 10
-        Option for FCSS/LHD: filter out bins/frequencies <= min_freq.
-
-    Returns
-    -------
-    np.ndarray or float
-        Array of distribution comparison metrics or a single float.
-    """
-    distance_list = ["pss", "jsd", "fcss", "lhd", "alhd", "wdh", "wd"]
-    if typedistance not in distance_list:
-        raise ValueError(f"Error: typedistance not recognised: {typedistance}")
-
-    axis_list = [None, 0]
-    if axis not in axis_list:
-        raise ValueError(f"Error: axis not recognised as None or 0: {axis}")
-
-    dist_out: np.ndarray | float = np.nan
-
-    if not isinstance(bins_arr, np.ndarray):
-        bins_arr = None
-
-    if bins_arr is None:
-        if nbins < 1:
-            raise ValueError(f"Error: nbins not a positive integer: {nbins}")
-        nbins = int(nbins)
-        arr_min = np.array([arr0.min(), arr1.min()]).min()
-        arr_max = np.array([arr0.max(), arr1.max()]).max()
-        if bin_target_only:
-            # Fit bins to target truth only so same for all prediction model comparisons
-            bins_arr = np.linspace(arr_min, arr_max, nbins + 1)
-        else:
-            # Fit bins to target truth and prediction so entire distributions are captured
-            bins_arr = np.linspace(arr0.min(), arr0.max(), nbins + 1)
-
-    if printBins and bins_arr is not None:
-        print(f"edges: {bins_arr[0]}, {bins_arr[1]},... {bins_arr[-1]}")
-        print(f"nbins: {len(bins_arr)-1}")
-
-    if axis == 0 and len(arr0.shape) < 2:
-        axis = None
-
-    if axis is None:
-        if typedistance == "pss":
-            phist, pedge = np.histogram(arr0, bins=bins_arr, density=True)
-            qhist, qedge = np.histogram(arr1, bins=bins_arr, density=True)
-
-            # Normalise so sums to 1
-            phist = phist / phist.sum()
-            qhist = qhist / qhist.sum()
-
-            dist_out = float(np.sum(np.minimum(phist, qhist)))
-
-        elif typedistance == "jsd":
-            phist, pedge = np.histogram(arr0, bins=bins_arr, density=True)
-            qhist, qedge = np.histogram(arr1, bins=bins_arr, density=True)
-
-            # Normalise so sums to 1
-            phist = phist / phist.sum()
-            qhist = qhist / qhist.sum()
-
-            dist_out = float(jensenshannon(phist, qhist))
-
-        elif typedistance == "fcss":
-            phist, pedge = np.histogram(arr0, bins=bins_arr, density=True)
-            qhist, qedge = np.histogram(arr1, bins=bins_arr, density=True)
-
-            # Normalise so sums to 1
-            phist = phist / phist.sum(axis=0)
-            qhist = qhist / qhist.sum(axis=0)
-
-            # Use bin midpoints as representative values
-            bin_centres = (bins_arr[:-1] + bins_arr[1:]) / 2
-
-            # Contribution to mean
-            p_contrib = phist * bin_centres
-            q_contrib = qhist * bin_centres
-
-            # Fractional contribution to mean
-            p_fcontrib = p_contrib / np.sum(p_contrib)
-            q_fcontrib = q_contrib / np.sum(q_contrib)
-
-            dist_out = float(np.sum(np.abs(q_fcontrib - p_fcontrib)))
-
-        elif typedistance == "lhd":
-            phist, pedge = np.histogram(arr0, bins=bins_arr, density=True)
-            qhist, qedge = np.histogram(arr1, bins=bins_arr, density=True)
-
-            # Normalise so sums to 1
-            phist = phist / phist.sum()
-            qhist = qhist / qhist.sum()
-
-            phist_freq, pedge = np.histogram(arr0, bins=bins_arr, density=False)
-            qhist_freq, qedge = np.histogram(arr1, bins=bins_arr, density=False)
-
-            # Add small epsilon to avoid log(0)
-            # and filter out bins that contain too few values
-            eps = 1e-10
-            valid_bins = (phist_freq > min_freq) & (qhist_freq > min_freq)
-            phist[~valid_bins] = np.nan
-            qhist[~valid_bins] = np.nan
-            phist = np.clip(phist, eps, None)
-            qhist = np.clip(qhist, eps, None)
-
-            # Logarithmic histogram distance, ignoring sparse bins
-            log_diff = (10.0 * (np.log10(phist) - np.log10(qhist))) ** 2
-
-            dist_out = float(np.sqrt(np.nanmean(log_diff)))
-
-        elif typedistance == "alhd":
-            # LHD using abs(diff) method instead of rmse method
-            phist, pedge = np.histogram(arr0, bins=bins_arr, density=True)
-            qhist, qedge = np.histogram(arr1, bins=bins_arr, density=True)
-
-            # Normalise so sums to 1
-            phist = phist / phist.sum()
-            qhist = qhist / qhist.sum()
-
-            phist_freq, pedge = np.histogram(arr0, bins=bins_arr, density=False)
-            qhist_freq, qedge = np.histogram(arr1, bins=bins_arr, density=False)
-
-            # Add small epsilon to avoid log(0)
-            # and filter out bins that contain too few values
-            eps = 1e-10
-            valid_bins = (phist_freq > min_freq) & (qhist_freq > min_freq)
-            phist[~valid_bins] = np.nan
-            qhist[~valid_bins] = np.nan
-            phist = np.clip(phist, eps, None)
-            qhist = np.clip(qhist, eps, None)
-
-            # Logarithmic histogram distance, ignoring sparse bins
-            log_diff = 10.0 * np.abs(np.log10(phist) - np.log10(qhist))
-
-            dist_out = float(np.nanmean(log_diff))
-
-        elif typedistance == "wdh":
-            phist, pedge = np.histogram(arr0, bins=bins_arr, density=True)
-            qhist, qedge = np.histogram(arr1, bins=bins_arr, density=True)
-
-            # Normalise so sums to 1
-            phist = phist / phist.sum(axis=0)
-            qhist = qhist / qhist.sum(axis=0)
-
-            # Use bin midpoints as representative values
-            bin_centres = (bins_arr[:-1] + bins_arr[1:]) / 2
-
-            # scipy's wasserstein_distance accepts weighted samples:
-            # pass bin centers as "samples" and normalized counts as weights
-            dist_out = float(
-                scipy_wasserstein_distance(
-                    bin_centres, bin_centres, u_weights=phist, v_weights=qhist
-                )
-            )
-
-        elif typedistance == "wd":
-            arr0_flat = arr0.reshape(np.prod(arr0.shape))
-            arr1_flat = arr1.reshape(np.prod(arr1.shape))
-            dist_out = float(scipy_wasserstein_distance(arr0_flat, arr1_flat))
-
-    elif axis == 0:
-        if typedistance == "pss":
-            phist = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=True)[0], 0, arr0
-            )
-            qhist = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=True)[0], 0, arr1
-            )
-
-            # Normalise so sums to 1
-            phist = phist / phist.sum(axis=0)
-            qhist = qhist / qhist.sum(axis=0)
-
-            dist_out = np.sum(np.minimum(phist, qhist), axis=0).astype(float)
-
-        elif typedistance == "jsd":
-            phist = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=True)[0], 0, arr0
-            )
-            qhist = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=True)[0], 0, arr1
-            )
-
-            # Normalise so sums to 1 at each grid point?
-            phist = phist / phist.sum(axis=0)
-            qhist = qhist / qhist.sum(axis=0)
-
-            dist_out = jensenshannon(phist, qhist)
-            # dist_out = dist_out.astype(float)
-
-        elif typedistance == "fcss":
-            phist = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=True)[0], 0, arr0
-            )
-            qhist = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=True)[0], 0, arr1
-            )
-
-            # Normalise so sums to 1
-            phist = phist / phist.sum(axis=0)
-            qhist = qhist / qhist.sum(axis=0)
-
-            # Use bin midpoints as representative values
-            bin_centres = (bins_arr[:-1] + bins_arr[1:]) / 2
-
-            # Contribution to mean
-            extra_dims = phist.ndim - 1
-            bclen = bin_centres.shape[0]
-            p_contrib = bin_centres.reshape(bclen, *([1] * extra_dims)) * phist
-            q_contrib = bin_centres.reshape(bclen, *([1] * extra_dims)) * qhist
-
-            # Fractional contribution to mean
-            p_fcontrib = p_contrib / np.sum(p_contrib, axis=0)
-            q_fcontrib = q_contrib / np.sum(q_contrib, axis=0)
-
-            dist_vec = np.abs(q_fcontrib - p_fcontrib)
-            dist_out = np.sum(dist_vec, axis=0).astype(float)
-
-        elif typedistance == "lhd":
-            phist = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=True)[0], 0, arr0
-            )
-            qhist = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=True)[0], 0, arr1
-            )
-
-            # Normalise so sums to 1
-            phist = phist / phist.sum(axis=0)
-            qhist = qhist / qhist.sum(axis=0)
-
-            phist_freq = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=False)[0], 0, arr0
-            )
-            qhist_freq = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=False)[0], 0, arr1
-            )
-
-            # Add small epsilon to avoid log(0)
-            # and filter out bins that contain too few values
-            eps = 1e-10
-            valid_bins = (phist_freq > min_freq) & (qhist_freq > min_freq)
-            phist[~valid_bins] = np.nan
-            qhist[~valid_bins] = np.nan
-            phist = np.clip(phist, eps, None)
-            qhist = np.clip(qhist, eps, None)
-            # Logarithmic histogram distance, ignoring sparse bins
-            log_diff = (10.0 * (np.log10(phist) - np.log10(qhist))) ** 2
-
-            dist_out = np.sqrt(np.nanmean(log_diff, axis=0)).astype(float)
-
-        elif typedistance == "alhd":
-            phist = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=True)[0], 0, arr0
-            )
-            qhist = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=True)[0], 0, arr1
-            )
-
-            # Normalise so sums to 1
-            phist = phist / phist.sum(axis=0)
-            qhist = qhist / qhist.sum(axis=0)
-
-            phist_freq = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=False)[0], 0, arr0
-            )
-            qhist_freq = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=False)[0], 0, arr1
-            )
-
-            # Add small epsilon to avoid log(0)
-            # and filter out bins that contain too few values
-            eps = 1e-10
-            valid_bins = (phist_freq > min_freq) & (qhist_freq > min_freq)
-            phist[~valid_bins] = np.nan
-            qhist[~valid_bins] = np.nan
-            phist = np.clip(phist, eps, None)
-            qhist = np.clip(qhist, eps, None)
-
-            # Logarithmic histogram distance, ignoring sparse bins
-            log_diff = 10.0 * np.abs(np.log10(phist) - np.log10(qhist))
-
-            dist_out = np.nanmean(log_diff, axis=0).astype(float)
-
-        elif typedistance == "wdh":
-            phist = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=True)[0], 0, arr0
-            )
-            qhist = np.apply_along_axis(
-                lambda a: np.histogram(a, bins=bins_arr, density=True)[0], 0, arr1
-            )
-
-            # Normalise so sums to 1
-            phist = phist / phist.sum(axis=0)
-            qhist = qhist / qhist.sum(axis=0)
-
-            # Use bin midpoints as representative values
-            bin_centres = (bins_arr[:-1] + bins_arr[1:]) / 2
-
-            # scipy's wasserstein_distance accepts weighted samples:
-            # pass bin centers as "samples" and normalized counts as weights
-            dist_out = np.zeros(np.prod(arr0.shape[1:]))
-            phist_flat = phist.reshape([phist.shape[0], np.prod(phist.shape[1:])])
-            qhist_flat = qhist.reshape([qhist.shape[0], np.prod(qhist.shape[1:])])
-
-            for ii in range(np.prod(arr0.shape[1:])):
-                dist_out[ii] = scipy_wasserstein_distance(
-                    bin_centres,
-                    bin_centres,
-                    u_weights=phist_flat[:, ii],
-                    v_weights=qhist_flat[:, ii],
-                )
-
-            dist_out = dist_out.reshape(arr0.shape[1:])
-
-        elif typedistance == "wd":
-            dist_out = np.zeros(np.prod(arr0.shape[1:]))
-            arr0_flat = arr0.reshape(arr0.shape[0], np.prod(arr0.shape[1:]))
-            arr1_flat = arr1.reshape(arr1.shape[0], np.prod(arr1.shape[1:]))
-            for ii in range(np.prod(arr0.shape[1:])):
-                dist_out[ii] = scipy_wasserstein_distance(
-                    arr0_flat[:, ii], arr1_flat[:, ii]
-                )
-
-            dist_out = dist_out.reshape(arr0.shape[1:])
-
-    return dist_out
-
-
-def calc_pdf_metric_xr(
-    x0: xr.Dataset,
-    x1: xr.Dataset,
+    da = x[[var]]
+    result = da.quantile(q, dim="time", skipna=True)
+    if "quantile" in result.dims:
+        result = result.sel(quantile=q)
+    return result
+
+
+def season_quantile(
+    x: xr.Dataset,
     var: str,
-    dim: str | tuple[str, ...] | None = None,
-    index_fn: Callable[..., xr.Dataset | xr.DataArray] | None = None,
+    q: float,
     season: str | None = None,
-    member_name: str | None = None,
-    emean: bool = False,
-    bins_arr: np.ndarray | None = None,
-    nbins: int = 100,
-    bin_target_only: bool = False,
-    printBins: bool = False,
-    typedistance: str = "pss",
-    min_freq: int = 10,
-    **index_kwargs: Any,
+    wet_threshold: float | None = None,
 ) -> xr.Dataset:
     """
-    Compute distribution comparison metrics between two xarray Datasets.
+    Compute the specified time quantile of a variable in a dataset.
 
-    Filters by season, applies any index functions if specified, detects and handles
-    ensemble member dimensions, and flattens along the specified dimensions before
-    computing distribution comparison metrics.
+    Filters the dataset by season or month if specified, before computing
+    the quantile.
 
-    Copyright (c) 2026 Klima consulting
-    Author: Rosie Eade
+    Also option for precip to first ignore values below wet_threshold.
 
     Parameters
     ----------
-    x0 : xr.Dataset
-        Ground truth dataset.
-    x1 : xr.Dataset
-        Predicted dataset.
+    x : xr.Dataset
+        Dataset containing the target variable.
     var : str
-        Variable name to analyse.
-    dim : str or tuple of str or None, optional
-        Dimensions to compute distance over (e.g. ('time',)).
-        None: compute distance over all data flattened.
-    index_fn : Callable[..., xr.Dataset | xr.DataArray] or None, optional
-        Optional function computing a desired index before metric calculations.
+        Variable name to compute the quantile for.
+    q : float
+        Quantile value in the interval [0, 1].
     season : str | None, optional
-        Optional season or month standard name filter.
-    member_name : str | None, optional
-        Name of member dimension (ensemble prediction).
-    emean : bool, default False
-        Option to compute ensemble mean of prediction over member_name dimension.
-    bins_arr : np.ndarray or None, optional
-        Explicitly defined bins for histogram.
-    nbins : int, default 100
-        Number of bins for histogram.
-    bin_target_only : bool, default False
-        True: base nbins range on target truth range only.
-        False: base range on truth and prediction range combined.
-    printBins : bool, default False
-        Option to print details regarding bins and edges.
-    typedistance : str, default 'pss'
-        Type of distance or score to compute ('pss', 'jsd', 'fcss', 'lhd', 'alhd', 'wdh', 'wd').
-    min_freq : int, default 10
-        Minimum frequency threshold to filter out sparse bins in LHD.
-    **index_kwargs : Any
-        Additional keyword arguments passed to the index function.
+        Season or Month standard name to filter before computing the quantile.
+    wet_threshold : float | None
+        Precipitation threshold to qualify as a wet day e.g. 1mm/day.
 
     Returns
     -------
     xr.Dataset
-        Dataset of distribution comparison metrics.
+        Quantile of the input data.
     """
-    distance_list = ["pss", "jsd", "fcss", "lhd", "alhd", "wdh", "wd"]
-    if typedistance not in distance_list:
-        raise ValueError(f"Error: typedistance not recognised: {typedistance}")
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
 
-    target_xr: xr.DataArray
-    prediction_xr: xr.DataArray
+    if wet_threshold is not None:
+        da = da.where(da >= wet_threshold)
 
-    if index_fn is None:
-        target_xr = filter_by_monthseason(x0, season)[var]
-        prediction_xr = filter_by_monthseason(x1, season)[var]
+    result = da.quantile(q, dim="time", skipna=True)
+    if "quantile" in result.dims:
+        result = result.sel(quantile=q)
+    return result
+
+
+def calday_quantile(x: xr.Dataset, var: str, q: float, padding: int = 2) -> xr.Dataset:
+    da = x[[var]]
+    n_members = padding * 2 + 1
+    center = n_members // 2  # = 2
+    shifts = [i - center for i in range(n_members)]  # [-2, -1, 0, 1, 2]
+    members = [da.roll(time=s, roll_coords=False) for s in shifts]
+    da_members = xr.concat(members, dim="member")
+    da_members = da_members.assign_coords(member=range(n_members))
+
+    # Group by calendar day-of-year, then take the quantile over
+    # both the member (day-window) and time (all years) dimensions
+    result = da_members.groupby("time.dayofyear").quantile(
+        q, dim=("member", "time"), skipna=True
+    )
+
+    if "quantile" in result.dims:
+        result = result.sel(quantile=q)
+    return result
+
+
+def day_noleap_quantile(
+    x: xr.Dataset, var: str, q: float, padding: int = 2, axis: int = 0
+) -> xr.Dataset:
+    """
+    Compute the specified daily time quantile of a variable.
+
+    Uses a centred 5 day window (assumes 365 day year) and adds coordinate
+    'doy_noleap' to output while removing coordinate 'time'.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the target variable, with dimensions {'time', 'lat', 'lon'}.
+    var : str
+        Variable name to compute the quantile for.
+    q : float
+        Quantile value in the interval [0, 1].
+    padding : int, default 2
+        Padding to make window (e.g. padding=2 leads to a window of size 5 days).
+    axis : int, default 0
+        Axis along which to compute quantile.
+
+    Returns
+    -------
+    xr.Dataset
+        Quantile of the input data with dimensions {'doy_noleap', 'lat', 'lon'}.
+    """
+    da = x[[var]]
+
+    da = xr_assign_dayofyear_noleap(da)
+
+    doy_vals = da["doy_noleap"].values  # np array of 'day in year' values
+    data_vals = da[var].values  # np array of data values
+
+    n_doys = 365
+
+    # list of arrays for each day in year showing position of elements
+    # of input data with that day
+    day_indices: list[np.ndarray] = [
+        np.where(doy_vals == d)[0] for d in range(1, n_doys + 1)
+    ]
+
+    # output array
+    spatial_shape = data_vals.shape[1:] if data_vals.ndim > 1 else ()
+    out = np.empty((n_doys, *spatial_shape), dtype=np.float64)
+
+    if padding > 0:
+        for d in range(n_doys):
+            # Wrap-around indices for the window
+            window_doys = [
+                (d + offset) % n_doys for offset in range(-padding, padding + 1)
+            ]
+            # Concatenate time indices for every DOY in the window
+            idx = np.concatenate([day_indices[wd] for wd in window_doys])
+            out[d] = np.nanquantile(data_vals[idx], q, axis=axis)
     else:
-        call_kwargs = dict(index_kwargs)
-        if season is not None and "season" not in call_kwargs:
-            call_kwargs["season"] = season
-        if var is not None and "var" not in call_kwargs:
-            call_kwargs["var"] = var
+        # No window: just standard per-DOY quantile
+        for d in range(n_doys):
+            out[d] = np.nanquantile(data_vals[day_indices[d]], q, axis=axis)
 
-        x0_idx = index_fn(x0, **call_kwargs)
-        x1_idx = index_fn(x1, **call_kwargs)
+    doy_coord = np.arange(1, n_doys + 1)
+    spatial_coords = {
+        k: da.coords[k] for k in da.coords if k != "doy_noleap" and k != "time"
+    }
 
-        if isinstance(x0_idx, xr.Dataset):
-            target_xr = x0_idx[var]
+    result_da = xr.DataArray(
+        out,
+        dims=["doy_noleap", *[d for d in da[var].dims[1:]]],
+        coords={"doy_noleap": doy_coord, **spatial_coords},
+    )
+
+    return xr.Dataset({var: result_da})
+
+
+def ann_extrema(
+    x: xr.Dataset,
+    var: str,
+    maxmin: str = "max",
+    season: str | None = None,
+    drop_nonfull: bool = True,
+    cmean: bool = False,
+) -> xr.Dataset:
+    """
+    Compute the annual maximum or minimum of target variable per year.
+
+    Has options to output annual values or climate mean.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the target variable.
+    var : str
+        Name of the daily variable.
+    maxmin : str, default 'max'
+        Type of extreme, options are 'max' or 'min'.
+    season : str | None, optional
+        Season or Month standard name to filter.
+    drop_nonfull : bool, default True
+        Treatment of DJF season: True to only include seasons with full 3 months
+        of data.
+    cmean : bool, default False
+        True to compute climate mean over time, False to leave as annual output.
+
+    Returns
+    -------
+    xr.Dataset
+        Annual extrema values of daily variable (or mean thereof).
+    """
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
+
+    if maxmin not in ["max", "min"]:
+        maxmin = "max"
+        print(
+            f"WARNING: maxmin='{maxmin}' not in list ['max','min'] so default to 'max'"
+        )
+
+    if season == "DJF":
+        # Compute on consecutive months across year boundary ending at the end of Feb
+        if maxmin == "max":
+            annual_extrema = da.resample(time="1YE-FEB").max()
         else:
-            target_xr = x0_idx
-
-        if isinstance(x1_idx, xr.Dataset):
-            prediction_xr = x1_idx[var]
+            annual_extrema = da.resample(time="1YE-FEB").min()
+        # If data covers n years going from Jan Year1 to Dec YearN, there will be
+        # n+1 max values for seasons [JF, DJF, ..., DJF, D] so drop shortest season (D)
+        years = np.unique(da["time.year"])
+        counts = da.resample(time="1YE-FEB").count()
+        if drop_nonfull:
+            # Only include full DJF seasons (90 days)
+            annual_extrema = annual_extrema.where(counts == 90, drop=True)
         else:
-            prediction_xr = x1_idx
-
-    dim_tuple: tuple[str, ...]
-    if dim is None:
-        dim_tuple = tuple(prediction_xr.dims)
-    elif isinstance(dim, str):
-        dim_tuple = (dim,)
+            # Include full DJF seasons (90 days) and JF season (59 days)
+            # but not D season (31 days)
+            if len(counts[var]) > len(years):
+                annual_extrema = annual_extrema.where(counts >= 59, drop=True)
     else:
-        dim_tuple = dim
+        if maxmin == "max":
+            annual_extrema = da.resample(time="1YE").max()
+        else:
+            annual_extrema = da.resample(time="1YE").min()
 
-    # Detect if dim dimensions present in prediction
-    pred_dims = list(prediction_xr.dims)
-    for dname in dim_tuple:
-        if dname not in pred_dims:
+    if cmean:
+        output: xr.Dataset = annual_extrema.mean(dim="time")
+    else:
+        output = annual_extrema
+
+    return output
+
+
+def ann_freq_wrt_array(
+    x: xr.Dataset,
+    var: str,
+    threshold: xr.Dataset | int | float,
+    relation: str = "gt",
+    season: str | None = None,
+    drop_nonfull: bool = True,
+    cmean: bool = False,
+) -> xr.Dataset:
+    """
+    Count number of event days, defined wrt threshold, per year.
+
+    Has options to output annual values or annual mean.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the target variable.
+    var : str
+        Name of the daily variable.
+    threshold : xr.Dataset or int or float
+        Array threshold or scalar to define event.
+    relation : str, default 'gt'
+        Relationship of event to threshold: 'gt', 'ge', 'lt', 'le', 'eq', 'ne'.
+    season : str | None, optional
+        Season name to filter.
+    drop_nonfull : bool, default True
+        True to ignore DJF seasons < 90 days.
+    cmean : bool, default False
+        True to compute climate mean over time, False to leave as annual output.
+
+    Returns
+    -------
+    xr.Dataset
+        Annual count of event days (or mean thereof).
+
+    Raises
+    ------
+    ValueError
+        If shape of threshold does not match input or if threshold dimensions are invalid.
+    """
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
+
+    threshold_new: xr.Dataset | int | float
+    if isinstance(threshold, (int, float)):
+        threshold_new = threshold
+    elif isinstance(threshold, xr.Dataset):
+        # Should include check that shape matches
+        if (
+            da.sizes["lat"] != threshold.sizes["lat"]
+            or da.sizes["lon"] != threshold.sizes["lon"]
+        ):
             raise ValueError(
-                f"Error; dim dimension '{dname}' not found in dims {pred_dims}. "
-                f"Expected something like 'time', 'member', etc."
+                f"Spatial shape mismatch: input ({da.sizes['lat']}, {da.sizes['lon']}) "
+                f"!= threshold ({threshold.sizes['lat']}, {threshold.sizes['lon']})"
             )
 
-    # Detect if ensemble dim present in prediction but not target, and expand
-    # target to match using expand_dims + broadcast
-    extra_member_dim: str | None = None
-    if (
-        member_name is not None
-        and member_name in prediction_xr.dims
-        and member_name not in target_xr.dims
-    ):
-        extra_member_dim = member_name
-        if emean:
-            # Compute ensemble mean over member_name dim
-            prediction_xr = prediction_xr.mean(dim=member_name)
-            extra_member_dim = None
-            pred_dims = list(prediction_xr.dims)
+        dims_thresh = set(threshold.dims)
+        other_dims_thresh = dims_thresh - {"lat", "lon"}
 
-    if extra_member_dim is not None:
-        target_xr = target_xr.expand_dims(
-            {extra_member_dim: prediction_xr[extra_member_dim]}
-        )
-        target_xr = target_xr.broadcast_like(prediction_xr)
+        if not other_dims_thresh:
+            threshold_new = threshold
 
-    if target_xr.values.shape != prediction_xr.values.shape:
-        raise ValueError(
-            f"Error: Shape mismatch: Target ({target_xr.values.shape}), "
-            f"Prediction ({prediction_xr.values.shape}). "
-            f"Specify member_name if ensemble prediction."
-        )
+        else:
+            # Broadcast the threshold back onto actual time axis via dayofyear
+            doy = da["time"].dt.dayofyear
+            threshold_new = threshold.sel(dayofyear=doy)
 
-    # Identify output dimensions i.e. those not in dim dimensions
-    output_dims = [d for d in pred_dims if d not in dim_tuple]
+    else:
+        threshold_new = threshold
 
-    # --- Special case: output_dims empty, ---
-    #  e.g. if prediction dims just [member, time]
-    #  => compute metric over all data
-    if not output_dims:
-        dist_out = calc_pdf_metric_nparray(
-            target_xr.values,
-            prediction_xr.values,
-            axis=None,
-            bins_arr=bins_arr,
-            nbins=nbins,
-            bin_target_only=bin_target_only,
-            typedistance=typedistance,
-            printBins=printBins,
-            min_freq=min_freq,
-        )
+    if relation not in ["gt", "ge", "lt", "le", "eq", "ne"]:
+        relation = "gt"
+        print(f"WARNING: relation='{relation}' not in list: ")
+        print("['gt', 'ge', 'lt', 'le', 'eq', 'ne'] so default to 'gt'")
 
-        return xr.Dataset({var: dist_out})
+    # Event Condition
+    if relation == "gt":
+        econdition = da[var] > threshold_new
+    elif relation == "ge":
+        econdition = da[var] >= threshold_new
+    elif relation == "lt":
+        econdition = da[var] < threshold_new
+    elif relation == "le":
+        econdition = da[var] <= threshold_new
+    elif relation == "eq":
+        econdition = da[var] == threshold_new
+    elif relation == "ne":
+        econdition = da[var] != threshold_new
+    else:
+        econdition = da[var] > threshold_new
 
-    # Transpose to ensure dim dims come first, output_dims last e.g. spatial dims:
-    # e.g. [member, time, lat, lon]
-    ordered_dims = list(dim_tuple) + output_dims
-    target_xr = target_xr.transpose(*ordered_dims)
-    prediction_xr = prediction_xr.transpose(*ordered_dims)
+    if season == "DJF":
+        # Compute on consecutive months across year boundary ending at the end of Feb
+        ann_freq = econdition.resample(time="1YE-FEB").sum("time")
+        # If data covers n years going from Jan Year1 to Dec YearN, there will be
+        # n+1 max values for seasons [JF, DJF, ..., DJF, D] so drop shortest season (D)
+        years = np.unique(da["time.year"])
+        counts = da.resample(time="1YE-FEB").count()
+        if drop_nonfull:
+            # Only include full DJF seasons (90 days)
+            ann_freq = ann_freq.where(counts == 90, drop=True)
+        else:
+            # Include full DJF seasons (90 days) and JF season (59 days)
+            # but not D season (31 days)
+            if len(counts[var]) > len(years):
+                ann_freq = ann_freq.where(counts >= 59, drop=True)
+    else:
+        ann_freq = econdition.resample(time="1YE").sum("time")
 
-    # Flatten all dim dims into a single axis so can compute over 0th dim
-    dimover_shape = target_xr.values.shape[0 : len(dim_tuple)]  # e.g. [member, time]
-    output_shape = target_xr.values.shape[len(dim_tuple) :]  # e.g. [lat, lon]
-    n_total = int(np.prod(dimover_shape))
+    if cmean:
+        output: xr.Dataset = ann_freq.mean("time")
+    else:
+        output = ann_freq
 
-    target_flat = target_xr.values.reshape(n_total, *output_shape)
-    prediction_flat = prediction_xr.values.reshape(n_total, *output_shape)
-
-    dist_out = calc_pdf_metric_nparray(
-        target_flat,
-        prediction_flat,
-        axis=0,
-        bins_arr=bins_arr,
-        nbins=nbins,
-        bin_target_only=bin_target_only,
-        typedistance=typedistance,
-        printBins=printBins,
-        min_freq=min_freq,
-    )
-
-    dist_out_xr = xr.Dataset({var: (output_dims, dist_out)})
-
-    # Restore coordinates for all output dimensions
-    for d in output_dims:
-        if d in prediction_xr.coords:
-            dist_out_xr[d] = prediction_xr[d]
-
-    return dist_out_xr
+    return output
 
 
-def calc_histdata_xr(
-    x0: xr.Dataset,
-    x1: xr.Dataset,
+def ann_maxspell_wrt_array(
+    x: xr.Dataset,
     var: str,
-    index_fn: Callable[..., xr.Dataset | xr.DataArray] | None = None,
+    threshold: xr.Dataset | int | float,
+    relation: str = "gt",
     season: str | None = None,
-    bins_arr: np.ndarray | None = None,
-    nbins: int = 100,
-    bin_target_only: bool = False,
-    **index_kwargs: Any,
-) -> tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
+    drop_nonfull: bool = True,
+    cmean: bool = False,
+) -> xr.Dataset:
     """
-    Compute histogram for two xarray Datasets.
+    Compute max spell length of event days, defined wrt threshold, per year.
 
-    Filters by season, applies any index functions if specified, and
-    flattens across time, lat, lon.
-
-    Copyright (c) 2026 Klima consulting
-    Author: Rosie Eade
+    Has options to output annual values or annual mean.
 
     Parameters
     ----------
-    x0 : xr.Dataset
-        Ground truth dataset.
-    x1 : xr.Dataset
-        Predicted dataset.
+    x : xr.Dataset
+        Dataset containing the target variable.
     var : str
-        Variable name to analyse.
-    index_fn : Callable[..., xr.Dataset | xr.DataArray] or None, optional
-        Optional function computing a desired index before metric calculations.
+        Name of the daily variable.
+    threshold : xr.Dataset or int or float
+        Array threshold or scalar to define event.
+    relation : str, default 'gt'
+        Relationship of event to threshold: 'gt', 'ge', 'lt', 'le', 'eq', 'ne'.
     season : str | None, optional
-        Optional season or month standard name filter.
-    bins_arr : np.ndarray or None, optional
-        Explicitly defined bins for histogram.
-    nbins : int, default 100
-        Number of bins for histogram.
-    bin_target_only : bool, default False
-        True: base nbins range on target truth range only.
-        False: base range on truth and prediction range combined.
-    **index_kwargs : Any
-        Additional keyword arguments passed to the index function.
+        Season name to filter.
+    drop_nonfull : bool, default True
+        Treatment of DJF season: True to only include seasons with full 3 months
+        of data.
+    cmean : bool, default False
+        True to compute climate mean over time, False to leave as annual output.
 
     Returns
     -------
     xr.Dataset
-        Dataset of distribution comparison metrics.
+        Annual max spell length of event days (or mean thereof).
+
+    Raises
+    ------
+    ValueError
+        If shape of threshold does not match input or if threshold dimensions are invalid.
     """
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
 
-    if index_fn is None:
-        target_xr = filter_by_monthseason(x0, season)[var]
-        prediction_xr = filter_by_monthseason(x1, season)[var]
+    threshold_new: xr.Dataset | int | float
+    if isinstance(threshold, (int, float)):
+        threshold_new = threshold
+    elif isinstance(threshold, xr.Dataset):
+        # Should include check that shape matches
+        if (
+            da.sizes["lat"] != threshold.sizes["lat"]
+            or da.sizes["lon"] != threshold.sizes["lon"]
+        ):
+            raise ValueError(
+                f"Spatial shape mismatch: input ({da.sizes['lat']}, {da.sizes['lon']}) "
+                f"!= threshold ({threshold.sizes['lat']}, {threshold.sizes['lon']})"
+            )
+
+        dims_thresh = set(threshold.dims)
+        other_dims_thresh = dims_thresh - {"lat", "lon"}
+
+        if not other_dims_thresh:
+            threshold_new = threshold
+        else:
+            # Broadcast the threshold back onto actual time axis via dayofyear
+            doy = da["time"].dt.dayofyear
+            threshold_new = threshold.sel(dayofyear=doy)
     else:
-        call_kwargs = dict(index_kwargs)
-        if season is not None and "season" not in call_kwargs:
-            call_kwargs["season"] = season
-        if var is not None and "var" not in call_kwargs:
-            call_kwargs["var"] = var
+        threshold_new = threshold
 
-        x0_idx = index_fn(x0, **call_kwargs)
-        x1_idx = index_fn(x1, **call_kwargs)
+    if relation not in ["gt", "ge", "lt", "le", "eq", "ne"]:
+        relation = "gt"
+        print(f"WARNING: relation='{relation}' not in list: ")
+        print("['gt', 'ge', 'lt', 'le', 'eq', 'ne'] so default to 'gt'")
 
-        if isinstance(x0_idx, xr.Dataset):
-            target_xr = x0_idx[var]
+    # Event Condition
+    if relation == "gt":
+        econdition = da[var] > threshold_new
+    elif relation == "ge":
+        econdition = da[var] >= threshold_new
+    elif relation == "lt":
+        econdition = da[var] < threshold_new
+    elif relation == "le":
+        econdition = da[var] <= threshold_new
+    elif relation == "eq":
+        econdition = da[var] == threshold_new
+    elif relation == "ne":
+        econdition = da[var] != threshold_new
+    else:
+        econdition = da[var] > threshold_new
+
+    # We need to extract the DataArray from Dataset for resample mapping
+    econd_da = econdition[var]
+
+    if season == "DJF":
+        # Compute on consecutive months across year boundary ending at the end of Feb
+        ann_spell = ann_max_spell(econd_da, freq="1YE-FEB")
+        years = np.unique(da["time.year"])
+        counts = da.resample(time="1YE-FEB").count()
+        # If data covers n years going from Jan Year1 to Dec YearN, there will be
+        # n+1 max values for seasons [JF, DJF, ..., DJF, D] so either
+        # - drop all non-full seasons i.e. JF and D
+        if drop_nonfull:
+            # Only include full DJF seasons (90 days)
+            ann_spell = ann_spell.where(counts == 90, drop=True)
+        # - drop shortest season (D)
         else:
-            target_xr = x0_idx
+            # Include full DJF seasons (90 days) and JF season (59 days)
+            # but not D season (31 days)
+            if len(counts[var]) > len(years):
+                ann_spell = ann_spell.where(counts >= 59, drop=True)
+    else:
+        ann_spell = ann_max_spell(econd_da, freq="1YE")
 
-        if isinstance(x1_idx, xr.Dataset):
-            prediction_xr = x1_idx[var]
+    if isinstance(ann_spell, xr.Dataset):
+        ann_spell_ds = ann_spell
+    else:
+        ann_spell_ds = xr.Dataset({var: ann_spell})
+
+    if cmean:
+        output: xr.Dataset = ann_spell_ds.mean("time")
+    else:
+        output = ann_spell_ds
+
+    return output
+
+
+def ann_sdii(
+    x: xr.Dataset,
+    var: str,
+    season: str | None = None,
+    wet_threshold: float = 1.0,
+    drop_nonfull: bool = True,
+    cmean: bool = False,
+) -> xr.Dataset:
+    """
+    Compute the simple precipitation intensity index.
+
+    Has options to output annual values or annual mean.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the precipitation variable.
+    var : str
+        Variable name of daily precipitation.
+    season : str | None, optional
+        Season name to filter before computing the index.
+    wet_threshold : float, default 1.0
+        Minimum precipitation to consider a wet day.
+    drop_nonfull : bool, default True
+        Treatment of DJF season: True to only include seasons with full 3 months
+        of data.
+    cmean : bool, default False
+        True to compute climate mean over time, False to leave as annual output.
+
+    Returns
+    -------
+    xr.Dataset
+        Simple precipitation intensity index.
+    """
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
+    wet = da.where(da >= wet_threshold)
+
+    if season == "DJF":
+        # Compute on consecutive months across year boundary ending at the end of Feb
+        output = wet.resample(time="1YE-FEB").mean(dim="time")
+        # If data covers n years going from Jan Year1 to Dec YearN, there will be
+        # n+1 max values for seasons [JF, DJF, ..., DJF, D] so drop shortest season (D)
+        years = np.unique(da["time.year"])
+        counts = da.resample(time="1YE-FEB").count()
+        if drop_nonfull:
+            # Only include full DJF seasons (90 days)
+            output = output.where(counts == 90, drop=True)
         else:
-            prediction_xr = x1_idx
+            # Include full DJF seasons (90 days) and JF season (59 days)
+            # but not D season (31 days)
+            if len(counts[var]) > len(years):
+                output = output.where(counts >= 59, drop=True)
+    else:
+        output = wet.resample(time="1YE").mean(dim="time")
 
-    arr0 = target_xr.values.flatten()
-    arr1 = prediction_xr.values.flatten()
+    if cmean:
+        output = output.mean("time")
 
-    if not isinstance(bins_arr, np.ndarray):
-        bins_arr = None
+    return output
 
-    if bins_arr is None:
-        if nbins < 1:
-            raise ValueError(f"Error: nbins not a positive integer: {nbins}")
-        nbins = int(nbins)
-        arr_min = np.array([arr0.min(), arr1.min()]).min()
-        arr_max = np.array([arr0.max(), arr1.max()]).max()
-        if bin_target_only:
-            # Fit bins to target truth only so same for all prediction model comparisons
-            bins_arr = np.linspace(arr_min, arr_max, nbins + 1)
+
+def interannual_var(
+    x: xr.Dataset,
+    var: str,
+    season: str | None = None,
+    drop_nonfull: bool = True,
+) -> xr.Dataset:
+    """
+    Compute the interannual variability of the target variable along time.
+
+    Filters dataset and handles seasons including DJF.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the target variable.
+    var : str
+        Variable name to analyse.
+    season : str | None, optional
+        Season name to filter before computing the index.
+    drop_nonfull : bool, default True
+        Treatment of DJF season: True to only include seasons with full 3 months
+        of data.
+
+    Returns
+    -------
+    xr.Dataset
+        Interannual variability computed along the time dimension.
+    """
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
+
+    if season == "DJF":
+        # Compute on consecutive months across year boundary ending at the end of Feb
+        output = da.resample(time="1YE-FEB").mean(dim="time")
+        # If data covers n years going from Jan Year1 to Dec YearN, there will be
+        # n+1 max values for seasons [JF, DJF, ..., DJF, D] so drop shortest season (D)
+        years = np.unique(da["time.year"])
+        counts = da.resample(time="1YE-FEB").count()
+        if drop_nonfull:
+            # Only include full DJF seasons (90 days)
+            output = output.where(counts == 90, drop=True)
         else:
-            # Fit bins to target truth and prediction so entire distributions are captured
-            bins_arr = np.linspace(arr0.min(), arr0.max(), nbins + 1)
+            # Include full DJF seasons (90 days) and JF season (59 days)
+            # but not D season (31 days)
+            if len(counts[var]) > len(years):
+                output = output.where(counts >= 59, drop=True)
+        output_std: xr.Dataset = output.std("time")
+    else:
+        output_std = da.resample(time="1YE").mean(dim="time").std("time")
 
-    phist, pedge = np.histogram(arr0, bins=bins_arr, density=True)
-    qhist, qedge = np.histogram(arr1, bins=bins_arr, density=True)
+    return output_std
 
-    return (
-        xr.Dataset({var: ("density", phist)}),
-        xr.Dataset({var: ("density", qhist)}),
-        xr.Dataset({var: ("bin_edge", pedge)}),
-    )
+
+def lag1_corr(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
+    """
+    Compute the lag-1 autocorrelation of the target variable along time.
+
+    Filters dataset and handles seasonal/monthly first-day masking to avoid
+    pairing values with more than a day lag.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the target variable.
+    var : str
+        Variable name to analyse.
+    season : str | None, optional
+        Season name to filter before computing the index.
+
+    Returns
+    -------
+    xr.Dataset
+        Lag-1 autocorrelation computed along the time dimension.
+    """
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[var]
+    shifted = da.shift(time=1)
+
+    # For annual data, .shift automatically masks the first day in data (=nan)
+    # For seasonal or monthly data, also mask the first day of each season/month
+    # to avoid pairing values with more than a day lag
+    if season is not None:
+        month1 = da.time.dt.month[0]
+        if season == "DJF":
+            month1 = 12
+        da = da.sel(time=~((da.time.dt.month == month1) & (da.time.dt.day == 1)))
+        shifted = shifted.sel(
+            time=~((shifted.time.dt.month == month1) & (shifted.time.dt.day == 1))
+        )
+
+    lag1_corr_da = xr.corr(da, shifted, dim="time")
+    return xr.Dataset({var: lag1_corr_da})
+
+
+def su(
+    x: xr.Dataset, var: str, season: str | None = None, threshold: float = 300.0
+) -> xr.Dataset:
+    """
+    Count summer days defined by daily maximum temperature above a threshold.
+
+    First the summer days are counted for each year, then the mean is computed.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the target variable.
+    var : str
+        Name of the daily maximum temperature variable.
+    season : str | None, optional
+        Season name to filter before computing the index.
+    threshold : float, default 300.0
+        Temperature threshold in Kelvin (or Celsius depending on units).
+
+    Returns
+    -------
+    xr.Dataset
+        Annual count of summer days.
+    """
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
+    return (da > threshold).groupby("time.year").sum("time").mean("year")
+
+
+def txx(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
+    """
+    Compute the mean annual maximum of daily maximum temperature.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the target variable.
+    var : str
+        Name of the daily maximum temperature variable.
+    season : str | None, optional
+        Season name to filter before computing the index.
+
+    Returns
+    -------
+    xr.Dataset
+        Mean annual maximum values of daily maximum temperature.
+    """
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
+    annual_max = da.resample(time="1YE").max()
+    return annual_max.mean(dim="time")
+
+
+def txn(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
+    """
+    Compute the mean annual minimum of daily maximum temperature.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the target variable.
+    var : str
+        Name of the daily maximum temperature variable.
+    season : str | None, optional
+        Season name to filter before computing the index.
+
+    Returns
+    -------
+    xr.Dataset
+        Mean annual minimum values of daily maximum temperature.
+    """
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
+    annual_min = da.resample(time="1YE").min()
+    return annual_min.mean(dim="time")
+
+
+def rx1day(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
+    """
+    Compute the mean annual maximum 1-day precipitation.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the precipitation variable.
+    var : str
+        Variable name of daily precipitation.
+    season : str | None, optional
+        Season name to filter before computing the index.
+
+    Returns
+    -------
+    xr.Dataset
+        Mean annual maximum daily precipitation.
+    """
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
+    annual_max = da.resample(time="1YE").max()
+    return annual_max.mean(dim="time")
+
+
+def sdii(
+    x: xr.Dataset,
+    var: str,
+    season: str | None = None,
+    wet_threshold: float = 1.0,
+) -> xr.Dataset:
+    """
+    Compute the simple precipitation intensity index.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the precipitation variable.
+    var : str
+        Variable name of daily precipitation.
+    season : str | None, optional
+        Season name to filter before computing the index.
+    wet_threshold : float, default 1.0
+        Minimum precipitation to consider a wet day.
+
+    Returns
+    -------
+    xr.Dataset
+        Simple precipitation intensity index.
+    """
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
+    wet = da.where(da >= wet_threshold)
+    return wet.mean(dim="time")
+
+
+def cdd(
+    x: xr.Dataset,
+    var: str,
+    season: str | None = None,
+    dry_threshold: float = 1.0,
+) -> xr.Dataset:
+    """
+    Compute the maximum length of dry spells with precipitation below a threshold.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the precipitation variable.
+    var : str
+        Variable name of daily precipitation.
+    season : str | None, optional
+        Season name to filter before computing the index.
+    dry_threshold : float, default 1.0
+        Precipitation threshold to qualify as a dry day.
+
+    Returns
+    -------
+    xr.Dataset
+        Annual maximum dry spell length.
+    """
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
+    condition = da < dry_threshold
+    # extract DataArray from Dataset for resample_max_spell
+    cond_da = condition[var]
+    resampled = resample_max_spell(cond_da)
+    return xr.Dataset({var: resampled})
+
+
+def cwd(
+    x: xr.Dataset,
+    var: str,
+    season: str | None = None,
+    wet_threshold: float = 1.0,
+) -> xr.Dataset:
+    """
+    Compute the maximum length of wet spells with precipitation above a threshold.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the precipitation variable.
+    var : str
+        Variable name of daily precipitation.
+    season : str | None, optional
+        Season name to filter before computing the index.
+    wet_threshold : float, default 1.0
+        Precipitation threshold to qualify as a wet day.
+
+    Returns
+    -------
+    xr.Dataset
+        Annual maximum wet spell length.
+    """
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
+    condition = da >= wet_threshold
+    # extract DataArray from Dataset for resample_max_spell
+    cond_da = condition[var]
+    resampled = resample_max_spell(cond_da)
+    return xr.Dataset({var: resampled})
