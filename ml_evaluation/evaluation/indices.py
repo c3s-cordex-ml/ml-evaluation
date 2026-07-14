@@ -493,12 +493,9 @@ def ann_maxspell_wrt_array(
     else:
         econdition = da[var] > threshold_new
 
-    # We need to extract the DataArray from Dataset for resample mapping
-    econd_da = econdition[var]
-
     if season == "DJF":
         # Compute on consecutive months across year boundary ending at the end of Feb
-        ann_spell = ann_max_spell(econd_da, freq="1YE-FEB")
+        ann_spell = ann_max_spell(econdition, freq="1YE-FEB")
         years = np.unique(da["time.year"])
         counts = da.resample(time="1YE-FEB").count()
         # If data covers n years going from Jan Year1 to Dec YearN, there will be
@@ -514,7 +511,7 @@ def ann_maxspell_wrt_array(
             if len(counts[var]) > len(years):
                 ann_spell = ann_spell.where(counts >= 59, drop=True)
     else:
-        ann_spell = ann_max_spell(econd_da, freq="1YE")
+        ann_spell = ann_max_spell(econdition, freq="1YE")
 
     if isinstance(ann_spell, xr.Dataset):
         ann_spell_ds = ann_spell
