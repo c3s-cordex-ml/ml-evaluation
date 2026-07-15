@@ -740,6 +740,24 @@ def slow(
         member_name=member_dim,
     )
 
+    # Compute Wasserstein Distance hist method (over time, lat, lon): float
+    click.echo(
+        "Computing Wasserstein Distance hist method (over time, lat, lon): float..."
+    )
+    wdh_ds = calc_pdf_metric_xr(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=None,
+        dim=("time", "lat", "lon"),
+        bins_arr=None,
+        nbins=100,
+        bin_target_only=True,
+        typedistance="wdh",
+        member_name=member_dim,
+    )
+
     # Compute FCSS (over time, lat, lon): float
     click.echo("Computing FCSS (over time, lat, lon): float...")
     fcss_ds = calc_pdf_metric_xr(
@@ -751,16 +769,14 @@ def slow(
         dim=("time", "lat", "lon"),
         bins_arr=None,
         nbins=100,
-        bin_target_only=False,
+        bin_target_only=True,
         typedistance="fcss",
         member_name=member_dim,
     )
 
-    # Compute Wasserstein Distance hist method (over time, lat, lon): field
-    click.echo(
-        "Computing Wasserstein Distance hist method (over time, lat, lon): field..."
-    )
-    wdhf_ds = calc_pdf_metric_xr(
+    # Compute PSS (over time, lat, lon): float
+    click.echo("Computing PSS (over time, lat, lon): float...")
+    pss_ds = calc_pdf_metric_xr(
         x0_ds,
         x1_ds,
         var=var,
@@ -770,7 +786,23 @@ def slow(
         bins_arr=None,
         nbins=100,
         bin_target_only=True,
-        typedistance="wdh",
+        typedistance="pss",
+        member_name=member_dim,
+    )
+
+    # Compute LHD (over time, lat, lon): float
+    click.echo("Computing LHD (over time, lat, lon): float...")
+    lhd_ds = calc_pdf_metric_xr(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=None,
+        dim=("time", "lat", "lon"),
+        bins_arr=None,
+        nbins=100,
+        bin_target_only=True,
+        typedistance="lhd",
         member_name=member_dim,
     )
 
@@ -885,8 +917,10 @@ def slow(
         "targ_hist_series": targ_hist_ds,
         "pred_hist_series": pred_hist_ds,
         "bins_hist_series": bins_hist_ds,
+        "wdh_float": wdh_ds,
         "fcss_float": fcss_ds,
-        "wdh_float": wdhf_ds,
+        "pss_float": pss_ds,
+        "lhd_float": lhd_ds,
     }
 
     metrics_path = _get_output_path(output, "metrics_slow_field.zarr")

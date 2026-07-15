@@ -1154,8 +1154,8 @@ def calc_histdata_xr(
 
     Returns
     -------
-    xr.Dataset
-        Dataset of distribution comparison metrics.
+    xr.Dataset, xr.Dataset, xr.Dataset
+        Datasets of histogram output.
     """
 
     if index_fn is None:
@@ -1203,8 +1203,8 @@ def calc_histdata_xr(
     phist, pedge = np.histogram(arr0, bins=bins_arr, density=True)
     qhist, qedge = np.histogram(arr1, bins=bins_arr, density=True)
 
-    return (
-        xr.Dataset({var: ("density", phist)}),
-        xr.Dataset({var: ("density", qhist)}),
-        xr.Dataset({var: ("bin_edge", pedge)}),
-    )
+    phist_ds = xr.Dataset({var: ("bins", np.append(phist, np.nan))})
+    qhist_ds = xr.Dataset({var: ("bins", np.append(phist, np.nan))})
+    edge_ds = xr.Dataset({var: ("bins", pedge)})
+
+    return phist_ds, qhist_ds, edge_ds
