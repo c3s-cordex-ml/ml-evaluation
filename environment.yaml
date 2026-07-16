@@ -28,4 +28,5 @@ dependencies:
 - zarr
 - bottleneck
 - pip
-- "dask[distributed]"
+- dask
+- distributed

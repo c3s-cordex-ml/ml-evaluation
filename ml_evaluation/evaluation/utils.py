@@ -149,8 +149,18 @@ def xr_spearman_corr(da_a, da_b, dim=None):
         # DataArray.rank only supports a single dim, so stack the
         # requested dims into one before ranking, then unstack.
         stacked = "__spearman_stack__"
-        rank_a = da_a.stack({stacked: dims}).chunk({stacked:-1}).rank(dim=stacked).unstack(stacked)
-        rank_b = da_b.stack({stacked: dims}).chunk({stacked:-1}).rank(dim=stacked).unstack(stacked)
+        rank_a = (
+            da_a.stack({stacked: dims})
+            .chunk({stacked: -1})
+            .rank(dim=stacked)
+            .unstack(stacked)
+        )
+        rank_b = (
+            da_b.stack({stacked: dims})
+            .chunk({stacked: -1})
+            .rank(dim=stacked)
+            .unstack(stacked)
+        )
 
     return xr.corr(rank_a, rank_b, dim=dim)
 
@@ -195,10 +205,10 @@ def compute_max_spell_per_year(arr: xr.DataArray) -> xr.DataArray:
     xr.DataArray
         Resampled maximum spell length.
     """
-    tdim="time"
+    tdim = "time"
     output: xr.DataArray = xr.apply_ufunc(
         max_spell_length,
-        arr.chunk({tdim:-1}),
+        arr.chunk({tdim: -1}),
         input_core_dims=[[tdim]],
         output_core_dims=[[]],
         vectorize=True,
@@ -246,11 +256,12 @@ def resample_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArr
     xr.DataArray
         Resampled maximum spell length.
     """
-    tdim="time"
+    tdim = "time"
+
     def _compute(arr: xr.DataArray) -> xr.DataArray:
         return xr.apply_ufunc(
             max_spell_length,
-            arr.chunk({tdim:-1}),
+            arr.chunk({tdim: -1}),
             input_core_dims=[[tdim]],
             output_core_dims=[[]],
             vectorize=True,
@@ -258,4 +269,4 @@ def resample_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArr
             output_dtypes=[float],
         )
 
-    return condition.resample({tdim:freq}).map(_compute).mean(tdim)
+    return condition.resample({tdim: freq}).map(_compute).mean(tdim)
