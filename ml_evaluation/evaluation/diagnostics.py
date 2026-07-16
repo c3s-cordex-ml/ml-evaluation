@@ -1205,7 +1205,7 @@ def calc_histdata_xr(
     qhist, qedge = np.histogram(arr1, bins=bins_arr, density=True)
 
     phist_ds = xr.Dataset({var: ("bins", np.append(phist, np.nan))})
-    qhist_ds = xr.Dataset({var: ("bins", np.append(phist, np.nan))})
+    qhist_ds = xr.Dataset({var: ("bins", np.append(qhist, np.nan))})
     edge_ds = xr.Dataset({var: ("bins", pedge)})
 
     return phist_ds, qhist_ds, edge_ds
