@@ -13,7 +13,7 @@ from ml_evaluation.evaluation.diagnostics import (
     bias_multivariable_correlation,
 )
 import ml_evaluation.evaluation.indices as indices
-from ml_evaluation.io import load_dataset, write_zarr
+from ml_evaluation.io import load_dataset, write_zarr, dask_default_params
 from ml_evaluation.transformations import (
     align_dims,
     convert_threshold_units,
@@ -105,6 +105,12 @@ def main() -> None:
     default=False,
     help="Option to load data into memory for quick testing of small datasets.",
 )
+@click.option(
+    "--use-dask",
+    type=bool,
+    default=False,
+    help="Option to use Dask for parallel processing.",
+)
 def fast(
     x0: str,
     x1: str,
@@ -113,6 +119,7 @@ def fast(
     season: str | None,
     align_leap_days: str | None,
     force_load: bool,
+    use_dask: bool,
 ) -> None:
     """
     Run the fast-track evaluation workflow.
@@ -141,11 +148,21 @@ def fast(
     -------
     None
     """
+    if use_dask:
+        from dask.distributed import Client
+
+        _client = Client(**dask_default_params)
+        click.echo("Using dask")
+
     click.echo(f"Running fast-track evaluation for variable '{var}'...")
     click.echo(f"Loading reference: {x0}")
-    x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
+    x0_ds = load_dataset(
+        x0, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )
     click.echo(f"Loading prediction: {x1}")
-    x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
+    x1_ds = load_dataset(
+        x1, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )
 
     x0_ds = x0_ds[[var]]
     x1_ds = x1_ds[[var]]
@@ -560,6 +577,12 @@ def fast(
     default=False,
     help="Option to load data into memory for quick testing of small datasets.",
 )
+@click.option(
+    "--use-dask",
+    type=bool,
+    default=False,
+    help="Option to use Dask for parallel processing.",
+)
 def slow(
     x0: str,
     x1: str,
@@ -568,6 +591,7 @@ def slow(
     season: str | None,
     align_leap_days: str | None,
     force_load: bool,
+    use_dask: bool,
 ) -> None:
     """
     Run the slow-track evaluation workflow.
@@ -596,11 +620,20 @@ def slow(
     -------
     None
     """
+    if use_dask:
+        from dask.distributed import Client
+
+        _client = Client(**dask_default_params)
+        click.echo("Using dask")
     click.echo(f"Running slow-track evaluation for variable '{var}'...")
     click.echo(f"Loading reference: {x0}")
-    x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
+    x0_ds = load_dataset(
+        x0, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )
     click.echo(f"Loading prediction: {x1}")
-    x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
+    x1_ds = load_dataset(
+        x1, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )
 
     x0_ds = x0_ds[[var]]
     x1_ds = x1_ds[[var]]
@@ -981,6 +1014,12 @@ def slow(
     default=False,
     help="Option to load data into memory for quick testing of small datasets.",
 )
+@click.option(
+    "--use-dask",
+    type=bool,
+    default=False,
+    help="Option to use Dask for parallel processing.",
+)
 def multivar(
     x0: str,
     x1: str,
@@ -990,12 +1029,13 @@ def multivar(
     season: str | None,
     align_leap_days: str | None,
     force_load: bool,
+    use_dask: bool,
 ) -> None:
     """
     Run the multi-variate evaluation workflow.
 
-    Computes Bias of multi-variate Pearson and Spearman's correlation between x0
-    and x1 for the specified variable pair and optionally filters by season.
+    Computes Pearson and Spearman Correlation between two variables
+    for reference and prediction datasets, along with their biases.
 
     Parameters
     ----------
@@ -1015,16 +1055,28 @@ def multivar(
         Options to align datasets to standard calendar by filling missing leap days.
     force_load : bool
         Option to load data into memory for quick testing of small datasets.
+    use_dask : bool
+        Option to use Dask for parallel processing.
 
     Returns
     -------
     None
     """
+    if use_dask:
+        from dask.distributed import Client
+
+        _client = Client(**dask_default_params)
+        click.echo("Using dask")
+
     click.echo(f"Running multi-variate evaluation for variables '{var}', '{var2}'...")
     click.echo(f"Loading reference: {x0}")
-    x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
+    x0_ds = load_dataset(
+        x0, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )
     click.echo(f"Loading prediction: {x1}")
-    x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
+    x1_ds = load_dataset(
+        x1, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )
 
     # Check for different pr units in target vs prediction
     if var == "pr" or var2 == "pr":
@@ -1115,12 +1167,19 @@ def multivar(
     default=False,
     help="Option to load data into memory for quick testing of small datasets.",
 )
+@click.option(
+    "--use-dask",
+    type=bool,
+    default=False,
+    help="Option to use Dask for parallel processing.",
+)
 def cdquantiles(
     x0: str,
     var: str,
     output: str,
     align_leap_days: str | None,
     force_load: bool,
+    use_dask: bool,
 ) -> None:
     """
     Run the calendar day extreme threshold computation workflow.
@@ -1140,16 +1199,26 @@ def cdquantiles(
         Options to align datasets to standard calendar by filling missing leap days.
     force_load : bool
         Option to load data into memory for quick testing of small datasets.
+    use_dask : bool
+        Option to use Dask for parallel processing.
 
     Returns
     -------
     None
     """
+    if use_dask:
+        from dask.distributed import Client
+
+        _client = Client(**dask_default_params)
+        click.echo("Using dask")
+
     click.echo(
         f"Running calendar day extreme threshold computation for variable '{var}'..."
     )
     click.echo(f"Loading reference: {x0}")
-    x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
+    x0_ds = load_dataset(
+        x0, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )
 
     x0_ds = x0_ds[[var]]
 
@@ -1219,6 +1288,12 @@ def cdquantiles(
     default=False,
     help="Option to load data into memory for quick testing of small datasets.",
 )
+@click.option(
+    "--use-dask",
+    type=bool,
+    default=False,
+    help="Option to use Dask for parallel processing.",
+)
 def cdextremes(
     x0: str,
     x1: str,
@@ -1228,6 +1303,7 @@ def cdextremes(
     season: str | None,
     align_leap_days: str | None,
     force_load: bool,
+    use_dask: bool,
 ) -> None:
     """
     Run the calendar day extremes evaluation workflow.
@@ -1254,18 +1330,30 @@ def cdextremes(
         Options to align datasets to standard calendar by filling missing leap days.
     force_load : bool
         Option to load data into memory for quick testing of small datasets.
+    use_dask : bool
+        Option to use Dask for parallel processing.
 
     Returns
     -------
     None
     """
+    if use_dask:
+        from dask.distributed import Client
+
+        _client = Client(**dask_default_params)
+        click.echo("Using dask")
+
     click.echo(
         f"Running evaluation wrt calendar day thresholds for variable '{var}'..."
     )
     click.echo(f"Loading reference: {x0}")
-    x0_ds = load_dataset(x0, align_leap_days=align_leap_days)
+    x0_ds = load_dataset(
+        x0, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )
     click.echo(f"Loading prediction: {x1}")
-    x1_ds = load_dataset(x1, align_leap_days=align_leap_days)
+    x1_ds = load_dataset(
+        x1, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )
 
     x0_ds = x0_ds[[var]]
     x1_ds = x1_ds[[var]]
@@ -1296,7 +1384,9 @@ def cdextremes(
         )
 
     if os.path.isfile(calday_90p_path):
-        targ_var90p_quantile = load_dataset(calday_90p_path)
+        targ_var90p_quantile = load_dataset(
+            calday_90p_path, chunks="auto" if use_dask else None
+        )
 
         click.echo(f"Loaded threshold file: {calday_90p_path}")
 
@@ -1342,11 +1432,13 @@ def cdextremes(
         )
 
     if os.path.isfile(calday_10p_path):
-        targ_var10p_quantile = load_dataset(calday_10p_path)
+        targ_var10p_quantile = load_dataset(
+            calday_10p_path, chunks="auto" if use_dask else None
+        )
 
         click.echo(f"Loaded threshold file: {calday_10p_path}")
 
-        if len(targ_var90p_quantile[var].dims) < 3:
+        if len(targ_var10p_quantile[var].dims) < 3:
             click.echo(
                 f"WARNING: expected at least 3 dimensions but got: {targ_var10p_quantile[var].dims}"
             )

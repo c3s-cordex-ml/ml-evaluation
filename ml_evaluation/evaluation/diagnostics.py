@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import numpy as np
 import xarray as xr
@@ -469,7 +469,8 @@ def ralsd(psd_x0: xr.Dataset, psd_x1: xr.Dataset, var: str) -> xr.Dataset:
     # check update for enxemble also copes with single member
     ratio = psd_x0[var] / psd_x1[var].clip(min=1e-30)
     log_ratio = 10.0 * np.log10(ratio.clip(min=1e-30))
-    res = xr.Dataset({var: (log_ratio**2).mean(dim="wavenumber")})
+    log_ratio_da = cast(xr.DataArray, log_ratio)
+    res = xr.Dataset({var: (log_ratio_da**2).mean(dim="wavenumber")})
 
     return res
 
@@ -899,11 +900,11 @@ def calc_pdf_metric_nparray(
 
         elif typedistance == "wd":
             dist_out = np.zeros(np.prod(arr0.shape[1:]))
-            arr0_flat = arr0.reshape(arr0.shape[0], np.prod(arr0.shape[1:]))
-            arr1_flat = arr1.reshape(arr1.shape[0], np.prod(arr1.shape[1:]))
+            arr0_flat_2d = arr0.reshape(arr0.shape[0], np.prod(arr0.shape[1:]))
+            arr1_flat_2d = arr1.reshape(arr1.shape[0], np.prod(arr1.shape[1:]))
             for ii in range(np.prod(arr0.shape[1:])):
                 dist_out[ii] = scipy_wasserstein_distance(
-                    arr0_flat[:, ii], arr1_flat[:, ii]
+                    arr0_flat_2d[:, ii], arr1_flat_2d[:, ii]
                 )
 
             dist_out = dist_out.reshape(arr0.shape[1:])
@@ -1010,7 +1011,7 @@ def calc_pdf_metric_xr(
 
     dim_tuple: tuple[str, ...]
     if dim is None:
-        dim_tuple = tuple(prediction_xr.dims)
+        dim_tuple = tuple(str(d) for d in prediction_xr.dims)
     elif isinstance(dim, str):
         dim_tuple = (dim,)
     else:
