@@ -555,19 +555,26 @@ def run_cdquantiles(
 
     # Compute Bias of freq gt 90th cal_day percentile: field
     click.echo("Computing Target 90th cal_day percentile: field... SLOW...")
-
     targ_var90p_quantile = indices.calday_quantile(x0_ds, var=var, q=0.9, padding=2)
-    targ_var90p_quantile_path = _get_output_path(output, "targ_quantile_var90p.nc")
-    targ_var90p_quantile.to_netcdf(targ_var90p_quantile_path)
-    click.echo(f"Saved Target 90th cal_day percentile to {targ_var90p_quantile_path}")
 
     # Compute time Bias of freq timesteps lt 10th cal_day percentile: field
     click.echo("Computing Target 10th cal_day percentile: field... SLOW...")
-
     targ_var10p_quantile = indices.calday_quantile(x0_ds, var=var, q=0.1, padding=2)
-    targ_var10p_quantile_path = _get_output_path(output, "targ_quantile_var10p.nc")
-    targ_var10p_quantile.to_netcdf(targ_var10p_quantile_path)
-    click.echo(f"Saved Target 10th cal_day percentile to {targ_var10p_quantile_path}")
+
+    # Combine into a single Dataset with quantile coordinate
+    targ_var90p_quantile = targ_var90p_quantile.assign_coords(quantile=0.9).expand_dims(
+        "quantile"
+    )
+    targ_var10p_quantile = targ_var10p_quantile.assign_coords(quantile=0.1).expand_dims(
+        "quantile"
+    )
+    combined_quantiles = xr.concat(
+        [targ_var10p_quantile, targ_var90p_quantile], dim="quantile"
+    )
+
+    zarr_path = _get_output_path(output, "thresholds.zarr")
+    write_zarr(combined_quantiles, zarr_path, mode="w")
+    click.echo(f"Saved threshold quantiles to Zarr store: {zarr_path}")
 
 
 def run_cdextremes(
@@ -650,46 +657,23 @@ def run_cdextremes(
         x0_ds.load()
         x1_ds.load()
 
-    calday_90p_path = _get_output_path(thresh_dir, "targ_quantile_var90p.nc")
-    calday_10p_path = _get_output_path(thresh_dir, "targ_quantile_var10p.nc")
+    calday_zarr_path = _get_output_path(thresh_dir, "thresholds.zarr")
 
-    if not os.path.isfile(calday_90p_path) and not os.path.isfile(calday_10p_path):
+    if not os.path.exists(calday_zarr_path):
         click.echo(
-            f"Target threshold files do not exist: {calday_90p_path}; {calday_10p_path}. Use track cdquantiles to compute these for variable {var}."
+            f"Target threshold Zarr store does not exist: {calday_zarr_path}. Use track cdquantiles to compute these for variable {var}."
         )
         raise ValueError(
-            f"Target threshold files do not exist: {calday_90p_path}; {calday_10p_path}. Use track cdquantiles to compute these for variable {var}."
+            f"Target threshold Zarr store does not exist: {calday_zarr_path}. Use track cdquantiles to compute these for variable {var}."
         )
 
-    targ_var90p_quantile = None
-    if os.path.isfile(calday_90p_path):
-        targ_var90p_quantile = load_dataset(
-            calday_90p_path, chunks="auto" if use_dask else None
-        )
-        click.echo(f"Loaded threshold file: {calday_90p_path}")
-        if len(targ_var90p_quantile[var].dims) < 3:
-            click.echo(
-                f"WARNING: expected at least 3 dimensions but got: {targ_var90p_quantile[var].dims}"
-            )
-    else:
-        click.echo(
-            f"Target threshold file does not exist: {calday_90p_path}. Use track cdquantiles to compute this for variable {var}."
-        )
+    click.echo(f"Loaded threshold Zarr store: {calday_zarr_path}")
+    thresh_ds = xr.open_zarr(calday_zarr_path)
+    if force_load:
+        thresh_ds.load()
 
-    targ_var10p_quantile = None
-    if os.path.isfile(calday_10p_path):
-        targ_var10p_quantile = load_dataset(
-            calday_10p_path, chunks="auto" if use_dask else None
-        )
-        click.echo(f"Loaded threshold file: {calday_10p_path}")
-        if len(targ_var10p_quantile[var].dims) < 3:
-            click.echo(
-                f"WARNING: expected at least 3 dimensions but got: {targ_var10p_quantile[var].dims}"
-            )
-    else:
-        click.echo(
-            f"Target threshold file does not exist: {calday_10p_path}. Use track cdquantiles to compute this for variable {var}."
-        )
+    targ_var90p_quantile = thresh_ds.sel(quantile=0.9, drop=True)
+    targ_var10p_quantile = thresh_ds.sel(quantile=0.1, drop=True)
 
     is_list = isinstance(seasons, list)
     seasons_list: list[str | None] = seasons if is_list else [seasons]  # type: ignore
