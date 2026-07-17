@@ -1,0 +1,393 @@
+# ==============================================================================
+# ML Evaluation Track Definitions
+# ==============================================================================
+# Defines the set of metrics run per evaluation track, organized into:
+# - general: Applied to all variables.
+# - variables: Applied only to specific variables (e.g. pr, tasmax, tasmin).
+# ==============================================================================
+
+fast:
+  general:
+  - name: "bias_mean_field"
+    type: "bias_index"
+    index_fn: "mean"
+    description: "Computing Bias of Mean (over time): field..."
+    category: "field"
+
+  - name: "rmse_field"
+    type: "rmse_index"
+    dim: ["time"]
+    description: "Computing RMSE of daily data (over time): field..."
+    category: "field"
+
+  - name: "rmse_float"
+    type: "rmse_index"
+    dim: ["time", "lat", "lon"]
+    description: "Computing RMSE of daily data (over time, lat, lon): float..."
+    category: "float"
+
+  - name: "rmse_series"
+    type: "rmse_index"
+    dim: ["lat", "lon"]
+    description: "Computing RMSE of daily data (over lat, lon): series..."
+    category: "series"
+
+  - name: "pcorr_series"
+    type: "corr_index"
+    dim: ["lat", "lon"]
+    description: "Computing Pearson Correlation of daily data (over lat, lon): series..."
+    category: "series"
+
+  - name: "scorr_series"
+    type: "corr_index"
+    dim: ["lat", "lon"]
+    srank: true
+    description: "Computing Spearman Correlation of daily data (over lat, lon): series..."
+    category: "series"
+
+  - name: "bias_p99_field"
+    type: "bias_index"
+    index_fn: "season_quantile"
+    q: 0.99
+    description: "Computing Bias of 99th percentile (over time): field..."
+    category: "field"
+
+  - name: "bias_p1_field"
+    type: "bias_index"
+    index_fn: "season_quantile"
+    q: 0.01
+    description: "Computing Bias of 1th percentile (over time): field..."
+    category: "field"
+
+  - name: "targ_acorr_field"
+    type: "lag1_corr"
+    dataset: "x0"
+    description: "Computing Target lag-1 day autocorrelation (over time): field..."
+    category: "field"
+
+  - name: "pred_acorr_field"
+    type: "lag1_corr"
+    dataset: "x1"
+    description: "Computing Prediction lag-1 day autocorrelation (over time): field..."
+    category: "field"
+
+  - name: "bias_acorr_field"
+    type: "bias_index"
+    index_fn: "lag1_corr"
+    description: "Computing Bias of lag-1 day autocorrelation (over time): field..."
+    category: "field"
+
+  - name: "bias_max1day_field"
+    type: "bias_index"
+    index_fn: "ann_extrema"
+    maxmin: "max"
+    cmean: true
+    description: "Computing Bias of annual max (over time): field..."
+    category: "field"
+
+  - name: "bias_min1day_field"
+    type: "bias_index"
+    index_fn: "ann_extrema"
+    maxmin: "min"
+    cmean: true
+    description: "Computing Bias of annual min (over time): field..."
+    category: "field"
+
+  - name: "psd"
+    type: "psd"
+    description: "Computing Power Spectral Density (PSD) (over lat, lon)..."
+    category: "psd"
+
+  - name: "ralsd_float"
+    type: "ralsd"
+    description: "Computing Radially Averaged Log Spectral Distance (RALSD)..."
+    category: "float"
+
+  variables:
+    pr:
+    - name: "bias_p98wet_field"
+      type: "bias_index"
+      index_fn: "season_quantile"
+      q: 0.98
+      wet_threshold: "1.0 * scale + shift"
+      description: "Computing Bias of 98th wet day percentile (over time): field..."
+      category: "pr_field"
+
+    - name: "bias_p90wet_field"
+      type: "bias_index"
+      index_fn: "season_quantile"
+      q: 0.90
+      wet_threshold: "1.0 * scale + shift"
+      description: "Computing Bias of 90th wet day percentile (over time): field..."
+      category: "pr_field"
+
+    - name: "bias_r1_field"
+      type: "bias_index"
+      index_fn: "ann_freq_wrt_array"
+      threshold: "1.0 * scale + shift"
+      relation: "ge"
+      cmean: true
+      description: "Computing Bias of freq ge 1mm/day (over time): field..."
+      category: "pr_field"
+
+    - name: "bias_r10_field"
+      type: "bias_index"
+      index_fn: "ann_freq_wrt_array"
+      threshold: "10.0 * scale + shift"
+      relation: "ge"
+      cmean: true
+      description: "Computing Bias of freq ge 10mm/day (over time): field..."
+      category: "pr_field"
+
+    - name: "bias_sdii_field"
+      type: "bias_index"
+      index_fn: "ann_sdii"
+      wet_threshold: "1.0 * scale + shift"
+      cmean: true
+      description: "Computing Bias of sdii (over time): field..."
+      category: "pr_field"
+
+    - name: "bias_cdd_field"
+      type: "bias_index"
+      index_fn: "ann_maxspell_wrt_array"
+      threshold: "1.0 * scale + shift"
+      relation: "lt"
+      cmean: true
+      description: "Computing Bias of max dry spell length (over time): field..."
+      category: "pr_field"
+
+    - name: "bias_cwd_field"
+      type: "bias_index"
+      index_fn: "ann_maxspell_wrt_array"
+      threshold: "1.0 * scale + shift"
+      relation: "ge"
+      cmean: true
+      description: "Computing Bias of max wet spell length (over time): field..."
+      category: "pr_field"
+
+    - name: "relbias_rx1day_field"
+      type: "bias_index"
+      index_fn: "ann_extrema"
+      maxmin: "max"
+      cmean: true
+      relative: true
+      description: "Computing Relative Bias of annual max (over time): field..."
+      category: "pr_field"
+
+    - name: "relbias_sdii_field"
+      type: "bias_index"
+      index_fn: "ann_sdii"
+      wet_threshold: "1.0 * scale + shift"
+      cmean: true
+      relative: true
+      description: "Computing Relative Bias of sdii (over time): field..."
+      category: "pr_field"
+
+    - name: "relbias_p98wet_field"
+      type: "bias_index"
+      index_fn: "season_quantile"
+      q: 0.98
+      wet_threshold: "1.0 * scale + shift"
+      relative: true
+      description: "Computing Relative Bias of 98th wet day percentile (over time): field..."
+      category: "pr_field"
+
+    - name: "relbias_p90wet_field"
+      type: "bias_index"
+      index_fn: "season_quantile"
+      q: 0.90
+      wet_threshold: "1.0 * scale + shift"
+      relative: true
+      description: "Computing Relative Bias of 90th wet day percentile (over time): field..."
+      category: "pr_field"
+
+slow:
+  general:
+  - name: "pcorr_field"
+    type: "corr_index"
+    dim: ["time"]
+    description: "Computing Pearson Correlation of daily data (over time): field..."
+    category: "slow"
+
+  - name: "scorr_field"
+    type: "corr_index"
+    dim: ["time"]
+    srank: true
+    description: "Computing Spearman's Correlation of daily data (over time): field..."
+    category: "slow"
+
+  - name: "bias_annstd_field"
+    type: "bias_index"
+    index_fn: "interannual_var"
+    description: "Computing Bias of std of annual means (over time): field..."
+    category: "slow"
+
+  - name: "bias_p90_field"
+    type: "bias_index"
+    index_fn: "season_quantile"
+    q: 0.90
+    description: "Computing Bias of 90th percentile (over time): field..."
+    category: "slow"
+
+  - name: "wd_field"
+    type: "calc_pdf_metric_xr"
+    typedistance: "wd"
+    dim: ["time"]
+    description: "Computing Wasserstein Distance (over time): field..."
+    category: "slow"
+
+  - name: "wdh_field"
+    type: "calc_pdf_metric_xr"
+    typedistance: "wdh"
+    dim: ["time"]
+    nbins: 100
+    bin_target_only: true
+    description: "Computing Wasserstein Distance hist method (over time): field..."
+    category: "slow"
+
+  - name: "fcss_field"
+    type: "calc_pdf_metric_xr"
+    typedistance: "fcss"
+    dim: ["time"]
+    nbins: 100
+    bin_target_only: true
+    description: "Computing FCSS (over time): field..."
+    category: "slow"
+
+  - name: "pss_field"
+    type: "calc_pdf_metric_xr"
+    typedistance: "pss"
+    dim: ["time"]
+    nbins: 100
+    bin_target_only: true
+    description: "Computing PSS (over time): field..."
+    category: "slow"
+
+  - name: "lhd_field"
+    type: "calc_pdf_metric_xr"
+    typedistance: "lhd"
+    dim: ["time"]
+    nbins: 100
+    bin_target_only: true
+    description: "Computing LHD (over time): field..."
+    category: "slow"
+
+  - name: "wdh_float"
+    type: "calc_pdf_metric_xr"
+    typedistance: "wdh"
+    dim: ["time", "lat", "lon"]
+    nbins: 100
+    bin_target_only: true
+    description: "Computing Wasserstein Distance hist method (over time, lat, lon): float..."
+    category: "hist"
+
+  - name: "fcss_float"
+    type: "calc_pdf_metric_xr"
+    typedistance: "fcss"
+    dim: ["time", "lat", "lon"]
+    nbins: 100
+    bin_target_only: true
+    description: "Computing FCSS (over time, lat, lon): float..."
+    category: "hist"
+
+  - name: "pss_float"
+    type: "calc_pdf_metric_xr"
+    typedistance: "pss"
+    dim: ["time", "lat", "lon"]
+    nbins: 100
+    bin_target_only: true
+    description: "Computing PSS (over time, lat, lon): float..."
+    category: "hist"
+
+  - name: "lhd_float"
+    type: "calc_pdf_metric_xr"
+    typedistance: "lhd"
+    dim: ["time", "lat", "lon"]
+    nbins: 100
+    bin_target_only: true
+    description: "Computing LHD (over time, lat, lon): float..."
+    category: "hist"
+
+  - name: "hist_data"
+    type: "calc_histdata_xr"
+    nbins: 100
+    bin_target_only: true
+    description: "Computing histogram (over flattened dims): series..."
+    category: "hist"
+
+  variables:
+    tasmax:
+    - name: "bias_su_field"
+      type: "bias_index"
+      index_fn: "ann_freq_wrt_array"
+      threshold: "25.0 * scale + shift"
+      relation: "ge"
+      cmean: true
+      description: "Computing  Bias of freq ge 25C (over time): field..."
+      category: "tasmax"
+
+    - name: "bias_hot_field"
+      type: "bias_index"
+      index_fn: "ann_freq_wrt_array"
+      threshold: "35.0 * scale + shift"
+      relation: "ge"
+      cmean: true
+      description: "Computing  Bias of freq ge 35C (over time): field..."
+      category: "tasmax"
+
+    - name: "bias_ice_field"
+      type: "bias_index"
+      index_fn: "ann_freq_wrt_array"
+      threshold: "0.0 * scale + shift"
+      relation: "lt"
+      cmean: true
+      description: "Computing  Bias of freq lt 0C (over time): field..."
+      category: "tasmax"
+
+    tasmin:
+    - name: "bias_tropnight_field"
+      type: "bias_index"
+      index_fn: "ann_freq_wrt_array"
+      threshold: "20.0 * scale + shift"
+      relation: "ge"
+      cmean: true
+      description: "Computing  Bias of freq ge 20C (over time): field..."
+      category: "tasmin"
+
+    - name: "bias_frost_field"
+      type: "bias_index"
+      index_fn: "ann_freq_wrt_array"
+      threshold: "0.0 * scale + shift"
+      relation: "lt"
+      cmean: true
+      description: "Computing  Bias of freq lt 0C (over time): field..."
+      category: "tasmin"
+
+multivar:
+  general:
+  - name: "mv_pcorr"
+    type: "bias_multivariable_correlation"
+    description: "Computing Pearson Correlation of daily data between variables (over time): field..."
+    category: "multivar"
+
+  - name: "mv_scorr"
+    type: "bias_multivariable_correlation"
+    srank: true
+    description: "Computing Spearman's Correlation of daily data between variables (over time): field..."
+    category: "multivar"
+
+cdextremes:
+  general:
+  - name: "cdextremes_90p"
+    type: "cdextremes_freq_spell"
+    q_threshold: "90p"
+    relation: "gt"
+    description: "Computing Bias of extremes wrt 90th percentile..."
+    category: "cdextremes"
+
+  - name: "cdextremes_10p"
+    type: "cdextremes_freq_spell"
+    q_threshold: "10p"
+    relation: "lt"
+    description: "Computing Bias of extremes wrt 10th percentile..."
+    category: "cdextremes"

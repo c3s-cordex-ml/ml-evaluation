@@ -151,23 +151,40 @@ ______________________________________________________________________
 
 ## Command Line Interface (CLI)
 
-The repository provides a `ml-eval` CLI executable through `click`. It supports two workflows: a fast-track workflow for computationally inexpensive metrics, and a slow-track workflow for heavy metrics.
+The repository provides a `ml-eval` CLI executable through `click`. It supports running multiple, sequential evaluations specified in a single YAML configuration file.
 
-### 1. Fast-Track Workflow
-
-Computes **Mean Bias**, **RMSE**, and **Pearson Correlation** on input NetCDF datasets.
+To run the evaluation pipeline:
 
 ```bash
-ml-eval fast --x0 <ref.nc> --x1 <pred.nc> --var <variable> --output <prefix_or_dir> [--season <season>]
+ml-eval --config <path/to/config.yaml>
 ```
 
-### 2. Slow-Track Workflow
-
-Computes **Power Spectral Density (PSD)**, **Radially Averaged Log Spectral Distance (RALSD)**, and **Spatial Wasserstein Distance**.
+Or run the CLI directly as a module:
 
 ```bash
-ml-eval slow --x0 <ref.nc> --x1 <pred.nc> --var <variable> --output <prefix_or_dir> [--season <season>]
+pixi run -e dev python -m ml_evaluation.cli --config <path/to/config.yaml>
 ```
+
+### YAML Configuration Schema
+
+The configuration file must start with a top-level `evaluations:` key, where each list item represents a sequential evaluation block. It supports the following evaluation types:
+
+1. **Fast-Track Evaluation (`fast`)**:
+   Computes computationally inexpensive basic performance metrics, autocorrelation, spectral distances, and precipitation/temperature extremes.
+1. **Slow-Track Evaluation (`slow`)**:
+   Computes spatial/temporal coherence, Wasserstein distance, probability density function comparison statistics (e.g., FCSS, PSS, LHD), and histograms.
+1. **Multi-Variable Correlation (`multivar`)**:
+   Computes multivariate Pearson and Spearman correlations between two variables.
+1. **Calendar Day Quantiles (`cdquantiles`)**:
+   Computes calendar day 90th and 10th percentile thresholds from the reference dataset.
+1. **Calendar Day Extremes (`cdextremes`)**:
+   Computes temperature/precipitation extremes frequencies and spell durations relative to calendar day percentile thresholds.
+
+For a detailed example of the schema and parameters, refer to \[configuration_example.yaml\](file:///home/pereza/git/c3s2-384/ml-evaluation/configuration_example.yaml).
+
+### Directory Grouping Outputs
+
+To group outputs in dedicated directories (e.g., `fast/`, `slow/`, `thresholds/`, `cdextremes/`), terminate the configured `output` path with a trailing slash (`/`). The CLI will automatically create the directory structure and store the resulting Zarr or NetCDF archives inside it. If no trailing slash is provided, the last portion of the path will be treated as a filename prefix.
 
 ### Docker Integration (Kubernetes ready)
 
@@ -182,24 +199,7 @@ docker build -t ml-evaluation .
 Run the container:
 
 ```bash
-docker run --rm -v $(pwd):/data ml-evaluation fast --x0 /data/ref.nc --x1 /data/pred.nc --var tasmax --output /data/eval_out
-```
-
-### Call the CLI directly as a module
-
-```bash
-pixi run -e dev python -m ml_evaluation.cli fast --x0 <ref.nc> --x1 <pred.nc> --var <variable> --output <prefix_or_dir> [--season <season>]
-```
-
-```bash
-pixi run -e dev python -m ml_evaluation.cli slow --x0 <ref.nc> --x1 <pred.nc> --var <variable> --output <prefix_or_dir> [--season <season>]
-```
-
-### Optional Input Parameters for ml-eval
-
-```bash
---season <season> # Option to filter by standard seasons or months
---cal365 <bool> # Option to align data to 365day calendar
+docker run --rm -v $(pwd):/data ml-evaluation --config /data/config.yaml
 ```
 
 ______________________________________________________________________

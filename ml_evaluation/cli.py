@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 import click
-from ml_evaluation.evaluation.diagnostics import (
-    bias_index,
-    rmse_index,
-    corr_index,
-    psd,
-    ralsd,
-    calc_pdf_metric_xr,
-    calc_histdata_xr,
-    bias_multivariable_correlation,
+import xarray as xr
+import yaml
+from ml_evaluation.definitions import (
+    compute_fast_metrics,
+    compute_slow_metrics,
+    compute_multivar_metrics,
+    compute_cdextremes_metrics,
 )
 import ml_evaluation.evaluation.indices as indices
 from ml_evaluation.io import load_dataset, write_zarr, dask_default_params
@@ -41,91 +40,85 @@ def _get_output_path(base: str, default_name: str) -> str:
     str
         The constructed file path or Zarr store path.
     """
-    if os.path.isdir(base):
-        return os.path.join(base, default_name)
     if base.endswith(".zarr"):
         return base
+    if base.endswith("/") or os.path.isdir(base):
+        os.makedirs(base, exist_ok=True)
+        return os.path.join(base, default_name)
     return f"{base}_{default_name}"
 
 
-@click.group()
-def main() -> None:
+def _combine_seasons(
+    season_metrics: list[dict[str, Any]],
+    seasons_list: list[str | None],
+) -> dict[str, Any]:
     """
-    Evaluation CLI for Machine Learning Regional Climate Models.
+    Combine list of metric dicts (one per season) into a single dict.
 
-    Provides commands to run fast-track and slow-track evaluation workflows
-    to compare downscaled climate predictions against reference data.
+    Each value in the dict is concatenated along a new 'season' dimension.
 
     Parameters
     ----------
-    None
+    season_metrics : list[dict[str, Any]]
+        List of metric dictionaries, one for each season.
+    seasons_list : list[str | None]
+        List of season names corresponding to each dictionary in season_metrics.
 
     Returns
     -------
-    None
+    dict[str, Any]
+        Combined dictionary where each metric has a 'season' dimension.
     """
-    pass
+    if not season_metrics:
+        return {}
+
+    # Convert None or other non-string seasons to string for coords
+    season_coords: list[str] = [
+        str(s) if s is not None else "all" for s in seasons_list
+    ]
+
+    keys = season_metrics[0].keys()
+    combined: dict[str, Any] = {}
+    for key in keys:
+        items = [m[key] for m in season_metrics]
+        # Check if they are xarray objects
+        if all(isinstance(item, (xr.Dataset, xr.DataArray)) for item in items):
+            concat_dim = xr.DataArray(season_coords, dims="season", name="season")
+            combined[key] = xr.concat(
+                items, dim=concat_dim, coords="minimal", compat="override"
+            )
+        else:
+            # In case some item is a float/int/scalar, convert to DataArray
+            da_items: list[xr.DataArray | xr.Dataset] = []
+            for item in items:
+                if isinstance(item, (xr.Dataset, xr.DataArray)):
+                    da_items.append(item)
+                else:
+                    da_items.append(xr.DataArray(float(item)))
+            concat_dim = xr.DataArray(season_coords, dims="season", name="season")
+            combined[key] = xr.concat(
+                da_items, dim=concat_dim, coords="minimal", compat="override"
+            )
+    return combined
 
 
-@main.command()
-@click.option(
-    "--x0",
-    required=True,
-    type=click.Path(exists=True),
-    help="Path to ground-truth NetCDF file.",
-)
-@click.option(
-    "--x1",
-    required=True,
-    type=click.Path(exists=True),
-    help="Path to predictions NetCDF file.",
-)
-@click.option("--var", required=True, type=str, help="Variable name to evaluate.")
-@click.option(
-    "--output",
-    required=True,
-    type=str,
-    help="Directory or file path for the output Zarr results.",
-)
-@click.option(
-    "--season",
-    type=str,
-    default=None,
-    help="Optional season/month to filter (e.g., DJF, MAM, JJA, SON, JAN).",
-)
-@click.option(
-    "--align-leap-days",
-    type=str,
-    default=None,
-    help="Option to align datasets to standard calendar by filling missing leap days.",
-)
-@click.option(
-    "--force-load",
-    type=bool,
-    default=False,
-    help="Option to load data into memory for quick testing of small datasets.",
-)
-@click.option(
-    "--use-dask",
-    type=bool,
-    default=False,
-    help="Option to use Dask for parallel processing.",
-)
-def fast(
+def run_fast(
     x0: str,
     x1: str,
     var: str,
     output: str,
-    season: str | None,
-    align_leap_days: str | None,
-    force_load: bool,
-    use_dask: bool,
+    seasons: str | list[str] | None = None,
+    align_leap_days: str | None = None,
+    force_load: bool = False,
+    use_dask: bool = False,
 ) -> None:
     """
     Run the fast-track evaluation workflow.
 
     Computes Mean Bias, RMSE, and Pearson Correlation between x0 and x1
     for the specified variable and optionally filters by season.
+    If seasons is a list, loops over all selected seasons and integrates
+    season as a dimension of the output Zarr.
 
     Parameters
     ----------
@@ -137,12 +130,14 @@ def fast(
         Variable name to evaluate.
     output : str
         Directory, file prefix, or final Zarr store path.
-    season : str | None
-        Optional season or month standard name.
-    align_leap_days : str | None
-        Options to align datasets to standard calendar by filling missing leap days.
-    force_load : bool
+    seasons : str | list[str] | None, default None
+        Optional season/month standard name(s) (e.g. DJF, MAM).
+    align_leap_days : str | None, default None
+        Option to align datasets to standard calendar by filling missing leap days.
+    force_load : bool, default False
         Option to load data into memory for quick testing of small datasets.
+    use_dask : bool, default False
+        Option to use Dask for parallel processing.
 
     Returns
     -------
@@ -183,421 +178,92 @@ def fast(
 
     scale, shift = convert_threshold_units(x0_ds, var)
 
-    # Compute Bias of Mean (over time): field
-    click.echo("Computing Bias of Mean (over time): field...")
-    biasf_ds = bias_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=indices.mean,
-    )
+    # Determine if seasons is a list
+    is_list = isinstance(seasons, list)
+    seasons_list: list[str | None] = seasons if is_list else [seasons]  # type: ignore
 
-    # Compute RMSE of daily data (over time): field
-    click.echo("Computing RMSE of daily data (over time): field...")
-    rmsef_ds = rmse_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        dim="time",
-    )
+    season_metrics_field = []
+    season_metrics_series = []
+    season_metrics_float = []
+    season_metrics_pr_field = []
+    season_metrics_psd = []
 
-    # Compute RMSE of daily data (over time, lat, lon): float
-    click.echo("Computing RMSE of daily data (over time, lat, lon): float..")
-    rmse_ds = rmse_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        dim=("time", "lat", "lon"),
-    )
+    for season in seasons_list:
+        if is_list:
+            click.echo(f"Processing season: {season}")
 
-    # Compute RMSE of daily data (over lat, lon): series
-    click.echo("Computing RMSE of daily data (over lat, lon): series...")
-    rmses_ds = rmse_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        dim=("lat", "lon"),
-    )
-
-    # Compute Pearson Correlation of daily data (over lat, lon): series
-    click.echo("Computing Pearson Correlation of daily data (over lat, lon): series...")
-    pcorrs_ds = corr_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        dim=("lat", "lon"),
-    )
-
-    # Compute Spearman Correlation of daily data (over lat, lon): series
-    click.echo(
-        "Computing Spearman Correlation of daily data (over lat, lon): series..."
-    )
-    scorrs_ds = corr_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        dim=("lat", "lon"),
-        srank=True,
-    )
-
-    # Compute Bias of 99th percentile (over time): field
-    click.echo("Computing Bias of 99th percentile (over time): field...")
-    biasf_p99_ds = bias_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=indices.season_quantile,
-        q=0.99,
-    )
-
-    # Compute Bias of 1th percentile (over time): field
-    click.echo("Computing Bias of 1th percentile (over time): field...")
-    biasf_p1_ds = bias_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=indices.season_quantile,
-        q=0.01,
-    )
-
-    # Compute Target lag-1 day autocorrelation (over time): field
-    click.echo("Computing Target lag-1 day autocorrelation (over time): field...")
-    targf_acorr_ds = indices.lag1_corr(
-        x0_ds,
-        var=var,
-        season=season,
-    )
-
-    # Compute Prediction lag-1 day autocorrelation (over time): field
-    click.echo("Computing Prediction lag-1 day autocorrelation (over time): field...")
-    predf_acorr_ds = indices.lag1_corr(
-        x1_ds,
-        var=var,
-        season=season,
-    )
-
-    # Compute Bias of lag-1 day autocorrelation (over time): field
-    click.echo("Computing Bias of lag-1 day autocorrelation (over time): field...")
-    biasf_acorr_ds = bias_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=indices.lag1_corr,
-    )
-
-    # Compute Bias of annual max (over time): field
-    # **precip Rx1day fast track; temperature TXx, TNx slow track?
-    click.echo("Computing Bias of annual max (over time): field...")
-    biasf_max1day_ds = bias_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=indices.ann_extrema,
-        maxmin="max",
-        cmean=True,
-    )
-
-    # Compute Bias of annual min (over time): field
-    # **temperature TXn, TNn slow track? Precip not useful
-    click.echo("Computing Bias of annual min (over time): field...")
-    biasf_min1day_ds = bias_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=indices.ann_extrema,
-        maxmin="min",
-        cmean=True,
-    )
-
-    # Compute PSD and RALSD
-    click.echo("Computing Power Spectral Density (PSD) (over lat, lon)...")
-    psd_x0, psd_x1 = psd(x0_ds, x1_ds, var=var, season=season)
-
-    click.echo("Computing Radially Averaged Log Spectral Distance (RALSD)...")
-    ralsd_val = ralsd(psd_x0, psd_x1, var)
-    click.echo(f"RALSD: {ralsd_val}")
-
-    if var == "pr":
-        # Compute Bias of 98th wet day percentile (over time): field
-        click.echo("Computing Bias of 98th wet day percentile (over time): field...")
-        biasf_p98wet_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.season_quantile,
-            q=0.98,
-            wet_threshold=1.0 * scale + shift,
-        )
-        # Compute Bias of 90th wet day percentile (over time): field
-        click.echo("Computing Bias of 90th wet day percentile (over time): field...")
-        biasf_p90wet_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.season_quantile,
-            q=0.9,
-            wet_threshold=1.0 * scale + shift,
+        m_field, m_series, m_float, m_pr_field, m_psd = compute_fast_metrics(
+            x0_ds, x1_ds, var, season, scale, shift
         )
 
-        # Compute Bias of freq ge 1mm/day (over time): field
-        # **Precipitation only metric
-        click.echo("Computing Bias of freq ge 1mm/day (over time): field...")
-        biasf_r1_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_freq_wrt_array,
-            threshold=1.0 * scale + shift,
-            relation="ge",
-            cmean=True,
-        )
+        # Store for combination later
+        if is_list:
+            season_metrics_field.append(m_field)
+            season_metrics_series.append(m_series)
+            season_metrics_float.append(m_float)
+            season_metrics_psd.append(m_psd)
+            if var == "pr":
+                season_metrics_pr_field.append(m_pr_field)
+        else:
+            metrics_field = m_field
+            metrics_series = m_series
+            metrics_float = m_float
+            metrics_psd = m_psd
+            if var == "pr":
+                metrics_pr_field = m_pr_field
 
-        # Compute Bias of freq ge 10mm/day (over time): field
-        # **Precipitation only metric
-        click.echo("Computing Bias of freq ge 10mm/day (over time): field...")
-        biasf_r10_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_freq_wrt_array,
-            threshold=10.0 * scale + shift,
-            relation="ge",
-            cmean=True,
-        )
-
-        # Compute Bias of sdii (over time): field
-        # **Precipitation only metric
-        click.echo("Computing Bias of sdii (over time): field...")
-        biasf_sdii_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_sdii,
-            wet_threshold=1.0 * scale + shift,
-            cmean=True,
-        )
-
-        # Compute Bias of max dry spell length (over time): field
-        click.echo("Computing Bias of max dry spell length (over time): field...")
-        biasf_cdd_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_maxspell_wrt_array,
-            threshold=1.0 * scale + shift,
-            relation="lt",
-            cmean=True,
-        )
-
-        # Compute Bias of max wet spell length (over time): field
-        click.echo("Computing Bias of max wet spell length (over time): field...")
-        biasf_cwd_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_maxspell_wrt_array,
-            threshold=1.0 * scale + shift,
-            relation="ge",
-            cmean=True,
-        )
-
-        # Compute Relative Bias of annual max (over time): field
-        # **precip Rx1day fast track
-        click.echo("Computing Relative Bias of annual max (over time): field...")
-        relbiasf_max1day_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            relative=True,
-            index_fn=indices.ann_extrema,
-            maxmin="max",
-            cmean=True,
-        )
-
-        # Compute Relative Bias of sdii (over time): field
-        # **Precipitation only metric
-        click.echo("Computing Relative Bias of sdii (over time): field...")
-        relbiasf_sdii_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            relative=True,
-            index_fn=indices.ann_sdii,
-            wet_threshold=1.0 * scale + shift,
-            cmean=True,
-        )
-
-        # Compute Relative Bias of 98th wet day percentile (over time): field
-        click.echo(
-            "Computing Relative Bias of 98th wet day percentile (over time): field..."
-        )
-        relbiasf_p98wet_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            relative=True,
-            index_fn=indices.season_quantile,
-            q=0.98,
-            wet_threshold=1.0 * scale + shift,
-        )
-        # Compute Relative Bias of 90th wet day percentile (over time): field
-        click.echo(
-            "Computing Relative Bias of 90th wet day percentile (over time): field..."
-        )
-        relbiasf_p90wet_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            relative=True,
-            index_fn=indices.season_quantile,
-            q=0.9,
-            wet_threshold=1.0 * scale + shift,
-        )
-
-        metrics_pr_field = {
-            "bias_p98wet_field": biasf_p98wet_ds,
-            "bias_p90wet_field": biasf_p90wet_ds,
-            "bias_r1_field": biasf_r1_ds,
-            "bias_r10_field": biasf_r10_ds,
-            "bias_sdii_field": biasf_sdii_ds,
-            "bias_cdd_field": biasf_cdd_ds,
-            "bias_cwd_field": biasf_cwd_ds,
-            "relbias_rx1day_field": relbiasf_max1day_ds,
-            "relbias_sdii_field": relbiasf_sdii_ds,
-            "relbias_p98wet_field": relbiasf_p98wet_ds,
-            "relbias_p90wet_field": relbiasf_p90wet_ds,
-        }
-
-    # Save all fast-track metrics
+    # Save/Combine metrics
     click.echo("Combining and saving metrics...")
-    metrics_field = {
-        "bias_mean_field": biasf_ds,
-        "rmse_field": rmsef_ds,
-        "bias_p99_field": biasf_p99_ds,
-        "bias_p1_field": biasf_p1_ds,
-        "bias_acorr_field": biasf_acorr_ds,
-        "bias_max1day_field": biasf_max1day_ds,
-        "bias_min1day_field": biasf_min1day_ds,
-        "targ_acorr_field": targf_acorr_ds,
-        "pred_acorr_field": predf_acorr_ds,
-    }
-
-    metrics_series = {
-        "rmse_series": rmses_ds,
-        "pcorr_series": pcorrs_ds,
-        "scorr_series": scorrs_ds,
-    }
-
-    metrics_float = {
-        "rmse_float": rmse_ds,
-        "ralsd_float": ralsd_val,
-    }
-
-    metrics_psd = {
-        "psd_x0": psd_x0,
-        "psd_x1": psd_x1,
-    }
+    if is_list:
+        combined_field = _combine_seasons(season_metrics_field, seasons_list)
+        combined_series = _combine_seasons(season_metrics_series, seasons_list)
+        combined_float = _combine_seasons(season_metrics_float, seasons_list)
+        combined_psd = _combine_seasons(season_metrics_psd, seasons_list)
+        if var == "pr":
+            combined_pr_field = _combine_seasons(season_metrics_pr_field, seasons_list)
+    else:
+        combined_field = metrics_field
+        combined_series = metrics_series
+        combined_float = metrics_float
+        combined_psd = metrics_psd
+        if var == "pr":
+            combined_pr_field = metrics_pr_field
 
     metrics_path_field = _get_output_path(output, "metrics_fast_field.zarr")
-    write_zarr(metrics_field, metrics_path_field, mode="w", var=var)
+    write_zarr(combined_field, metrics_path_field, mode="w", var=var)
     metrics_path_series = _get_output_path(output, "metrics_fast_series.zarr")
-    write_zarr(metrics_series, metrics_path_series, mode="w", var=var)
+    write_zarr(combined_series, metrics_path_series, mode="w", var=var)
     metrics_path_float = _get_output_path(output, "metrics_fast_float.zarr")
-    write_zarr(metrics_float, metrics_path_float, mode="w", var=var)
+    write_zarr(combined_float, metrics_path_float, mode="w", var=var)
 
     if var == "pr":
         metrics_pr_path = _get_output_path(output, "metrics_pr_field.zarr")
-        write_zarr(metrics_pr_field, metrics_pr_path, mode="w", var=var)
+        write_zarr(combined_pr_field, metrics_pr_path, mode="w", var=var)
 
     metrics_psd_path = _get_output_path(output, "metrics_psd.zarr")
-    write_zarr(metrics_psd, metrics_psd_path, mode="w", var=var)
+    write_zarr(combined_psd, metrics_psd_path, mode="w", var=var)
 
     click.echo(f"Saved all fast-track metrics to {metrics_path_field} etc...")
-
     click.echo("Fast-track evaluation complete.")
 
 
-@main.command()
-@click.option(
-    "--x0",
-    required=True,
-    type=click.Path(exists=True),
-    help="Path to ground-truth NetCDF file.",
-)
-@click.option(
-    "--x1",
-    required=True,
-    type=click.Path(exists=True),
-    help="Path to predictions NetCDF file.",
-)
-@click.option("--var", required=True, type=str, help="Variable name to evaluate.")
-@click.option(
-    "--output",
-    required=True,
-    type=str,
-    help="Directory or file path for the output Zarr results.",
-)
-@click.option(
-    "--season",
-    type=str,
-    default=None,
-    help="Optional season/month to filter (e.g., DJF, MAM, JJA, SON, JAN).",
-)
-@click.option(
-    "--align-leap-days",
-    type=str,
-    default=None,
-    help="Option to align datasets to standard calendar by filling missing leap days.",
-)
-@click.option(
-    "--force-load",
-    type=bool,
-    default=False,
-    help="Option to load data into memory for quick testing of small datasets.",
-)
-@click.option(
-    "--use-dask",
-    type=bool,
-    default=False,
-    help="Option to use Dask for parallel processing.",
-)
-def slow(
+def run_slow(
     x0: str,
     x1: str,
     var: str,
     output: str,
-    season: str | None,
-    align_leap_days: str | None,
-    force_load: bool,
-    use_dask: bool,
+    seasons: str | list[str] | None = None,
+    align_leap_days: str | None = None,
+    force_load: bool = False,
+    use_dask: bool = False,
 ) -> None:
     """
     Run the slow-track evaluation workflow.
 
     Computes Power Spectral Density (PSD), Radially Averaged Log Spectral Distance (RALSD),
     and Spatial Wasserstein Distance.
+    If seasons is a list, loops over all selected seasons and integrates
+    season as a dimension of the output Zarr.
 
     Parameters
     ----------
@@ -609,12 +275,14 @@ def slow(
         Variable name to evaluate.
     output : str
         Directory, file prefix, or final Zarr store path.
-    season : str | None
-        Optional season or month standard name.
-    align_leap_days : str | None
-        Options to align datasets to standard calendar by filling missing leap days.
-    force_load : bool
+    seasons : str | list[str] | None, default None
+        Optional season/month standard name(s) (e.g. DJF, MAM).
+    align_leap_days : str | None, default None
+        Option to align datasets to standard calendar by filling missing leap days.
+    force_load : bool, default False
         Option to load data into memory for quick testing of small datasets.
+    use_dask : bool, default False
+        Option to use Dask for parallel processing.
 
     Returns
     -------
@@ -625,6 +293,7 @@ def slow(
 
         _client = Client(**dask_default_params)
         click.echo("Using dask")
+
     click.echo(f"Running slow-track evaluation for variable '{var}'...")
     click.echo(f"Loading reference: {x0}")
     x0_ds = load_dataset(
@@ -654,388 +323,89 @@ def slow(
 
     scale, shift = convert_threshold_units(x0_ds, var)
 
-    # Compute Pearson Correlation of daily data (over time): field
-    click.echo("Computing Pearson Correlation of daily data (over time): field...")
-    pcorrf_ds = corr_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        dim=("time"),
-    )
+    is_list = isinstance(seasons, list)
+    seasons_list: list[str | None] = seasons if is_list else [seasons]  # type: ignore
 
-    # Compute Spearman's Correlation of daily data (over time): field
-    click.echo("Computing Spearman's Correlation of daily data (over time): field...")
-    scorrf_ds = corr_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        dim=("time"),
-        srank=True,
-    )
+    season_metrics = []
+    season_metrics_tasmax = []
+    season_metrics_tasmin = []
+    season_metrics_hist = []
 
-    # Compute Bias of std of annual means (over time): field
-    click.echo("Computing Bias of std of annual means (over time): field...")
-    biasf_annstd_ds = bias_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=indices.interannual_var,
-    )
+    for season in seasons_list:
+        if is_list:
+            click.echo(f"Processing season: {season}")
 
-    # Compute Bias of 90th percentile (over time): field
-    click.echo("Computing Bias of 90th percentile (over time): field...")
-    biasf_p90_ds = bias_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=indices.season_quantile,
-        q=0.90,
-    )
-
-    # Compute Wasserstein Distance (over time): field
-    click.echo("Computing Wasserstein Distance (over time): field...")
-    wdf_ds = calc_pdf_metric_xr(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=None,
-        dim=("time",),
-        typedistance="wd",
-        member_name=member_dim,
-    )
-
-    # Compute Wasserstein Distance hist method (over time): field
-    click.echo("Computing Wasserstein Distance hist method (over time): field...")
-    wdhf_ds = calc_pdf_metric_xr(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=None,
-        dim=("time",),
-        bins_arr=None,
-        nbins=100,
-        bin_target_only=True,
-        typedistance="wdh",
-        member_name=member_dim,
-    )
-
-    # Compute FCSS (over time): field
-    click.echo("Computing FCSS (over time): field...")
-    fcssf_ds = calc_pdf_metric_xr(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=None,
-        dim=("time",),
-        bins_arr=None,
-        nbins=100,
-        bin_target_only=True,
-        typedistance="fcss",
-        member_name=member_dim,
-    )
-
-    # Compute PSS (over time): field
-    click.echo("Computing PSS (over time): field...")
-    pssf_ds = calc_pdf_metric_xr(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=None,
-        dim=("time",),
-        bins_arr=None,
-        nbins=100,
-        bin_target_only=True,
-        typedistance="pss",
-        member_name=member_dim,
-    )
-
-    # Compute LHD (over time): field
-    click.echo("Computing LHD (over time): field...")
-    lhdf_ds = calc_pdf_metric_xr(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=None,
-        dim=("time",),
-        bins_arr=None,
-        nbins=100,
-        bin_target_only=True,
-        typedistance="lhd",
-        member_name=member_dim,
-    )
-
-    # Compute Wasserstein Distance hist method (over time, lat, lon): float
-    click.echo(
-        "Computing Wasserstein Distance hist method (over time, lat, lon): float..."
-    )
-    wdh_ds = calc_pdf_metric_xr(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=None,
-        dim=("time", "lat", "lon"),
-        bins_arr=None,
-        nbins=100,
-        bin_target_only=True,
-        typedistance="wdh",
-        member_name=member_dim,
-    )
-
-    # Compute FCSS (over time, lat, lon): float
-    click.echo("Computing FCSS (over time, lat, lon): float...")
-    fcss_ds = calc_pdf_metric_xr(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=None,
-        dim=("time", "lat", "lon"),
-        bins_arr=None,
-        nbins=100,
-        bin_target_only=True,
-        typedistance="fcss",
-        member_name=member_dim,
-    )
-
-    # Compute PSS (over time, lat, lon): float
-    click.echo("Computing PSS (over time, lat, lon): float...")
-    pss_ds = calc_pdf_metric_xr(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=None,
-        dim=("time", "lat", "lon"),
-        bins_arr=None,
-        nbins=100,
-        bin_target_only=True,
-        typedistance="pss",
-        member_name=member_dim,
-    )
-
-    # Compute LHD (over time, lat, lon): float
-    click.echo("Computing LHD (over time, lat, lon): float...")
-    lhd_ds = calc_pdf_metric_xr(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=None,
-        dim=("time", "lat", "lon"),
-        bins_arr=None,
-        nbins=100,
-        bin_target_only=True,
-        typedistance="lhd",
-        member_name=member_dim,
-    )
-
-    # Compute histogram (over flattened dims): series
-    click.echo("Computing histogram (over flattened dims): series...")
-    targ_hist_ds, pred_hist_ds, bins_hist_ds = calc_histdata_xr(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=None,
-        bins_arr=None,
-        nbins=100,
-        bin_target_only=True,
-    )
-
-    if var == "tasmax":
-        # Compute Bias of freq ge 25C (over time): field
-        # **Tasmax only metric Summer Days
-        click.echo("Computing  Bias of freq ge 25C (over time): field...")
-        biasf_su_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_freq_wrt_array,
-            threshold=25.0 * scale + shift,
-            relation="ge",
-            cmean=True,
-        )
-        # Compute Bias of freq ge 35C (over time): field
-        # **Tasmax only metric Hot Days
-        click.echo("Computing  Bias of freq ge 35C (over time): field...")
-        biasf_hot_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_freq_wrt_array,
-            threshold=35.0 * scale + shift,
-            relation="ge",
-            cmean=True,
-        )
-        # Compute Bias of freq lt 0C (over time): field
-        # **Tasmax only metric Ice Days
-        click.echo("Computing  Bias of freq lt 0C (over time): field...")
-        biasf_ice_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_freq_wrt_array,
-            threshold=0.0 * scale + shift,
-            relation="lt",
-            cmean=True,
+        m_slow, m_hist, m_tasmax, m_tasmin = compute_slow_metrics(
+            x0_ds, x1_ds, var, season, scale, shift, member_dim
         )
 
-        metrics_tasmax = {
-            "bias_su_field": biasf_su_ds,
-            "bias_hot_field": biasf_hot_ds,
-            "bias_ice_field": biasf_ice_ds,
-        }
+        if is_list:
+            season_metrics.append(m_slow)
+            season_metrics_hist.append(m_hist)
+            if var == "tasmax":
+                season_metrics_tasmax.append(m_tasmax)
+            if var == "tasmin":
+                season_metrics_tasmin.append(m_tasmin)
+        else:
+            metrics = m_slow
+            metrics_hist = m_hist
+            if var == "tasmax":
+                metrics_tasmax = m_tasmax
+            if var == "tasmin":
+                metrics_tasmin = m_tasmin
 
-    if var == "tasmin":
-        # Compute Bias of freq ge 20C (over time): field
-        # **Tasmin only metric Tropical Nights
-        click.echo("Computing  Bias of freq ge 20C (over time): field...")
-        biasf_trop_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_freq_wrt_array,
-            threshold=20.0 * scale + shift,
-            relation="ge",
-            cmean=True,
-        )
-        # Compute Bias of freq lt 0C (over time): field
-        # **Tasmin only metric Frost Days
-        click.echo("Computing  Bias of freq lt 0C (over time): field...")
-        biasf_frost_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_freq_wrt_array,
-            threshold=0.0 * scale + shift,
-            relation="lt",
-            cmean=True,
-        )
-
-        metrics_tasmin = {
-            "bias_tropnight_field": biasf_trop_ds,
-            "bias_frost_field": biasf_frost_ds,
-        }
-
-    # Consolidate and save all slow metrics
+    # Save/Combine metrics
     click.echo("Combining and saving metrics...")
-    metrics = {
-        "pcorr_field": pcorrf_ds,
-        "scorr_field": scorrf_ds,
-        "bias_annstd_field": biasf_annstd_ds,
-        "bias_p90_field": biasf_p90_ds,
-        "wd_field": wdf_ds,
-        "wdh_field": wdhf_ds,
-        "fcss_field": fcssf_ds,
-        "pss_field": pssf_ds,
-        "lhd_field": lhdf_ds,
-    }
-
-    metrics_hist = {
-        "targ_hist_series": targ_hist_ds,
-        "pred_hist_series": pred_hist_ds,
-        "bins_hist_series": bins_hist_ds,
-        "wdh_float": wdh_ds,
-        "fcss_float": fcss_ds,
-        "pss_float": pss_ds,
-        "lhd_float": lhd_ds,
-    }
+    if is_list:
+        combined_metrics = _combine_seasons(season_metrics, seasons_list)
+        combined_hist = _combine_seasons(season_metrics_hist, seasons_list)
+        if var == "tasmax":
+            combined_tasmax = _combine_seasons(season_metrics_tasmax, seasons_list)
+        if var == "tasmin":
+            combined_tasmin = _combine_seasons(season_metrics_tasmin, seasons_list)
+    else:
+        combined_metrics = metrics
+        combined_hist = metrics_hist
+        if var == "tasmax":
+            combined_tasmax = metrics_tasmax
+        if var == "tasmin":
+            combined_tasmin = metrics_tasmin
 
     metrics_path = _get_output_path(output, "metrics_slow_field.zarr")
-    write_zarr(metrics, metrics_path, mode="w", var=var)
+    write_zarr(combined_metrics, metrics_path, mode="w", var=var)
 
     if var == "tasmax":
         metrics_path = _get_output_path(output, "metrics_tasmax_field.zarr")
-        write_zarr(metrics_tasmax, metrics_path, mode="w", var=var)
+        write_zarr(combined_tasmax, metrics_path, mode="w", var=var)
 
     if var == "tasmin":
         metrics_path = _get_output_path(output, "metrics_tasmin_field.zarr")
-        write_zarr(metrics_tasmin, metrics_path, mode="w", var=var)
+        write_zarr(combined_tasmin, metrics_path, mode="w", var=var)
 
     metrics_path = _get_output_path(output, "metrics_hist.zarr")
-    write_zarr(metrics_hist, metrics_path, mode="w", var=var)
+    write_zarr(combined_hist, metrics_path, mode="w", var=var)
 
     click.echo(f"Saved all slow-track metrics to {metrics_path} etc...")
-
     click.echo("Slow-track evaluation complete.")
 
 
-@main.command()
-@click.option(
-    "--x0",
-    required=True,
-    type=click.Path(exists=True),
-    help="Path to ground-truth NetCDF file.",
-)
-@click.option(
-    "--x1",
-    required=True,
-    type=click.Path(exists=True),
-    help="Path to predictions NetCDF file.",
-)
-@click.option("--var", required=True, type=str, help="Variable name to evaluate.")
-@click.option("--var2", required=True, type=str, help="2nd Variable name to evaluate.")
-@click.option(
-    "--output",
-    required=True,
-    type=str,
-    help="Directory or file path for the output Zarr results.",
-)
-@click.option(
-    "--season",
-    type=str,
-    default=None,
-    help="Optional season/month to filter (e.g., DJF, MAM, JJA, SON, JAN).",
-)
-@click.option(
-    "--align-leap-days",
-    type=str,
-    default=None,
-    help="Option to align datasets to standard calendar by filling missing leap days.",
-)
-@click.option(
-    "--force-load",
-    type=bool,
-    default=False,
-    help="Option to load data into memory for quick testing of small datasets.",
-)
-@click.option(
-    "--use-dask",
-    type=bool,
-    default=False,
-    help="Option to use Dask for parallel processing.",
-)
-def multivar(
+def run_multivar(
     x0: str,
     x1: str,
-    var: str,
-    var2: str,
+    vars: list[str],
     output: str,
-    season: str | None,
-    align_leap_days: str | None,
-    force_load: bool,
-    use_dask: bool,
+    seasons: str | list[str] | None = None,
+    align_leap_days: str | None = None,
+    force_load: bool = False,
+    use_dask: bool = False,
 ) -> None:
     """
     Run the multi-variate evaluation workflow.
 
     Computes Pearson and Spearman Correlation between two variables
     for reference and prediction datasets, along with their biases.
+    If seasons is a list, loops over all selected seasons and integrates
+    season as a dimension of the output Zarr.
 
     Parameters
     ----------
@@ -1043,25 +413,31 @@ def multivar(
         Path to ground-truth NetCDF file.
     x1 : str
         Path to predictions NetCDF file.
-    var : str
-        Variable name to evaluate.
-    var2 : str
-        2nd Variable name to evaluate.
+    vars : list[str]
+        List of exactly two variables to evaluate.
     output : str
         Directory, file prefix, or final Zarr store path.
-    season : str | None
-        Optional season or month standard name.
-    align_leap_days : str | None
-        Options to align datasets to standard calendar by filling missing leap days.
-    force_load : bool
+    seasons : str | list[str] | None, default None
+        Optional season/month standard name(s) (e.g. DJF, MAM).
+    align_leap_days : str | None, default None
+        Option to align datasets to standard calendar by filling missing leap days.
+    force_load : bool, default False
         Option to load data into memory for quick testing of small datasets.
-    use_dask : bool
+    use_dask : bool, default False
         Option to use Dask for parallel processing.
 
     Returns
     -------
     None
     """
+    if len(vars) != 2:
+        raise ValueError(
+            "Multi-variate evaluation requires exactly 2 variables in 'vars'."
+        )
+
+    var = vars[0]
+    var2 = vars[1]
+
     if use_dask:
         from dask.distributed import Client
 
@@ -1094,92 +470,42 @@ def multivar(
 
     scale, shift = convert_threshold_units(x0_ds, var)
 
-    # Compute Pearson Correlation of daily data between variables (over time): field
-    click.echo(
-        "Computing Pearson Correlation of daily data between variables (over time): field..."
-    )
-    targ_mv_pcorrf_ds, pred_mv_pcorrf_ds, bias_mv_pcorrf_ds = (
-        bias_multivariable_correlation(
-            x0_ds,
-            x1_ds,
-            var_x=var,
-            var_y=var2,
-            season=season,
-        )
-    )
+    is_list = isinstance(seasons, list)
+    seasons_list: list[str | None] = seasons if is_list else [seasons]  # type: ignore
 
-    # Compute Pearson Correlation of daily data between variables (over time): field
-    click.echo(
-        "Computing Spearman's Correlation of daily data between variables (over time): field..."
-    )
-    targ_mv_scorrf_ds, pred_mv_scorrf_ds, bias_mv_scorrf_ds = (
-        bias_multivariable_correlation(
-            x0_ds,
-            x1_ds,
-            var_x=var,
-            var_y=var2,
-            season=season,
-            srank=True,
-        )
-    )
+    season_metrics = []
 
-    # Consolidate and save all slow metrics
+    for season in seasons_list:
+        if is_list:
+            click.echo(f"Processing season: {season}")
+
+        m_multivar = compute_multivar_metrics(x0_ds, x1_ds, var, var2, season)
+
+        if is_list:
+            season_metrics.append(m_multivar)
+        else:
+            metrics = m_multivar
+
     click.echo("Combining and saving metrics...")
-    metrics = {
-        "targ_mv_pcorr_field": targ_mv_pcorrf_ds,
-        "pred_mv_pcorr_field": pred_mv_pcorrf_ds,
-        "bias_mv_pcorr_field": bias_mv_pcorrf_ds,
-        "targ_mv_scorr_field": targ_mv_pcorrf_ds,
-        "pred_mv_scorr_field": pred_mv_pcorrf_ds,
-        "bias_mv_scorr_field": bias_mv_pcorrf_ds,
-    }
+    if is_list:
+        combined_metrics = _combine_seasons(season_metrics, seasons_list)
+    else:
+        combined_metrics = metrics
+
     metrics_path = _get_output_path(output, "metrics_mv_field.zarr")
-    write_zarr(metrics, metrics_path, mode="w", var=var + var2)
+    write_zarr(combined_metrics, metrics_path, mode="w", var=var + var2)
 
     click.echo(f"Saved all multi-variate metrics to {metrics_path} etc...")
-
     click.echo("Multi-variate evaluation complete.")
 
 
-@main.command()
-@click.option(
-    "--x0",
-    required=True,
-    type=click.Path(exists=True),
-    help="Path to ground-truth NetCDF file.",
-)
-@click.option("--var", required=True, type=str, help="Variable name to evaluate.")
-@click.option(
-    "--output",
-    required=True,
-    type=str,
-    help="Directory or file path for the output Zarr results.",
-)
-@click.option(
-    "--align-leap-days",
-    type=str,
-    default=None,
-    help="Option to align datasets to standard calendar by filling missing leap days.",
-)
-@click.option(
-    "--force-load",
-    type=bool,
-    default=False,
-    help="Option to load data into memory for quick testing of small datasets.",
-)
-@click.option(
-    "--use-dask",
-    type=bool,
-    default=False,
-    help="Option to use Dask for parallel processing.",
-)
-def cdquantiles(
+def run_cdquantiles(
     x0: str,
     var: str,
     output: str,
-    align_leap_days: str | None,
-    force_load: bool,
-    use_dask: bool,
+    align_leap_days: str | None = None,
+    force_load: bool = False,
+    use_dask: bool = False,
 ) -> None:
     """
     Run the calendar day extreme threshold computation workflow.
@@ -1195,11 +521,11 @@ def cdquantiles(
         Variable name to evaluate.
     output : str
         Directory for netcdf threshold fields.
-    align_leap_days : str | None
-        Options to align datasets to standard calendar by filling missing leap days.
-    force_load : bool
+    align_leap_days : str | None, default None
+        Option to align datasets to standard calendar by filling missing leap days.
+    force_load : bool, default False
         Option to load data into memory for quick testing of small datasets.
-    use_dask : bool
+    use_dask : bool, default False
         Option to use Dask for parallel processing.
 
     Returns
@@ -1244,72 +570,24 @@ def cdquantiles(
     click.echo(f"Saved Target 10th cal_day percentile to {targ_var10p_quantile_path}")
 
 
-@main.command()
-@click.option(
-    "--x0",
-    required=True,
-    type=click.Path(exists=True),
-    help="Path to ground-truth NetCDF file.",
-)
-@click.option(
-    "--x1",
-    required=True,
-    type=click.Path(exists=True),
-    help="Path to predictions NetCDF file.",
-)
-@click.option("--var", required=True, type=str, help="Variable name to evaluate.")
-@click.option(
-    "--output",
-    required=True,
-    type=str,
-    help="Directory or file path for the output Zarr results.",
-)
-@click.option(
-    "--thresh-dir",
-    required=True,
-    type=str,
-    help="Directory for the netcdf threshold files.",
-)
-@click.option(
-    "--season",
-    type=str,
-    default=None,
-    help="Optional season/month to filter (e.g., DJF, MAM, JJA, SON, JAN).",
-)
-@click.option(
-    "--align-leap-days",
-    type=str,
-    default=None,
-    help="Option to align datasets to standard calendar by filling missing leap days.",
-)
-@click.option(
-    "--force-load",
-    type=bool,
-    default=False,
-    help="Option to load data into memory for quick testing of small datasets.",
-)
-@click.option(
-    "--use-dask",
-    type=bool,
-    default=False,
-    help="Option to use Dask for parallel processing.",
-)
-def cdextremes(
+def run_cdextremes(
     x0: str,
     x1: str,
     var: str,
     output: str,
     thresh_dir: str,
-    season: str | None,
-    align_leap_days: str | None,
-    force_load: bool,
-    use_dask: bool,
+    seasons: str | list[str] | None = None,
+    align_leap_days: str | None = None,
+    force_load: bool = False,
+    use_dask: bool = False,
 ) -> None:
     """
     Run the calendar day extremes evaluation workflow.
 
     Computes bias of frequencies and spell lengths of extremes relative to
     calendar day percentile thresholds.
+    If seasons is a list, loops over all selected seasons and integrates
+    season as a dimension of the output Zarr.
 
     Parameters
     ----------
@@ -1322,15 +600,15 @@ def cdextremes(
     output : str
         Directory, file prefix, or final Zarr store path.
     thresh_dir : str
-        Directory for netcdf threshold files (from fn )
-        targ_quantile_var90p.nc, targ_quantile_var10p.nc
-    season : str | None
-        Optional season or month standard name.
-    align_leap_days : str | None
-        Options to align datasets to standard calendar by filling missing leap days.
-    force_load : bool
+        Directory for netcdf threshold files (from fn cdquantiles)
+        targ_quantile_var90p.nc, targ_quantile_var10p.nc.
+    seasons : str | list[str] | None, default None
+        Optional season/month standard name(s) (e.g. DJF, MAM).
+    align_leap_days : str | None, default None
+        Option to align datasets to standard calendar by filling missing leap days.
+    force_load : bool, default False
         Option to load data into memory for quick testing of small datasets.
-    use_dask : bool
+    use_dask : bool, default False
         Option to use Dask for parallel processing.
 
     Returns
@@ -1383,111 +661,323 @@ def cdextremes(
             f"Target threshold files do not exist: {calday_90p_path}; {calday_10p_path}. Use track cdquantiles to compute these for variable {var}."
         )
 
+    targ_var90p_quantile = None
     if os.path.isfile(calday_90p_path):
         targ_var90p_quantile = load_dataset(
             calday_90p_path, chunks="auto" if use_dask else None
         )
-
         click.echo(f"Loaded threshold file: {calday_90p_path}")
-
         if len(targ_var90p_quantile[var].dims) < 3:
             click.echo(
                 f"WARNING: expected at least 3 dimensions but got: {targ_var90p_quantile[var].dims}"
             )
-
-        # Compute Bias of freq gt 90th cal_day percentile: field
-        click.echo("Computing Bias of freq gt 90th cal_day percentile: field...")
-        biasf_freq90p_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_freq_wrt_array,
-            threshold=targ_var90p_quantile,
-            relation="gt",
-            cmean=True,
-        )
-
-        # Compute Bias of max spell duration index (over time): field
-        click.echo("Computing Bias of max spell duration index (over time): field...")
-        biasf_spell90p_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_maxspell_wrt_array,
-            threshold=targ_var90p_quantile,
-            relation="gt",
-            cmean=True,
-        )
-
-        metrics_90p = {
-            "bias_freq90p_field": biasf_freq90p_ds,
-            "bias_spell90p_field": biasf_spell90p_ds,
-        }
-
     else:
         click.echo(
             f"Target threshold file does not exist: {calday_90p_path}. Use track cdquantiles to compute this for variable {var}."
         )
 
+    targ_var10p_quantile = None
     if os.path.isfile(calday_10p_path):
         targ_var10p_quantile = load_dataset(
             calday_10p_path, chunks="auto" if use_dask else None
         )
-
         click.echo(f"Loaded threshold file: {calday_10p_path}")
-
         if len(targ_var10p_quantile[var].dims) < 3:
             click.echo(
                 f"WARNING: expected at least 3 dimensions but got: {targ_var10p_quantile[var].dims}"
             )
-
-        # Compute time Bias of freq timesteps lt 10th cal_day percentile: field
-        click.echo("Computing Bias of freq lt 10th cal_day percentile: field...")
-        biasf_freq10p_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_freq_wrt_array,
-            threshold=targ_var10p_quantile,
-            relation="lt",
-            cmean=True,
-        )
-
-        # Compute Bias of max spell duration index (over time): field
-        click.echo("Computing Bias of max spell duration index (over time): field...")
-        biasf_spell10p_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_maxspell_wrt_array,
-            threshold=targ_var10p_quantile,
-            relation="lt",
-            cmean=True,
-        )
-
-        metrics_10p = {
-            "bias_freq10p_field": biasf_freq10p_ds,
-            "bias_spell10p_field": biasf_spell10p_ds,
-        }
-
     else:
         click.echo(
             f"Target threshold file does not exist: {calday_10p_path}. Use track cdquantiles to compute this for variable {var}."
         )
 
+    is_list = isinstance(seasons, list)
+    seasons_list: list[str | None] = seasons if is_list else [seasons]  # type: ignore
+
+    season_metrics = []
+
+    for season in seasons_list:
+        if is_list:
+            click.echo(f"Processing season: {season}")
+
+        m_cdextremes = compute_cdextremes_metrics(
+            x0_ds, x1_ds, var, season, targ_var90p_quantile, targ_var10p_quantile
+        )
+
+        if is_list:
+            season_metrics.append(m_cdextremes)
+        else:
+            metrics = m_cdextremes
+
     click.echo("Combining and saving metrics...")
-    metrics = metrics_90p | metrics_10p
+    if is_list:
+        combined_metrics = _combine_seasons(season_metrics, seasons_list)
+    else:
+        combined_metrics = metrics
 
     metrics_path = _get_output_path(output, "metrics_cdextremes.zarr")
-    write_zarr(metrics, metrics_path, mode="w", var=var)
+    write_zarr(combined_metrics, metrics_path, mode="w", var=var)
 
     click.echo(f"Saved all calday percentile metrics to {metrics_path}")
-
     click.echo("Calday percentile evaluation complete.")
+
+
+def validate_evaluations(config_data: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Validate the evaluations configuration.
+
+    Ensures the 'evaluations' key exists, all blocks have a valid type,
+    required fields are present, file paths exist, and default values are set.
+
+    Parameters
+    ----------
+    config_data : dict[str, Any]
+        Raw configuration data loaded from YAML.
+
+    Returns
+    -------
+    list[dict[str, Any]]
+        List of validated evaluation blocks.
+
+    Raises
+    ------
+    ValueError
+        If validation fails.
+    """
+    if "evaluations" not in config_data:
+        raise ValueError("Missing top-level 'evaluations' key in configuration.")
+
+    blocks = config_data["evaluations"]
+    if not isinstance(blocks, list):
+        raise ValueError("'evaluations' must be a list.")
+
+    valid_types = {"fast", "slow", "multivar", "cdquantiles", "cdextremes"}
+    validated_blocks = []
+
+    for idx, block in enumerate(blocks):
+        if not isinstance(block, dict):
+            raise ValueError(f"Evaluation block at index {idx} must be a dictionary.")
+
+        if "type" not in block:
+            raise ValueError(
+                f"Evaluation block at index {idx} is missing the 'type' key."
+            )
+
+        eval_type = block["type"]
+        if eval_type not in valid_types:
+            raise ValueError(
+                f"Evaluation block at index {idx} has invalid type '{eval_type}'. "
+                f"Must be one of {sorted(list(valid_types))}."
+            )
+
+        # Validate required fields
+        if eval_type in {"fast", "slow"}:
+            required = {"x0", "x1", "var", "output"}
+        elif eval_type == "multivar":
+            required = {"x0", "x1", "vars", "output"}
+        elif eval_type == "cdquantiles":
+            required = {"x0", "var", "output"}
+        elif eval_type == "cdextremes":
+            required = {"x0", "x1", "var", "output", "thresh_dir"}
+        else:
+            required = set()
+
+        for req in required:
+            if req not in block:
+                raise ValueError(
+                    f"Evaluation block of type '{eval_type}' at index {idx} is missing required field '{req}'."
+                )
+
+        # Validate path existence
+        for path_field in {"x0", "x1", "thresh_dir"}:
+            if path_field in block:
+                path_val = block[path_field]
+                if not isinstance(path_val, str):
+                    raise ValueError(
+                        f"Field '{path_field}' at index {idx} must be a string representing a path."
+                    )
+                if not os.path.exists(path_val):
+                    # For thresh_dir, check if it will be generated by a preceding cdquantiles task
+                    is_generated = False
+                    if path_field == "thresh_dir":
+                        for prev_block in blocks[:idx]:
+                            if (
+                                isinstance(prev_block, dict)
+                                and prev_block.get("type") == "cdquantiles"
+                                and prev_block.get("output") == path_val
+                            ):
+                                is_generated = True
+                                break
+                    if not is_generated:
+                        raise ValueError(
+                            f"Path '{path_val}' specified in '{path_field}' at index {idx} does not exist."
+                        )
+
+        # Validate vars for multivar
+        if eval_type == "multivar":
+            vars_val = block["vars"]
+            if (
+                not isinstance(vars_val, list)
+                or len(vars_val) != 2
+                or not all(isinstance(v, str) for v in vars_val)
+            ):
+                raise ValueError(
+                    f"Evaluation block of type 'multivar' at index {idx} must have 'vars' as a list of exactly 2 strings."
+                )
+
+        # Validate seasons if present
+        if "seasons" in block:
+            seasons_val = block["seasons"]
+            if seasons_val is not None:
+                if isinstance(seasons_val, list):
+                    if not all(isinstance(s, str) for s in seasons_val):
+                        raise ValueError(
+                            f"Field 'seasons' in block at index {idx} must be a list of strings."
+                        )
+                elif not isinstance(seasons_val, str):
+                    raise ValueError(
+                        f"Field 'seasons' in block at index {idx} must be a string or a list of strings."
+                    )
+
+        # Build validated block with defaults
+        validated = {
+            "type": eval_type,
+            "x0": block["x0"],
+            "output": block["output"],
+            "align_leap_days": block.get("align_leap_days", None),
+            "force_load": bool(block.get("force_load", False)),
+            "use_dask": bool(block.get("use_dask", False)),
+        }
+
+        if eval_type in {"fast", "slow", "cdextremes"}:
+            validated["var"] = block["var"]
+            validated["x1"] = block["x1"]
+            validated["seasons"] = block.get("seasons", None)
+
+        if eval_type == "multivar":
+            validated["vars"] = block["vars"]
+            validated["x1"] = block["x1"]
+            validated["seasons"] = block.get("seasons", None)
+
+        if eval_type == "cdquantiles":
+            validated["var"] = block["var"]
+
+        if eval_type == "cdextremes":
+            validated["thresh_dir"] = block["thresh_dir"]
+
+        validated_blocks.append(validated)
+
+    return validated_blocks
+
+
+@click.command()
+@click.option(
+    "--config",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Path to the YAML configuration file.",
+)
+def main(config: str) -> None:
+    """
+    Run evaluation workflows sequentially from a YAML configuration file.
+
+    Parameters
+    ----------
+    config : str
+        Path to the YAML configuration file.
+
+    Returns
+    -------
+    None
+    """
+    click.echo(f"Loading configuration from {config}...")
+    with open(config, "r") as f:
+        try:
+            config_data = yaml.safe_load(f)
+        except Exception as e:
+            click.echo(f"Error: Failed to parse YAML file: {e}")
+            raise click.ClickException(f"Failed to parse YAML file: {e}")
+
+    try:
+        evaluations = validate_evaluations(config_data)
+    except ValueError as e:
+        click.echo(f"Configuration Validation Error: {e}")
+        raise click.ClickException(str(e))
+
+    num_evals = len(evaluations)
+    click.echo(f"Found {num_evals} evaluation task(s) to run.")
+
+    for idx, eval_block in enumerate(evaluations, 1):
+        eval_type = eval_block["type"]
+        click.echo("=" * 80)
+        click.echo(f"STARTING EVALUATION TASK {idx}/{num_evals}: type='{eval_type}'")
+        click.echo("=" * 80)
+
+        try:
+            if eval_type == "fast":
+                run_fast(
+                    x0=eval_block["x0"],
+                    x1=eval_block["x1"],
+                    var=eval_block["var"],
+                    output=eval_block["output"],
+                    seasons=eval_block["seasons"],
+                    align_leap_days=eval_block["align_leap_days"],
+                    force_load=eval_block["force_load"],
+                    use_dask=eval_block["use_dask"],
+                )
+            elif eval_type == "slow":
+                run_slow(
+                    x0=eval_block["x0"],
+                    x1=eval_block["x1"],
+                    var=eval_block["var"],
+                    output=eval_block["output"],
+                    seasons=eval_block["seasons"],
+                    align_leap_days=eval_block["align_leap_days"],
+                    force_load=eval_block["force_load"],
+                    use_dask=eval_block["use_dask"],
+                )
+            elif eval_type == "multivar":
+                run_multivar(
+                    x0=eval_block["x0"],
+                    x1=eval_block["x1"],
+                    vars=eval_block["vars"],
+                    output=eval_block["output"],
+                    seasons=eval_block["seasons"],
+                    align_leap_days=eval_block["align_leap_days"],
+                    force_load=eval_block["force_load"],
+                    use_dask=eval_block["use_dask"],
+                )
+            elif eval_type == "cdquantiles":
+                run_cdquantiles(
+                    x0=eval_block["x0"],
+                    var=eval_block["var"],
+                    output=eval_block["output"],
+                    align_leap_days=eval_block["align_leap_days"],
+                    force_load=eval_block["force_load"],
+                    use_dask=eval_block["use_dask"],
+                )
+            elif eval_type == "cdextremes":
+                run_cdextremes(
+                    x0=eval_block["x0"],
+                    x1=eval_block["x1"],
+                    var=eval_block["var"],
+                    output=eval_block["output"],
+                    thresh_dir=eval_block["thresh_dir"],
+                    seasons=eval_block["seasons"],
+                    align_leap_days=eval_block["align_leap_days"],
+                    force_load=eval_block["force_load"],
+                    use_dask=eval_block["use_dask"],
+                )
+        except Exception as e:
+            click.echo(f"ERROR executing task {idx}: {e}")
+            raise click.ClickException(f"Task {idx} failed: {e}")
+
+        click.echo("=" * 80)
+        click.echo(f"FINISHED EVALUATION TASK {idx}/{num_evals}: type='{eval_type}'")
+        click.echo("=" * 80)
+        click.echo("")
+
+    click.echo("All evaluation tasks completed successfully.")
 
 
 if __name__ == "__main__":
