@@ -143,6 +143,8 @@ def fast(
         Options to align datasets to standard calendar by filling missing leap days.
     force_load : bool
         Option to load data into memory for quick testing of small datasets.
+    use_dask : bool
+        Option to use Dask for parallel processing.
 
     Returns
     -------
@@ -211,39 +213,6 @@ def fast(
         var=var,
         season=season,
         dim=("time", "lat", "lon"),
-    )
-
-    # Compute RMSE of daily data (over lat, lon): series
-    click.echo("Computing RMSE of daily data (over lat, lon): series...")
-    rmses_ds = rmse_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        dim=("lat", "lon"),
-    )
-
-    # Compute Pearson Correlation of daily data (over lat, lon): series
-    click.echo("Computing Pearson Correlation of daily data (over lat, lon): series...")
-    pcorrs_ds = corr_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        dim=("lat", "lon"),
-    )
-
-    # Compute Spearman Correlation of daily data (over lat, lon): series
-    click.echo(
-        "Computing Spearman Correlation of daily data (over lat, lon): series..."
-    )
-    scorrs_ds = corr_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        dim=("lat", "lon"),
-        srank=True,
     )
 
     # Compute Bias of 99th percentile (over time): field
@@ -340,17 +309,6 @@ def fast(
             q=0.98,
             wet_threshold=1.0 * scale + shift,
         )
-        # Compute Bias of 90th wet day percentile (over time): field
-        click.echo("Computing Bias of 90th wet day percentile (over time): field...")
-        biasf_p90wet_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.season_quantile,
-            q=0.9,
-            wet_threshold=1.0 * scale + shift,
-        )
 
         # Compute Bias of freq ge 1mm/day (over time): field
         # **Precipitation only metric
@@ -366,20 +324,6 @@ def fast(
             cmean=True,
         )
 
-        # Compute Bias of freq ge 10mm/day (over time): field
-        # **Precipitation only metric
-        click.echo("Computing Bias of freq ge 10mm/day (over time): field...")
-        biasf_r10_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_freq_wrt_array,
-            threshold=10.0 * scale + shift,
-            relation="ge",
-            cmean=True,
-        )
-
         # Compute Bias of sdii (over time): field
         # **Precipitation only metric
         click.echo("Computing Bias of sdii (over time): field...")
@@ -390,32 +334,6 @@ def fast(
             season=season,
             index_fn=indices.ann_sdii,
             wet_threshold=1.0 * scale + shift,
-            cmean=True,
-        )
-
-        # Compute Bias of max dry spell length (over time): field
-        click.echo("Computing Bias of max dry spell length (over time): field...")
-        biasf_cdd_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_maxspell_wrt_array,
-            threshold=1.0 * scale + shift,
-            relation="lt",
-            cmean=True,
-        )
-
-        # Compute Bias of max wet spell length (over time): field
-        click.echo("Computing Bias of max wet spell length (over time): field...")
-        biasf_cwd_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_maxspell_wrt_array,
-            threshold=1.0 * scale + shift,
-            relation="ge",
             cmean=True,
         )
 
@@ -461,33 +379,14 @@ def fast(
             q=0.98,
             wet_threshold=1.0 * scale + shift,
         )
-        # Compute Relative Bias of 90th wet day percentile (over time): field
-        click.echo(
-            "Computing Relative Bias of 90th wet day percentile (over time): field..."
-        )
-        relbiasf_p90wet_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            relative=True,
-            index_fn=indices.season_quantile,
-            q=0.9,
-            wet_threshold=1.0 * scale + shift,
-        )
 
         metrics_pr_field = {
             "bias_p98wet_field": biasf_p98wet_ds,
-            "bias_p90wet_field": biasf_p90wet_ds,
             "bias_r1_field": biasf_r1_ds,
-            "bias_r10_field": biasf_r10_ds,
             "bias_sdii_field": biasf_sdii_ds,
-            "bias_cdd_field": biasf_cdd_ds,
-            "bias_cwd_field": biasf_cwd_ds,
-            "relbias_rx1day_field": relbiasf_max1day_ds,
-            "relbias_sdii_field": relbiasf_sdii_ds,
             "relbias_p98wet_field": relbiasf_p98wet_ds,
-            "relbias_p90wet_field": relbiasf_p90wet_ds,
+            "relbias_sdii_field": relbiasf_sdii_ds,
+            "relbias_rx1day_field": relbiasf_max1day_ds,
         }
 
     # Save all fast-track metrics
@@ -504,12 +403,6 @@ def fast(
         "pred_acorr_field": predf_acorr_ds,
     }
 
-    metrics_series = {
-        "rmse_series": rmses_ds,
-        "pcorr_series": pcorrs_ds,
-        "scorr_series": scorrs_ds,
-    }
-
     metrics_float = {
         "rmse_float": rmse_ds,
         "ralsd_float": ralsd_val,
@@ -522,16 +415,15 @@ def fast(
 
     metrics_path_field = _get_output_path(output, "metrics_fast_field.zarr")
     write_zarr(metrics_field, metrics_path_field, mode="w", var=var)
-    metrics_path_series = _get_output_path(output, "metrics_fast_series.zarr")
-    write_zarr(metrics_series, metrics_path_series, mode="w", var=var)
+
     metrics_path_float = _get_output_path(output, "metrics_fast_float.zarr")
     write_zarr(metrics_float, metrics_path_float, mode="w", var=var)
 
     if var == "pr":
-        metrics_pr_path = _get_output_path(output, "metrics_pr_field.zarr")
+        metrics_pr_path = _get_output_path(output, "metrics_fast_pr_field.zarr")
         write_zarr(metrics_pr_field, metrics_pr_path, mode="w", var=var)
 
-    metrics_psd_path = _get_output_path(output, "metrics_psd.zarr")
+    metrics_psd_path = _get_output_path(output, "metrics_fast_psd.zarr")
     write_zarr(metrics_psd, metrics_psd_path, mode="w", var=var)
 
     click.echo(f"Saved all fast-track metrics to {metrics_path_field} etc...")
@@ -615,6 +507,8 @@ def slow(
         Options to align datasets to standard calendar by filling missing leap days.
     force_load : bool
         Option to load data into memory for quick testing of small datasets.
+    use_dask : bool
+        Option to use Dask for parallel processing.
 
     Returns
     -------
@@ -852,6 +746,115 @@ def slow(
         bin_target_only=True,
     )
 
+    # Compute RMSE of daily data (over lat, lon): series
+    click.echo("Computing RMSE of daily data (over lat, lon): series...")
+    rmses_ds = rmse_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        dim=("lat", "lon"),
+    )
+
+    # Compute Pearson Correlation of daily data (over lat, lon): series
+    click.echo("Computing Pearson Correlation of daily data (over lat, lon): series...")
+    pcorrs_ds = corr_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        dim=("lat", "lon"),
+    )
+
+    # Compute Spearman Correlation of daily data (over lat, lon): series
+    click.echo(
+        "Computing Spearman Correlation of daily data (over lat, lon): series..."
+    )
+    scorrs_ds = corr_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        dim=("lat", "lon"),
+        srank=True,
+    )
+
+    if var == "pr":
+        # Compute Bias of 90th wet day percentile (over time): field
+        click.echo("Computing Bias of 90th wet day percentile (over time): field...")
+        biasf_p90wet_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.season_quantile,
+            q=0.9,
+            wet_threshold=1.0 * scale + shift,
+        )
+
+        # Compute Bias of freq ge 10mm/day (over time): field
+        # **Precipitation only metric
+        click.echo("Computing Bias of freq ge 10mm/day (over time): field...")
+        biasf_r10_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_freq_wrt_array,
+            threshold=10.0 * scale + shift,
+            relation="ge",
+            cmean=True,
+        )
+
+        # Compute Bias of max dry spell length (over time): field
+        click.echo("Computing Bias of max dry spell length (over time): field...")
+        biasf_cdd_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_maxspell_wrt_array,
+            threshold=1.0 * scale + shift,
+            relation="lt",
+            cmean=True,
+        )
+
+        # Compute Bias of max wet spell length (over time): field
+        click.echo("Computing Bias of max wet spell length (over time): field...")
+        biasf_cwd_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_maxspell_wrt_array,
+            threshold=1.0 * scale + shift,
+            relation="ge",
+            cmean=True,
+        )
+
+        # Compute Relative Bias of 90th wet day percentile (over time): field
+        click.echo(
+            "Computing Relative Bias of 90th wet day percentile (over time): field..."
+        )
+        relbiasf_p90wet_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            relative=True,
+            index_fn=indices.season_quantile,
+            q=0.9,
+            wet_threshold=1.0 * scale + shift,
+        )
+
+        metrics_pr_field = {
+            "bias_p90wet_field": biasf_p90wet_ds,
+            "bias_r10_field": biasf_r10_ds,
+            "bias_cdd_field": biasf_cdd_ds,
+            "bias_cwd_field": biasf_cwd_ds,
+            "relbias_p90wet_field": relbiasf_p90wet_ds,
+        }
+
     if var == "tasmax":
         # Compute Bias of freq ge 25C (over time): field
         # **Tasmax only metric Summer Days
@@ -956,18 +959,31 @@ def slow(
         "lhd_float": lhd_ds,
     }
 
+    metrics_series = {
+        "rmse_series": rmses_ds,
+        "pcorr_series": pcorrs_ds,
+        "scorr_series": scorrs_ds,
+    }
+
     metrics_path = _get_output_path(output, "metrics_slow_field.zarr")
     write_zarr(metrics, metrics_path, mode="w", var=var)
 
+    metrics_path_series = _get_output_path(output, "metrics_slow_series.zarr")
+    write_zarr(metrics_series, metrics_path_series, mode="w", var=var)
+
+    if var == "pr":
+        metrics_pr_path = _get_output_path(output, "metrics_slow_pr_field.zarr")
+        write_zarr(metrics_pr_field, metrics_pr_path, mode="w", var=var)
+
     if var == "tasmax":
-        metrics_path = _get_output_path(output, "metrics_tasmax_field.zarr")
+        metrics_path = _get_output_path(output, "metrics_slow_tasmax_field.zarr")
         write_zarr(metrics_tasmax, metrics_path, mode="w", var=var)
 
     if var == "tasmin":
-        metrics_path = _get_output_path(output, "metrics_tasmin_field.zarr")
+        metrics_path = _get_output_path(output, "metrics_slow_tasmin_field.zarr")
         write_zarr(metrics_tasmin, metrics_path, mode="w", var=var)
 
-    metrics_path = _get_output_path(output, "metrics_hist.zarr")
+    metrics_path = _get_output_path(output, "metrics_slow_hist.zarr")
     write_zarr(metrics_hist, metrics_path, mode="w", var=var)
 
     click.echo(f"Saved all slow-track metrics to {metrics_path} etc...")
