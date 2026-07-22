@@ -53,6 +53,38 @@ def _get_output_path(base: str, default_name: str) -> str:
     return f"{base}_{default_name}"
 
 
+def _select_member(ds, var: str, member_num: int | None):
+    """
+    Reduce a member/ensemble dimension of a single source before the signal.
+
+    ``member_num >= 0`` selects that member by integer position; ``-1`` or None
+    leave the data unchanged so ``compute_signal`` collapses any member dimension
+    to the ensemble mean. A no-op (with a warning) when no member-like dimension
+    (any dim other than time/lat/lon) exists.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Single-source dataset (already reduced to the target variable).
+    var : str
+        Variable name whose dimensions are inspected.
+    member_num : int | None
+        Member selector (see above).
+
+    Returns
+    -------
+    xr.Dataset
+        The dataset, optionally subset to a single member.
+    """
+    if member_num is None or member_num < 0:
+        return ds
+    extra = [d for d in ds[var].dims if d not in ("time", "lat", "lon")]
+    if not extra:
+        click.echo("WARNING: --member-num ignored (no member dimension in data)")
+        return ds
+    return ds.isel({extra[0]: member_num})
+
+
 @click.group()
 def main() -> None:
     """
@@ -512,10 +544,22 @@ def fast(
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 @click.option(
+    "--member-num",
+    type=int,
+    default=None,
+    help="Option to run on a single member (for ensemble predictions).",
+)
+@click.option(
     "--force-load",
     type=bool,
     default=False,
     help="Option to load data into memory for quick testing of small datasets.",
+)
+@click.option(
+    "--use-dask",
+    type=bool,
+    default=False,
+    help="Option to use Dask for parallel processing.",
 )
 def signal(
     hist: str,
@@ -524,7 +568,9 @@ def signal(
     output: str,
     season: str | None,
     align_leap_days: str | None,
+    member_num: int | None,
     force_load: bool,
+    use_dask: bool,
 ) -> None:
     """
     Run the climate-change-signal workflow for one source.
@@ -553,22 +599,41 @@ def signal(
         Optional season/month for the field/series/float metrics.
     align_leap_days : str | None
         Options to align datasets to standard calendar by filling missing leap days.
+    member_num : int | None
+        Option to evaluate a single member or the ensemble mean of the source.
+        - member == -1 : compute the ensemble mean over all members.
+        - member >= 0  : select that single member by integer position.
+        None (default) also collapses any member dimension to the ensemble mean.
+        Ignored (with a warning) if the data has no member dimension.
     force_load : bool
         Option to load data into memory for quick testing of small datasets.
+    use_dask : bool
+        Option to use Dask for parallel processing.
 
     Returns
     -------
     None
     """
+    if use_dask:
+        from dask.distributed import Client
+
+        _client = Client(**dask_default_params)
+        click.echo("Using dask")
+
     click.echo(f"Running climate-change-signal workflow for variable '{var}'...")
+    chunks = "auto" if use_dask else None
     click.echo(f"Loading hist: {hist}")
     hist_ds = canonicalize_units(
-        load_dataset(hist, align_leap_days=align_leap_days)[[var]], var
+        load_dataset(hist, align_leap_days=align_leap_days, chunks=chunks)[[var]], var
     )
     click.echo(f"Loading fut: {fut}")
     fut_ds = canonicalize_units(
-        load_dataset(fut, align_leap_days=align_leap_days)[[var]], var
+        load_dataset(fut, align_leap_days=align_leap_days, chunks=chunks)[[var]], var
     )
+    # Optionally reduce a member dimension (select one member); member == -1 or
+    # None fall through to the ensemble mean taken inside compute_signal.
+    hist_ds = _select_member(hist_ds, var, member_num)
+    fut_ds = _select_member(fut_ds, var, member_num)
     # Snap the future grid to the historical one so field arithmetic lines up.
     fut_ds = snap_grid(hist_ds, fut_ds)
 
