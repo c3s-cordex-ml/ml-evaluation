@@ -54,6 +54,7 @@ Example
         units={"tas": "K", "tasmax": "K", "pr": "mm d$^{-1}$"},
     )
 """
+
 from __future__ import annotations
 
 import os
@@ -87,8 +88,12 @@ _POS_LABEL_ANGLE = {"left": 205.0, "mid": 90.0, "right": 335.0}
 SIGNAL_INDICES_PR = [("sdii", "left"), ("r01", "mid"), ("rx1day", "right")]
 SIGNAL_INDICES_TEMP = [("mean", "left"), ("p01", "mid"), ("p99", "right")]
 INDEX_LABEL = {
-    "mean": "mean", "p01": "P01", "p99": "P99",
-    "r01": "R01", "sdii": "SDII", "rx1day": "RX1day",
+    "mean": "mean",
+    "p01": "P01",
+    "p99": "P99",
+    "r01": "R01",
+    "sdii": "SDII",
+    "rx1day": "RX1day",
 }
 
 
@@ -112,7 +117,9 @@ def _is_pct(var: str) -> bool:
     return var == "pr"
 
 
-def _read_signal_floats(metrics_dir: str, keys: list[str], kind: str) -> dict[str, float]:
+def _read_signal_floats(
+    metrics_dir: str, keys: list[str], kind: str
+) -> dict[str, float]:
     """Read ``{kind}_{key}_float`` scalars from a signal-float zarr bundle.
 
     Parameters
@@ -137,7 +144,9 @@ def _read_signal_floats(metrics_dir: str, keys: list[str], kind: str) -> dict[st
         with xr.open_zarr(path) as ds:
             for k in keys:
                 try:
-                    out[k] = float(ds["value"].sel(diagnostic=f"{kind}_{k}_float").values)
+                    out[k] = float(
+                        ds["value"].sel(diagnostic=f"{kind}_{k}_float").values
+                    )
                 except (KeyError, ValueError):
                     out[k] = np.nan
     except (FileNotFoundError, OSError):
@@ -179,9 +188,14 @@ def _draw_legend_hex(ax, cx: float, cy: float, radius: float, var: str) -> None:
             ax.text(tx, ty, drv, ha="center", va="center", fontsize=7, color="0.3")
         # index label just outside the sector, at an explicit per-position angle
         lab_ang = np.radians(_POS_LABEL_ANGLE[pos])
-        ax.text(cx + 1.55 * radius * np.cos(lab_ang),
-                cy + 1.55 * radius * np.sin(lab_ang),
-                INDEX_LABEL[key], ha="center", va="center", fontsize=7.5)
+        ax.text(
+            cx + 1.55 * radius * np.cos(lab_ang),
+            cy + 1.55 * radius * np.sin(lab_ang),
+            INDEX_LABEL[key],
+            ha="center",
+            va="center",
+            fontsize=7.5,
+        )
 
 
 def plot_signal_scorecard(
@@ -285,8 +299,9 @@ def plot_signal_scorecard(
                 d = _metrics_dir(root, pattern, m, var, case, season, cp_by_model[m])
                 if d and os.path.isdir(d):
                     signal[(m, var, drv)] = _read_signal_floats(d, keys, kind)
-        rd = _metrics_dir(root, pattern, reference, var, ref_case, season,
-                          cp_by_model[reference])
+        rd = _metrics_dir(
+            root, pattern, reference, var, ref_case, season, cp_by_model[reference]
+        )
         if rd and os.path.isdir(rd):
             t = _read_signal_floats(rd, keys, kind)
             if any(np.isfinite(v) for v in t.values()):
@@ -330,17 +345,23 @@ def plot_signal_scorecard(
                     _wedge(ax, cx, cy, wid, R, fc)
                     if annotate and np.isfinite(val):
                         tx, ty = _wedge_text_xy(cx, cy, wid, R)
-                        ax.text(tx, ty, _fmt(val, pct), ha="center", va="center",
-                                fontsize=6.0,
-                                color=_text_color(fc) if fc != nan_color else "0.4")
+                        ax.text(
+                            tx,
+                            ty,
+                            _fmt(val, pct),
+                            ha="center",
+                            va="center",
+                            fontsize=6.0,
+                            color=_text_color(fc) if fc != nan_color else "0.4",
+                        )
 
     ax.set_xlim(-0.7, ncols - 0.3)
     ax.set_ylim(-(nrows - 1) - 1.9, 0.9)
     ax.set_aspect("equal")
     ax.set_xticks(range(ncols))
-    ax.set_xticklabels([
-        f"{v.upper()}\n{units[v]}" if v in units else v.upper() for v in variables
-    ])
+    ax.set_xticklabels(
+        [f"{v.upper()}\n{units[v]}" if v in units else v.upper() for v in variables]
+    )
     ax.xaxis.set_ticks_position("top")
     ax.set_yticks([-r for r in range(nrows)])
     ax.set_yticklabels(rows)
@@ -354,10 +375,15 @@ def plot_signal_scorecard(
     ax.text(0.35, y_leg - 0.7, "non-precip variables", ha="center", fontsize=7.5)
     _draw_legend_hex(ax, 2.1, y_leg, 0.34, "pr")
     ax.text(2.1, y_leg - 0.7, "precipitation (pr)", ha="center", fontsize=7.5)
-    ax.text(min(ncols - 1, 4.0), y_leg,
-            "each index wedge is split\nP = perfect | I = imperfect predictors\n"
-            f"({reference} row uniform, no driving)",
-            ha="left", va="center", fontsize=7.5)
+    ax.text(
+        min(ncols - 1, 4.0),
+        y_leg,
+        "each index wedge is split\nP = perfect | I = imperfect predictors\n"
+        f"({reference} row uniform, no driving)",
+        ha="left",
+        va="center",
+        fontsize=7.5,
+    )
 
     sm = ScalarMappable(norm=norm, cmap=cmap_o)
     sm.set_array([])
@@ -370,7 +396,8 @@ def plot_signal_scorecard(
         f"colour = signal / |{reference} signal| per index (red = increase, blue = decrease)  ·  "
         "number = change (pr: % vs present; others: absolute)\n"
         "pr wedges = R01/SDII/RX1day, others = P01/mean/P99",
-        fontsize=10, pad=16,
+        fontsize=10,
+        pad=16,
     )
 
     os.makedirs(out, exist_ok=True)

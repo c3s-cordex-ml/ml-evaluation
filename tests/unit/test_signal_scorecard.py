@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pathlib
 
-import numpy as np
 import pytest
 
 import ml_evaluation.viz.plot_signal_scorecard as ss
@@ -11,10 +10,14 @@ import ml_evaluation.viz.plot_signal_scorecard as ss
 def test_signal_scorecard_indices() -> None:
     """The index/wedge layout differs for precip vs. other variables."""
     assert ss.signal_scorecard_indices("tasmax") == [
-        ("mean", "left"), ("p01", "mid"), ("p99", "right"),
+        ("mean", "left"),
+        ("p01", "mid"),
+        ("p99", "right"),
     ]
     assert ss.signal_scorecard_indices("pr") == [
-        ("sdii", "left"), ("r01", "mid"), ("rx1day", "right"),
+        ("sdii", "left"),
+        ("r01", "mid"),
+        ("rx1day", "right"),
     ]
     # Every wedge position maps to a distinct (perfect, imperfect) wedge pair.
     used = [w for pair in ss._WEDGE_PAIR.values() for w in pair]
@@ -46,9 +49,10 @@ def test_plot_signal_scorecard_renders(
         return out
 
     monkeypatch.setattr(
-        ss, "_metrics_dir",
-        lambda root, pat, model, var, case, season, cp:
-        f"{root}/{model}::{var}::" + ("I" if "imperfect" in case else "P"),
+        ss,
+        "_metrics_dir",
+        lambda root, pat, model, var, case, season, cp: f"{root}/{model}::{var}::"
+        + ("I" if "imperfect" in case else "P"),
     )
     monkeypatch.setattr(ss, "_resolve_checkpoint", lambda *a, **k: "")
     monkeypatch.setattr(ss.os.path, "isdir", lambda p: True)
@@ -72,17 +76,22 @@ def test_plot_signal_scorecard_perfect_only(
 ) -> None:
     """Omitting the imperfect case still renders (imperfect wedges blank)."""
     monkeypatch.setattr(
-        ss, "_metrics_dir",
+        ss,
+        "_metrics_dir",
         lambda root, pat, model, var, case, season, cp: f"{root}/{model}::{var}::P",
     )
     monkeypatch.setattr(ss, "_resolve_checkpoint", lambda *a, **k: "")
     monkeypatch.setattr(ss.os.path, "isdir", lambda p: True)
     monkeypatch.setattr(
-        ss, "_read_signal_floats",
+        ss,
+        "_read_signal_floats",
         lambda d, keys, which: {k: 1.0 for k in keys},
     )
     path = ss.plot_signal_scorecard(
-        str(tmp_path / "root"), str(tmp_path / "fig"), ["tasmax"], ["UNet-single"],
+        str(tmp_path / "root"),
+        str(tmp_path / "fig"),
+        ["tasmax"],
+        ["UNet-single"],
         case_perfect="c_perfect",
     )
     assert pathlib.Path(path).is_file()

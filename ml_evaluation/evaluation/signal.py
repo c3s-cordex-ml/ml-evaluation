@@ -37,6 +37,7 @@ Notes
   series takes a per-year quantile then averages. The series is a variability /
   trend diagnostic, not an exact decomposition of the delta for quantiles.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -53,8 +54,18 @@ from ml_evaluation.evaluation.utils import filter_by_monthseason
 EPS = 1e-6
 
 MONTHS = [
-    "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
-    "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+    "JAN",
+    "FEB",
+    "MAR",
+    "APR",
+    "MAY",
+    "JUN",
+    "JUL",
+    "AUG",
+    "SEP",
+    "OCT",
+    "NOV",
+    "DEC",
 ]
 
 _FLUX_UNITS = {"kg m-2 s-1", "kg/m2/s", "kg m^-2 s^-1"}
@@ -112,16 +123,25 @@ def build_index_specs(scale: float = 1.0, shift: float = 0.0) -> dict[str, Index
         "p01": IndexSpec("p01", "P01", indices.season_quantile, {"q": 0.01}, False),
         "p99": IndexSpec("p99", "P99", indices.season_quantile, {"q": 0.99}, False),
         "rx1day": IndexSpec(
-            "rx1day", "RX1day", indices.ann_extrema,
-            {"maxmin": "max", "cmean": True}, True,
+            "rx1day",
+            "RX1day",
+            indices.ann_extrema,
+            {"maxmin": "max", "cmean": True},
+            True,
         ),
         "r01": IndexSpec(
-            "r01", "R01", indices.ann_freq_wrt_array,
-            {"threshold": wet, "relation": "ge", "cmean": True}, True,
+            "r01",
+            "R01",
+            indices.ann_freq_wrt_array,
+            {"threshold": wet, "relation": "ge", "cmean": True},
+            True,
         ),
         "sdii": IndexSpec(
-            "sdii", "SDII", indices.ann_sdii,
-            {"wet_threshold": wet, "cmean": True}, True,
+            "sdii",
+            "SDII",
+            indices.ann_sdii,
+            {"wet_threshold": wet, "cmean": True},
+            True,
         ),
     }
 
@@ -200,7 +220,11 @@ def snap_grid(ref: xr.Dataset, other: xr.Dataset) -> xr.Dataset:
     for c in ("lat", "lon"):
         if c in ref.coords and c in other.coords:
             rv, ov = ref[c].values, other[c].values
-            if rv.shape == ov.shape and not np.array_equal(rv, ov) and np.allclose(rv, ov):
+            if (
+                rv.shape == ov.shape
+                and not np.array_equal(rv, ov)
+                and np.allclose(rv, ov)
+            ):
                 other = other.assign_coords({c: ref[c]})
     return other
 
@@ -221,7 +245,9 @@ def _rel(delta: xr.DataArray, base: xr.DataArray) -> xr.DataArray:
     return xr.where(np.abs(base) < EPS, np.nan, delta / base)
 
 
-def _period_field(ds: xr.Dataset, var: str, spec: IndexSpec, season: str | None) -> xr.DataArray:
+def _period_field(
+    ds: xr.Dataset, var: str, spec: IndexSpec, season: str | None
+) -> xr.DataArray:
     """Period climatology of one index as a ``(lat, lon)`` field."""
     out = spec.index_fn(ds, var=var, season=season, **spec.kwargs)
     da = out[var] if isinstance(out, xr.Dataset) else out
@@ -252,14 +278,24 @@ def _annual_reduce(
 
 
 def _annual_series(
-    dh: xr.Dataset, df: xr.Dataset, var: str, spec: IndexSpec,
-    season: str | None, wet: float,
+    dh: xr.Dataset,
+    df: xr.Dataset,
+    var: str,
+    spec: IndexSpec,
+    season: str | None,
+    wet: float,
 ) -> xr.DataArray:
     """Raw annual spatial-mean series over hist+fut on one ``year`` axis."""
-    sh = _spatial_mean(_drop_extra(_annual_reduce(dh, var, spec, season, wet),
-                                   keep=("year", "lat", "lon")))
-    sf = _spatial_mean(_drop_extra(_annual_reduce(df, var, spec, season, wet),
-                                   keep=("year", "lat", "lon")))
+    sh = _spatial_mean(
+        _drop_extra(
+            _annual_reduce(dh, var, spec, season, wet), keep=("year", "lat", "lon")
+        )
+    )
+    sf = _spatial_mean(
+        _drop_extra(
+            _annual_reduce(df, var, spec, season, wet), keep=("year", "lat", "lon")
+        )
+    )
     return xr.concat([sh, sf], dim="year")
 
 
@@ -273,7 +309,8 @@ def _monthly_cycle(ds: xr.Dataset, var: str, spec: IndexSpec) -> xr.DataArray:
         vals.append(float(_spatial_mean(_drop_extra(da, keep=("lat", "lon")))))
     return xr.DataArray(
         np.asarray(vals, dtype="float64"),
-        dims=["month"], coords={"month": np.arange(1, 13)},
+        dims=["month"],
+        coords={"month": np.arange(1, 13)},
     )
 
 

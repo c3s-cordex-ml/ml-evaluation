@@ -221,10 +221,14 @@ def test_cli_signal_workflow(
         main,
         [
             "signal",
-            "--hist", p["x0_hist"],
-            "--fut", p["x0_fut"],
-            "--var", var,
-            "--output", output_prefix,
+            "--hist",
+            p["x0_hist"],
+            "--fut",
+            p["x0_fut"],
+            "--var",
+            var,
+            "--output",
+            output_prefix,
         ],
     )
 
