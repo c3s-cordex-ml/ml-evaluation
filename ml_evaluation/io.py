@@ -7,6 +7,10 @@ from typing import Any, Literal
 
 from ml_evaluation.transformations import align_calendar
 
+dask_default_params: dict[str, Any] = dict(
+    n_workers=4, threads_per_worker=1, memory_limit="4GiB"
+)
+
 
 def get_output_path(base: str, suffix: str) -> str:
     """
@@ -32,7 +36,11 @@ def get_output_path(base: str, suffix: str) -> str:
     return f"{base}_{suffix}"
 
 
-def load_dataset(path: str, align_leap_days: str | None = None) -> xr.Dataset:
+def load_dataset(
+    path: str,
+    align_leap_days: str | None = None,
+    chunks: str | dict[str, int] | None = None,
+) -> xr.Dataset:
     """
     Load a NetCDF file into an xarray Dataset.
 
@@ -48,13 +56,15 @@ def load_dataset(path: str, align_leap_days: str | None = None) -> xr.Dataset:
         Whether to align the calendar by filling missing leap days (default is None).
         "fill" : fill using February 28th
         "remove" : remove February 29th
+    chunks : str | dict[str, int] | None, optional
+        Chunk sizes to use for Dask chunking (default is None).
 
     Returns
     -------
     xr.Dataset
         The loaded NetCDF dataset.
     """
-    dataset = xr.open_dataset(path)
+    dataset = xr.open_dataset(path, chunks=chunks)
     dataset = align_calendar(dataset, align_leap_days=align_leap_days)
     return dataset
 
@@ -144,7 +154,7 @@ def write_netcdf(
         chunks = get_optimized_chunks(ds, "value")
         encoding["value"] = {"zlib": True, "complevel": 5, "chunksizes": chunks}
 
-    ds.to_netcdf(path, encoding=encoding)
+    ds.load().to_netcdf(path, encoding=encoding)
 
 
 def write_zarr(
@@ -196,7 +206,7 @@ def write_zarr(
             "compressors": [{"name": "zstd", "configuration": {"level": 5}}],
         }
 
-    ds.to_zarr(path, encoding=encoding, mode=mode)
+    ds.load().to_zarr(path, encoding=encoding, mode=mode)
 
 
 def write_text(content: str, path: str) -> None:

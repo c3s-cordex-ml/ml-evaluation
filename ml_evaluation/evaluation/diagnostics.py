@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import numpy as np
 import xarray as xr
@@ -25,6 +25,7 @@ def bias_index(
     index_fn: Callable[..., xr.Dataset | xr.DataArray],
     season: str | None = None,
     relative: bool = False,
+    output_index=False,
     **index_kwargs: Any,
 ) -> xr.Dataset | xr.DataArray:
     """
@@ -44,6 +45,8 @@ def bias_index(
         Season to filter before computing the index.
     relative : bool, default False
         If True, return the relative bias.
+    output_index : bool, default False
+        If True, output indices too: bias, x0_index, x1_index
     **index_kwargs : Any
         Additional keyword arguments passed to the index function.
 
@@ -61,7 +64,11 @@ def bias_index(
     bias = x1_index - x0_index
 
     if relative:
-        return bias / x0_index
+        bias = bias / x0_index
+
+    if output_index:
+        return bias, x0_index, x1_index
+
     else:
         return bias
 
@@ -71,6 +78,7 @@ def ratio_index(
     x1: xr.Dataset,
     index_fn: Callable[..., xr.Dataset | xr.DataArray],
     season: str | None = None,
+    output_index=False,
     **index_kwargs: Any,
 ) -> xr.Dataset | xr.DataArray:
     """
@@ -88,6 +96,8 @@ def ratio_index(
         Function computing the desired index.
     season : str | None, optional
         Season to filter before computing the index.
+    output_index : bool, default False
+        If True, output indices too: bias, x0_index, x1_index
     **index_kwargs : Any
         Additional keyword arguments passed to the index function.
 
@@ -103,7 +113,12 @@ def ratio_index(
     x0_index = index_fn(x0, **call_kwargs)
     x1_index = index_fn(x1, **call_kwargs)
     ratio = x1_index / x0_index
-    return ratio
+
+    if output_index:
+        return ratio, x0_index, x1_index
+
+    else:
+        return ratio
 
 
 def rmse_index(
@@ -469,7 +484,8 @@ def ralsd(psd_x0: xr.Dataset, psd_x1: xr.Dataset, var: str) -> xr.Dataset:
     # check update for enxemble also copes with single member
     ratio = psd_x0[var] / psd_x1[var].clip(min=1e-30)
     log_ratio = 10.0 * np.log10(ratio.clip(min=1e-30))
-    res = xr.Dataset({var: (log_ratio**2).mean(dim="wavenumber")})
+    log_ratio_da = cast(xr.DataArray, log_ratio)
+    res = xr.Dataset({var: (log_ratio_da**2).mean(dim="wavenumber")})
 
     return res
 
@@ -899,11 +915,11 @@ def calc_pdf_metric_nparray(
 
         elif typedistance == "wd":
             dist_out = np.zeros(np.prod(arr0.shape[1:]))
-            arr0_flat = arr0.reshape(arr0.shape[0], np.prod(arr0.shape[1:]))
-            arr1_flat = arr1.reshape(arr1.shape[0], np.prod(arr1.shape[1:]))
+            arr0_flat_2d = arr0.reshape(arr0.shape[0], np.prod(arr0.shape[1:]))
+            arr1_flat_2d = arr1.reshape(arr1.shape[0], np.prod(arr1.shape[1:]))
             for ii in range(np.prod(arr0.shape[1:])):
                 dist_out[ii] = scipy_wasserstein_distance(
-                    arr0_flat[:, ii], arr1_flat[:, ii]
+                    arr0_flat_2d[:, ii], arr1_flat_2d[:, ii]
                 )
 
             dist_out = dist_out.reshape(arr0.shape[1:])
@@ -1010,7 +1026,7 @@ def calc_pdf_metric_xr(
 
     dim_tuple: tuple[str, ...]
     if dim is None:
-        dim_tuple = tuple(prediction_xr.dims)
+        dim_tuple = tuple(str(d) for d in prediction_xr.dims)
     elif isinstance(dim, str):
         dim_tuple = (dim,)
     else:
@@ -1154,8 +1170,8 @@ def calc_histdata_xr(
 
     Returns
     -------
-    xr.Dataset
-        Dataset of distribution comparison metrics.
+    xr.Dataset, xr.Dataset, xr.Dataset
+        Datasets of histogram output.
     """
 
     if index_fn is None:
@@ -1203,8 +1219,8 @@ def calc_histdata_xr(
     phist, pedge = np.histogram(arr0, bins=bins_arr, density=True)
     qhist, qedge = np.histogram(arr1, bins=bins_arr, density=True)
 
-    return (
-        xr.Dataset({var: ("density", phist)}),
-        xr.Dataset({var: ("density", qhist)}),
-        xr.Dataset({var: ("bin_edge", pedge)}),
-    )
+    phist_ds = xr.Dataset({var: ("bins", np.append(phist, np.nan))})
+    qhist_ds = xr.Dataset({var: ("bins", np.append(qhist, np.nan))})
+    edge_ds = xr.Dataset({var: ("bins", pedge)})
+
+    return phist_ds, qhist_ds, edge_ds
