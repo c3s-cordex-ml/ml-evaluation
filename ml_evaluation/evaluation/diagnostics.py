@@ -25,6 +25,7 @@ def bias_index(
     index_fn: Callable[..., xr.Dataset | xr.DataArray],
     season: str | None = None,
     relative: bool = False,
+    output_index = False,
     **index_kwargs: Any,
 ) -> xr.Dataset | xr.DataArray:
     """
@@ -44,6 +45,8 @@ def bias_index(
         Season to filter before computing the index.
     relative : bool, default False
         If True, return the relative bias.
+    output_index : bool, default False
+        If True, output indices too: bias, x0_index, x1_index
     **index_kwargs : Any
         Additional keyword arguments passed to the index function.
 
@@ -61,7 +64,11 @@ def bias_index(
     bias = x1_index - x0_index
 
     if relative:
-        return bias / x0_index
+        bias = bias / x0_index
+
+    if output_index:
+        return bias, x0_index, x1_index
+
     else:
         return bias
 
@@ -71,6 +78,7 @@ def ratio_index(
     x1: xr.Dataset,
     index_fn: Callable[..., xr.Dataset | xr.DataArray],
     season: str | None = None,
+    output_index = False,
     **index_kwargs: Any,
 ) -> xr.Dataset | xr.DataArray:
     """
@@ -88,6 +96,8 @@ def ratio_index(
         Function computing the desired index.
     season : str | None, optional
         Season to filter before computing the index.
+    output_index : bool, default False
+        If True, output indices too: bias, x0_index, x1_index
     **index_kwargs : Any
         Additional keyword arguments passed to the index function.
 
@@ -103,7 +113,12 @@ def ratio_index(
     x0_index = index_fn(x0, **call_kwargs)
     x1_index = index_fn(x1, **call_kwargs)
     ratio = x1_index / x0_index
-    return ratio
+
+    if output_index:
+        return ratio, x0_index, x1_index
+
+    else:
+        return ratio
 
 
 def rmse_index(

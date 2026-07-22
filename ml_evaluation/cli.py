@@ -185,15 +185,9 @@ def fast(
 
     scale, shift = convert_threshold_units(x0_ds, var)
 
-    # Compute Bias of Mean (over time): field
-    click.echo("Computing Bias of Mean (over time): field...")
-    biasf_ds = bias_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        index_fn=indices.mean,
-    )
+    # -------------------
+    # RMSE
+    # -------------------
 
     # Compute RMSE of daily data (over time): field
     click.echo("Computing RMSE of daily data (over time): field...")
@@ -215,58 +209,59 @@ def fast(
         dim=("time", "lat", "lon"),
     )
 
+    # -------------------
+    # Bias
+    # -------------------
+    # Compute Bias of Mean (over time): field
+    click.echo("Computing Bias of Mean (over time): field...")
+    biasf_ds, targf_mean_ds, predf_mean_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices.mean,
+        output_index=True,
+    )
+
     # Compute Bias of 99th percentile (over time): field
     click.echo("Computing Bias of 99th percentile (over time): field...")
-    biasf_p99_ds = bias_index(
+    biasf_p99_ds, targf_p99_ds, predf_p99_ds = bias_index(
         x0_ds,
         x1_ds,
         var=var,
         season=season,
         index_fn=indices.season_quantile,
         q=0.99,
+        output_index=True,
     )
 
     # Compute Bias of 1th percentile (over time): field
     click.echo("Computing Bias of 1th percentile (over time): field...")
-    biasf_p1_ds = bias_index(
+    biasf_p1_ds, targf_p1_ds, predf_p1_ds = bias_index(
         x0_ds,
         x1_ds,
         var=var,
         season=season,
         index_fn=indices.season_quantile,
         q=0.01,
-    )
-
-    # Compute Target lag-1 day autocorrelation (over time): field
-    click.echo("Computing Target lag-1 day autocorrelation (over time): field...")
-    targf_acorr_ds = indices.lag1_corr(
-        x0_ds,
-        var=var,
-        season=season,
-    )
-
-    # Compute Prediction lag-1 day autocorrelation (over time): field
-    click.echo("Computing Prediction lag-1 day autocorrelation (over time): field...")
-    predf_acorr_ds = indices.lag1_corr(
-        x1_ds,
-        var=var,
-        season=season,
+        output_index=True,
     )
 
     # Compute Bias of lag-1 day autocorrelation (over time): field
     click.echo("Computing Bias of lag-1 day autocorrelation (over time): field...")
-    biasf_acorr_ds = bias_index(
+    biasf_acorr_ds, targf_acorr_ds, predf_acorr_ds = bias_index(
         x0_ds,
         x1_ds,
         var=var,
         season=season,
         index_fn=indices.lag1_corr,
+        output_index=True,
     )
 
     # Compute Bias of annual max (over time): field
     # **precip Rx1day fast track; temperature TXx, TNx slow track?
     click.echo("Computing Bias of annual max (over time): field...")
-    biasf_max1day_ds = bias_index(
+    biasf_max1day_ds, targf_max1day_ds, predf_max1day_ds = bias_index(
         x0_ds,
         x1_ds,
         var=var,
@@ -274,12 +269,13 @@ def fast(
         index_fn=indices.ann_extrema,
         maxmin="max",
         cmean=True,
+        output_index=True,
     )
 
     # Compute Bias of annual min (over time): field
     # **temperature TXn, TNn slow track? Precip not useful
     click.echo("Computing Bias of annual min (over time): field...")
-    biasf_min1day_ds = bias_index(
+    biasf_min1day_ds, targf_min1day_ds, predf_min1day_ds = bias_index(
         x0_ds,
         x1_ds,
         var=var,
@@ -287,7 +283,13 @@ def fast(
         index_fn=indices.ann_extrema,
         maxmin="min",
         cmean=True,
+        output_index=True,
     )
+
+
+    # -------------------
+    # RAPSD
+    # -------------------
 
     # Compute PSD and RALSD
     click.echo("Computing Power Spectral Density (PSD) (over lat, lon)...")
@@ -297,10 +299,15 @@ def fast(
     ralsd_val = ralsd(psd_x0, psd_x1, var)
     click.echo(f"RALSD: {ralsd_val}")
 
+
+    # -------------------
+    # pr specific (Bias)
+    # -------------------
+
     if var == "pr":
         # Compute Bias of 98th wet day percentile (over time): field
         click.echo("Computing Bias of 98th wet day percentile (over time): field...")
-        biasf_p98wet_ds = bias_index(
+        biasf_p98wet_ds, targf_p98wet_ds, predf_p98wet_ds = bias_index(
             x0_ds,
             x1_ds,
             var=var,
@@ -308,12 +315,13 @@ def fast(
             index_fn=indices.season_quantile,
             q=0.98,
             wet_threshold=1.0 * scale + shift,
+            output_index=True,
         )
 
         # Compute Bias of freq ge 1mm/day (over time): field
         # **Precipitation only metric
         click.echo("Computing Bias of freq ge 1mm/day (over time): field...")
-        biasf_r1_ds = bias_index(
+        biasf_r1_ds, targf_r1_ds, predf_r1_ds = bias_index(
             x0_ds,
             x1_ds,
             var=var,
@@ -322,12 +330,13 @@ def fast(
             threshold=1.0 * scale + shift,
             relation="ge",
             cmean=True,
+            output_index=True,
         )
 
         # Compute Bias of sdii (over time): field
         # **Precipitation only metric
         click.echo("Computing Bias of sdii (over time): field...")
-        biasf_sdii_ds = bias_index(
+        biasf_sdii_ds, targf_sdii_ds, predf_sdii_ds = bias_index(
             x0_ds,
             x1_ds,
             var=var,
@@ -335,6 +344,7 @@ def fast(
             index_fn=indices.ann_sdii,
             wet_threshold=1.0 * scale + shift,
             cmean=True,
+            output_index=True,
         )
 
         # Compute Relative Bias of annual max (over time): field
@@ -380,6 +390,7 @@ def fast(
             wet_threshold=1.0 * scale + shift,
         )
 
+        # Metrics dictionary
         metrics_pr_field = {
             "bias_p98wet_field": biasf_p98wet_ds,
             "bias_r1_field": biasf_r1_ds,
@@ -387,20 +398,39 @@ def fast(
             "relbias_p98wet_field": relbiasf_p98wet_ds,
             "relbias_sdii_field": relbiasf_sdii_ds,
             "relbias_rx1day_field": relbiasf_max1day_ds,
+            "targ_p98wet_field": targf_p98wet_ds,
+            "pred_p98wet_field": predf_p98wet_ds,
+            "targ_r1_field": targf_r1_ds,
+            "pred_r1_field": predf_r1_ds,
+            "targ_sdii_field": targf_sdii_ds,
+            "pred_sdii_field": predf_sdii_ds,
         }
 
     # Save all fast-track metrics
     click.echo("Combining and saving metrics...")
+
+    # Metrics dictionaries
+
     metrics_field = {
-        "bias_mean_field": biasf_ds,
         "rmse_field": rmsef_ds,
+        "bias_mean_field": biasf_ds,
         "bias_p99_field": biasf_p99_ds,
         "bias_p1_field": biasf_p1_ds,
         "bias_acorr_field": biasf_acorr_ds,
         "bias_max1day_field": biasf_max1day_ds,
         "bias_min1day_field": biasf_min1day_ds,
+        "targ_mean_field": targf_mean_ds,
+        "pred_mean_field": predf_mean_ds,
+        "targ_p99_field": targf_p99_ds,
+        "pred_p99_field": predf_p99_ds,
+        "targ_p1_field": targf_p1_ds,
+        "pred_p1_field": predf_p1_ds,
         "targ_acorr_field": targf_acorr_ds,
         "pred_acorr_field": predf_acorr_ds,
+        "targ_max1day_field": targf_max1day_ds,
+        "pred_max1day_field": predf_max1day_ds,
+        "targ_min1day_field": targf_min1day_ds,
+        "pred_min1day_field": predf_min1day_ds,
     }
 
     metrics_float = {
@@ -412,6 +442,8 @@ def fast(
         "psd_x0": psd_x0,
         "psd_x1": psd_x1,
     }
+
+    # Store metrics to Zarr
 
     metrics_path_field = _get_output_path(output, "metrics_fast_field.zarr")
     write_zarr(metrics_field, metrics_path_field, mode="w", var=var)
@@ -548,47 +580,36 @@ def slow(
 
     scale, shift = convert_threshold_units(x0_ds, var)
 
-    # Compute Pearson Correlation of daily data (over time): field
-    click.echo("Computing Pearson Correlation of daily data (over time): field...")
-    pcorrf_ds = corr_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        dim=("time"),
-    )
-
-    # Compute Spearman's Correlation of daily data (over time): field
-    click.echo("Computing Spearman's Correlation of daily data (over time): field...")
-    scorrf_ds = corr_index(
-        x0_ds,
-        x1_ds,
-        var=var,
-        season=season,
-        dim=("time"),
-        srank=True,
-    )
+    # -------------------
+    # Bias
+    # -------------------
 
     # Compute Bias of std of annual means (over time): field
     click.echo("Computing Bias of std of annual means (over time): field...")
-    biasf_annstd_ds = bias_index(
+    biasf_annstd_ds, targf_annstd_ds, predf_annstd_ds = bias_index(
         x0_ds,
         x1_ds,
         var=var,
         season=season,
         index_fn=indices.interannual_var,
+        output_index=True,
     )
 
     # Compute Bias of 90th percentile (over time): field
     click.echo("Computing Bias of 90th percentile (over time): field...")
-    biasf_p90_ds = bias_index(
+    biasf_p90_ds, targf_p90_ds, predf_p90_ds = bias_index(
         x0_ds,
         x1_ds,
         var=var,
         season=season,
         index_fn=indices.season_quantile,
         q=0.90,
+        output_index=True,
     )
+
+    # -------------------
+    # Distribution scores per grid point
+    # -------------------
 
     # Compute Wasserstein Distance (over time): field
     click.echo("Computing Wasserstein Distance (over time): field...")
@@ -666,6 +687,10 @@ def slow(
         typedistance="lhd",
         member_name=member_dim,
     )
+
+    # -------------------
+    # Distribution scores for flattened data
+    # -------------------
 
     # Compute Wasserstein Distance hist method (over time, lat, lon): float
     click.echo(
@@ -746,6 +771,35 @@ def slow(
         bin_target_only=True,
     )
 
+    # -------------------
+    # Temporal Correlation
+    # -------------------
+
+    # Compute Pearson Correlation of daily data (over time): field
+    click.echo("Computing Pearson Correlation of daily data (over time): field...")
+    pcorrf_ds = corr_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        dim=("time"),
+    )
+
+    # Compute Spearman's Correlation of daily data (over time): field
+    click.echo("Computing Spearman's Correlation of daily data (over time): field...")
+    scorrf_ds = corr_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        dim=("time"),
+        srank=True,
+    )
+
+    # -------------------
+    # Spatial pattern metrics per timestep
+    # -------------------
+
     # Compute RMSE of daily data (over lat, lon): series
     click.echo("Computing RMSE of daily data (over lat, lon): series...")
     rmses_ds = rmse_index(
@@ -780,9 +834,14 @@ def slow(
     )
 
     if var == "pr":
+
+        # -------------------
+        # Bias
+        # -------------------
+
         # Compute Bias of 90th wet day percentile (over time): field
         click.echo("Computing Bias of 90th wet day percentile (over time): field...")
-        biasf_p90wet_ds = bias_index(
+        biasf_p90wet_ds, targf_p90wet_ds, predf_p90wet_ds = bias_index(
             x0_ds,
             x1_ds,
             var=var,
@@ -790,12 +849,13 @@ def slow(
             index_fn=indices.season_quantile,
             q=0.9,
             wet_threshold=1.0 * scale + shift,
+            output_index=True,
         )
 
         # Compute Bias of freq ge 10mm/day (over time): field
         # **Precipitation only metric
         click.echo("Computing Bias of freq ge 10mm/day (over time): field...")
-        biasf_r10_ds = bias_index(
+        biasf_r10_ds, targf_r10_ds, predf_r10_ds = bias_index(
             x0_ds,
             x1_ds,
             var=var,
@@ -804,11 +864,12 @@ def slow(
             threshold=10.0 * scale + shift,
             relation="ge",
             cmean=True,
+            output_index=True,
         )
 
         # Compute Bias of max dry spell length (over time): field
         click.echo("Computing Bias of max dry spell length (over time): field...")
-        biasf_cdd_ds = bias_index(
+        biasf_cdd_ds, targf_cdd_ds, predf_cdd_ds = bias_index(
             x0_ds,
             x1_ds,
             var=var,
@@ -817,11 +878,12 @@ def slow(
             threshold=1.0 * scale + shift,
             relation="lt",
             cmean=True,
+            output_index=True,
         )
 
         # Compute Bias of max wet spell length (over time): field
         click.echo("Computing Bias of max wet spell length (over time): field...")
-        biasf_cwd_ds = bias_index(
+        biasf_cwd_ds, targf_cwd_ds, predf_cwd_ds = bias_index(
             x0_ds,
             x1_ds,
             var=var,
@@ -830,6 +892,7 @@ def slow(
             threshold=1.0 * scale + shift,
             relation="ge",
             cmean=True,
+            output_index=True,
         )
 
         # Compute Relative Bias of 90th wet day percentile (over time): field
@@ -853,13 +916,26 @@ def slow(
             "bias_cdd_field": biasf_cdd_ds,
             "bias_cwd_field": biasf_cwd_ds,
             "relbias_p90wet_field": relbiasf_p90wet_ds,
+            "targ_p90wet_field": targf_p90wet_ds,
+            "pred_p90wet_field": predf_p90wet_ds,
+            "targ_r10_field": targf_r10_ds,
+            "pred_r10_field": predf_r10_ds,
+            "targ_cdd_field": targf_cdd_ds,
+            "pred_cdd_field": predf_cdd_ds,
+            "targ_cwd_field": targf_cwd_ds,
+            "pred_cwd_field": predf_cwd_ds,
         }
 
     if var == "tasmax":
+
+        # -------------------
+        # Bias
+        # -------------------
+
         # Compute Bias of freq ge 25C (over time): field
         # **Tasmax only metric Summer Days
         click.echo("Computing  Bias of freq ge 25C (over time): field...")
-        biasf_su_ds = bias_index(
+        biasf_su_ds, targf_su_ds, predf_su_ds = bias_index(
             x0_ds,
             x1_ds,
             var=var,
@@ -868,11 +944,13 @@ def slow(
             threshold=25.0 * scale + shift,
             relation="ge",
             cmean=True,
+            output_index=True,
         )
+
         # Compute Bias of freq ge 35C (over time): field
         # **Tasmax only metric Hot Days
         click.echo("Computing  Bias of freq ge 35C (over time): field...")
-        biasf_hot_ds = bias_index(
+        biasf_hot_ds, targf_hot_ds, predf_hot_ds = bias_index(
             x0_ds,
             x1_ds,
             var=var,
@@ -881,11 +959,13 @@ def slow(
             threshold=35.0 * scale + shift,
             relation="ge",
             cmean=True,
+            output_index=True,
         )
+
         # Compute Bias of freq lt 0C (over time): field
         # **Tasmax only metric Ice Days
         click.echo("Computing  Bias of freq lt 0C (over time): field...")
-        biasf_ice_ds = bias_index(
+        biasf_ice_ds, targf_ice_ds, predf_ice_ds = bias_index(
             x0_ds,
             x1_ds,
             var=var,
@@ -894,19 +974,31 @@ def slow(
             threshold=0.0 * scale + shift,
             relation="lt",
             cmean=True,
+            output_index=True,
         )
 
         metrics_tasmax = {
             "bias_su_field": biasf_su_ds,
             "bias_hot_field": biasf_hot_ds,
             "bias_ice_field": biasf_ice_ds,
+            "targ_su_field": targf_su_ds,
+            "pred_su_field": predf_su_ds,
+            "targ_hot_field": targf_hot_ds,
+            "pred_hot_field": predf_hot_ds,
+            "targ_ice_field": targf_ice_ds,
+            "pred_ice_field": predf_ice_ds,
         }
 
     if var == "tasmin":
+
+        # -------------------
+        # Bias
+        # -------------------
+
         # Compute Bias of freq ge 20C (over time): field
         # **Tasmin only metric Tropical Nights
         click.echo("Computing  Bias of freq ge 20C (over time): field...")
-        biasf_trop_ds = bias_index(
+        biasf_trop_ds, targf_trop_ds, predf_trop_ds = bias_index(
             x0_ds,
             x1_ds,
             var=var,
@@ -915,11 +1007,13 @@ def slow(
             threshold=20.0 * scale + shift,
             relation="ge",
             cmean=True,
+            output_index=True,
         )
+
         # Compute Bias of freq lt 0C (over time): field
         # **Tasmin only metric Frost Days
         click.echo("Computing  Bias of freq lt 0C (over time): field...")
-        biasf_frost_ds = bias_index(
+        biasf_frost_ds, targf_frost_ds, predf_frost_ds = bias_index(
             x0_ds,
             x1_ds,
             var=var,
@@ -928,18 +1022,21 @@ def slow(
             threshold=0.0 * scale + shift,
             relation="lt",
             cmean=True,
+            output_index=True,
         )
 
         metrics_tasmin = {
             "bias_tropnight_field": biasf_trop_ds,
             "bias_frost_field": biasf_frost_ds,
+            "targ_tropnight_field": targf_trop_ds,
+            "pred_tropnight_field": predf_trop_ds,
+            "targ_frost_field": targf_frost_ds,
+            "pred_frost_field": predf_frost_ds,
         }
 
     # Consolidate and save all slow metrics
     click.echo("Combining and saving metrics...")
     metrics = {
-        "pcorr_field": pcorrf_ds,
-        "scorr_field": scorrf_ds,
         "bias_annstd_field": biasf_annstd_ds,
         "bias_p90_field": biasf_p90_ds,
         "wd_field": wdf_ds,
@@ -947,6 +1044,12 @@ def slow(
         "fcss_field": fcssf_ds,
         "pss_field": pssf_ds,
         "lhd_field": lhdf_ds,
+        "pcorr_field": pcorrf_ds,
+        "scorr_field": scorrf_ds,
+        "targ_annstd_field": targf_annstd_ds,
+        "pred_annstd_field": predf_annstd_ds,
+        "targ_p90_field": targf_p90_ds,
+        "pred_p90_field": predf_p90_ds,
     }
 
     metrics_hist = {
