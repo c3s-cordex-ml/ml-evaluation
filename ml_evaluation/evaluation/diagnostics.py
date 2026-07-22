@@ -25,7 +25,7 @@ def bias_index(
     index_fn: Callable[..., xr.Dataset | xr.DataArray],
     season: str | None = None,
     relative: bool = False,
-    output_index = False,
+    output_index=False,
     **index_kwargs: Any,
 ) -> xr.Dataset | xr.DataArray:
     """
@@ -78,7 +78,7 @@ def ratio_index(
     x1: xr.Dataset,
     index_fn: Callable[..., xr.Dataset | xr.DataArray],
     season: str | None = None,
-    output_index = False,
+    output_index=False,
     **index_kwargs: Any,
 ) -> xr.Dataset | xr.DataArray:
     """

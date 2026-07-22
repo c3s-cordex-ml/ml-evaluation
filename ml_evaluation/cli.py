@@ -286,7 +286,6 @@ def fast(
         output_index=True,
     )
 
-
     # -------------------
     # RAPSD
     # -------------------
@@ -298,7 +297,6 @@ def fast(
     click.echo("Computing Radially Averaged Log Spectral Distance (RALSD)...")
     ralsd_val = ralsd(psd_x0, psd_x1, var)
     click.echo(f"RALSD: {ralsd_val}")
-
 
     # -------------------
     # pr specific (Bias)
@@ -834,7 +832,6 @@ def slow(
     )
 
     if var == "pr":
-
         # -------------------
         # Bias
         # -------------------
@@ -927,7 +924,6 @@ def slow(
         }
 
     if var == "tasmax":
-
         # -------------------
         # Bias
         # -------------------
@@ -990,7 +986,6 @@ def slow(
         }
 
     if var == "tasmin":
-
         # -------------------
         # Bias
         # -------------------
