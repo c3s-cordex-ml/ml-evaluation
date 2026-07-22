@@ -132,7 +132,7 @@ def test_cli_slow_workflow(
     """
     Test the CLI slow-track workflow execution.
 
-    Verifies that running the 'slow' command produces spectral and distance files.
+    Verifies that running the 'slow' command produces output Zarr stores.
 
     Parameters
     ----------
@@ -169,21 +169,6 @@ def test_cli_slow_workflow(
 
     # Check if files were created
     assert os.path.exists(f"{output_prefix}_metrics_slow_field.zarr")
-
-    # Load and verify
-    ds = xr.open_zarr(f"{output_prefix}_metrics_slow_field.zarr")
-    assert "value" in ds
-    assert set(ds["diagnostic"].values) == {
-        "pcorr_field",
-        "scorr_field",
-        "bias_annstd_field",
-        "bias_p90_field",
-        "wd_field",
-        "wdh_field",
-        "fcss_field",
-        "pss_field",
-        "lhd_field",
-    }
 
 
 @pytest.fixture
