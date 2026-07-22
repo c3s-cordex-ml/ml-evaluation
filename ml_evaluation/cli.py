@@ -100,6 +100,12 @@ def main() -> None:
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 @click.option(
+    "--member-num",
+    type=int,
+    default=None,
+    help="Option to load just a single member (for ensemble predictions).",
+)
+@click.option(
     "--force-load",
     type=bool,
     default=False,
@@ -118,6 +124,7 @@ def fast(
     output: str,
     season: str | None,
     align_leap_days: str | None,
+    member_num: int | None,
     force_load: bool,
     use_dask: bool,
 ) -> None:
@@ -141,6 +148,11 @@ def fast(
         Optional season or month standard name.
     align_leap_days : str | None
         Options to align datasets to standard calendar by filling missing leap days.
+    member_num : int | None
+        Option to evaluate a single member or the ensemble mean.
+        - member == -1 : compute the ensemble mean over all members.
+        - member >= 0  : select that single member by integer position.
+        Ignored (with a warning) if x1 has no member dimension.
     force_load : bool
         Option to load data into memory for quick testing of small datasets.
     use_dask : bool
@@ -175,7 +187,7 @@ def fast(
             click.echo("WARNING: pr converted from mm/day to kg/m2/s")
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
 
-    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds)
+    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
 
     # Force loading when testing on smaller datasets so quick to run
     # Works well on 6 years 3 members
@@ -494,6 +506,12 @@ def fast(
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 @click.option(
+    "--member-num",
+    type=int,
+    default=None,
+    help="Option to run on a single member (for ensemble predictions).",
+)
+@click.option(
     "--force-load",
     type=bool,
     default=False,
@@ -512,6 +530,7 @@ def slow(
     output: str,
     season: str | None,
     align_leap_days: str | None,
+    member_num: int | None,
     force_load: bool,
     use_dask: bool,
 ) -> None:
@@ -535,6 +554,11 @@ def slow(
         Optional season or month standard name.
     align_leap_days : str | None
         Options to align datasets to standard calendar by filling missing leap days.
+    member_num : int | None
+        Option to evaluate a single member or the ensemble mean.
+        - member == -1 : compute the ensemble mean over all members.
+        - member >= 0  : select that single member by integer position.
+        Ignored (with a warning) if x1 has no member dimension.
     force_load : bool
         Option to load data into memory for quick testing of small datasets.
     use_dask : bool
@@ -568,7 +592,7 @@ def slow(
             click.echo("WARNING: pr converted from mm/day to kg/m2/s")
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
 
-    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds)
+    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
 
     # Force loading when testing on smaller datasets so quick to run
     # Works well on 6 years 3 members
@@ -1123,6 +1147,12 @@ def slow(
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 @click.option(
+    "--member-num",
+    type=int,
+    default=None,
+    help="Option to load just a single member (for ensemble predictions).",
+)
+@click.option(
     "--force-load",
     type=bool,
     default=False,
@@ -1142,6 +1172,7 @@ def multivar(
     output: str,
     season: str | None,
     align_leap_days: str | None,
+    member_num: int | None,
     force_load: bool,
     use_dask: bool,
 ) -> None:
@@ -1167,6 +1198,11 @@ def multivar(
         Optional season or month standard name.
     align_leap_days : str | None
         Options to align datasets to standard calendar by filling missing leap days.
+    member_num : int | None
+        Option to evaluate a single member or the ensemble mean.
+        - member == -1 : compute the ensemble mean over all members.
+        - member >= 0  : select that single member by integer position.
+        Ignored (with a warning) if x1 has no member dimension.
     force_load : bool
         Option to load data into memory for quick testing of small datasets.
     use_dask : bool
@@ -1198,7 +1234,7 @@ def multivar(
             click.echo("WARNING: pr converted from mm/day to kg/m2/s")
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
 
-    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds)
+    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
 
     # Force loading when testing on smaller datasets so quick to run
     # Works well on 6 years 3 members
@@ -1397,6 +1433,12 @@ def cdquantiles(
     help="Option to align datasets to standard calendar by filling missing leap days.",
 )
 @click.option(
+    "--member-num",
+    type=int,
+    default=None,
+    help="Option to load just a single member (for ensemble predictions).",
+)
+@click.option(
     "--force-load",
     type=bool,
     default=False,
@@ -1416,6 +1458,7 @@ def cdextremes(
     thresh_dir: str,
     season: str | None,
     align_leap_days: str | None,
+    member_num: int | None,
     force_load: bool,
     use_dask: bool,
 ) -> None:
@@ -1442,6 +1485,11 @@ def cdextremes(
         Optional season or month standard name.
     align_leap_days : str | None
         Options to align datasets to standard calendar by filling missing leap days.
+    member_num : int | None
+        Option to evaluate a single member or the ensemble mean.
+        - member == -1 : compute the ensemble mean over all members.
+        - member >= 0  : select that single member by integer position.
+        Ignored (with a warning) if x1 has no member dimension.
     force_load : bool
         Option to load data into memory for quick testing of small datasets.
     use_dask : bool
@@ -1478,7 +1526,7 @@ def cdextremes(
             click.echo("WARNING: pr converted from mm/day to kg/m2/s")
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
 
-    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds)
+    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
 
     # Force loading when testing on smaller datasets so quick to run
     # Works well on 6 years 3 members

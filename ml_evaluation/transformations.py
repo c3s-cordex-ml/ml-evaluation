@@ -101,7 +101,7 @@ def convert_threshold_units(x0_ds, var):
     return scale, shift
 
 
-def align_dims(x0_ds, x1_ds):
+def align_dims(x0_ds, x1_ds, member=None):
     """
     Align x0_ds and x1_ds along lat/lon and time, and detect a member dimension.
 
@@ -111,6 +111,21 @@ def align_dims(x0_ds, x1_ds):
       datasets are time-aligned.
     - Detects an extra "member"-like dimension in x1_ds relative to x0_ds
       and standardizes its coordinate/name to "member".
+    - Optionally subsets x1_ds to a single member (by position), or
+      collapses to the ensemble mean, while keeping "member" as a
+      (length-1) dimension.
+
+    Parameters
+    ----------
+    x0_ds : xr.Dataset
+    x1_ds : xr.Dataset
+    member : int, optional
+        If provided, select from x1_ds's standardized "member" dimension
+        after member detection, retaining "member" as a size-1 dimension
+        rather than squeezing it out:
+        - member == -1 : compute the ensemble mean over all members.
+        - member >= 0  : select that single member by integer position.
+        Ignored (with a warning) if x1_ds has no member dimension.
 
     Returns
     -------
@@ -118,7 +133,8 @@ def align_dims(x0_ds, x1_ds):
         Possibly subset to the common time steps.
     x1_ds : xr.Dataset
         Possibly subset to the common time steps, with coords aligned to x0_ds,
-        and member dimension standardized if present.
+        member dimension standardized if present, and optionally reduced to
+        a single member or ensemble mean (dimension retained).
     member_dim : str or None
         Name of the standardized member dimension in x1_ds, if any.
     """
@@ -157,6 +173,26 @@ def align_dims(x0_ds, x1_ds):
         member_dim = list(extra_dim)[0]
         x1_ds = ensure_member_coords(x1_ds, dim=member_dim, new_name="member")
         member_dim = "member"
+
+        # Optionally select a single member, keeping "member" as a dimension
+        if member is not None:
+            if member == -1:
+                # Ensemble mean, keeping "member" as a size-1 dimension
+                x1_ds = x1_ds.mean(dim="member", keep_attrs=True)
+                x1_ds = x1_ds.expand_dims(member=["mean"])
+            else:
+                n_members = x1_ds.sizes["member"]
+                if member < 0 or member >= n_members:
+                    raise IndexError(
+                        f"member index {member} out of bounds for dimension "
+                        f"of size {n_members}"
+                    )
+                x1_ds = x1_ds.isel(member=[member])
+    elif member is not None:
+        print(
+            "Warning: 'member' argument was given but x1_ds has no "
+            "member dimension to select from"
+        )
 
     return x0_ds, x1_ds, member_dim
 
