@@ -13,6 +13,12 @@ from ml_evaluation.evaluation.diagnostics import (
     bias_multivariable_correlation,
 )
 import ml_evaluation.evaluation.indices as indices
+from ml_evaluation.evaluation.signal import (
+    build_index_specs,
+    canonicalize_units,
+    compute_signal,
+    snap_grid,
+)
 from ml_evaluation.io import load_dataset, write_zarr
 from ml_evaluation.transformations import (
     align_dims,
@@ -159,6 +165,9 @@ def fast(
         x1_ds.load()
 
     scale, shift = convert_threshold_units(x0_ds, var)
+    # Shared index catalog (period climatologies) reused by the `signal` command,
+    # so evaluation and climate-change signal stay definitionally consistent.
+    specs = build_index_specs(scale, shift)
 
     # Compute Bias of Mean (over time): field
     click.echo("Computing Bias of Mean (over time): field...")
@@ -167,7 +176,8 @@ def fast(
         x1_ds,
         var=var,
         season=season,
-        index_fn=indices.mean,
+        index_fn=specs["mean"].index_fn,
+        **specs["mean"].kwargs,
     )
 
     # Compute RMSE of daily data (over time): field
@@ -230,8 +240,8 @@ def fast(
         x1_ds,
         var=var,
         season=season,
-        index_fn=indices.season_quantile,
-        q=0.99,
+        index_fn=specs["p99"].index_fn,
+        **specs["p99"].kwargs,
     )
 
     # Compute Bias of 1th percentile (over time): field
@@ -241,8 +251,8 @@ def fast(
         x1_ds,
         var=var,
         season=season,
-        index_fn=indices.season_quantile,
-        q=0.01,
+        index_fn=specs["p01"].index_fn,
+        **specs["p01"].kwargs,
     )
 
     # Compute Bias of lag-1 day autocorrelation (over time): field
@@ -263,9 +273,8 @@ def fast(
         x1_ds,
         var=var,
         season=season,
-        index_fn=indices.ann_extrema,
-        maxmin="max",
-        cmean=True,
+        index_fn=specs["rx1day"].index_fn,
+        **specs["rx1day"].kwargs,
     )
 
     # Compute Bias of annual min (over time): field
@@ -321,10 +330,8 @@ def fast(
             x1_ds,
             var=var,
             season=season,
-            index_fn=indices.ann_freq_wrt_array,
-            threshold=1.0 * scale + shift,
-            relation="ge",
-            cmean=True,
+            index_fn=specs["r01"].index_fn,
+            **specs["r01"].kwargs,
         )
 
         # Compute Bias of freq ge 10mm/day (over time): field
@@ -349,9 +356,8 @@ def fast(
             x1_ds,
             var=var,
             season=season,
-            index_fn=indices.ann_sdii,
-            wet_threshold=1.0 * scale + shift,
-            cmean=True,
+            index_fn=specs["sdii"].index_fn,
+            **specs["sdii"].kwargs,
         )
 
         # Compute Bias of max dry spell length (over time): field
@@ -389,9 +395,8 @@ def fast(
             var=var,
             season=season,
             relative=True,
-            index_fn=indices.ann_extrema,
-            maxmin="max",
-            cmean=True,
+            index_fn=specs["rx1day"].index_fn,
+            **specs["rx1day"].kwargs,
         )
 
         # Compute Relative Bias of sdii (over time): field
@@ -403,9 +408,8 @@ def fast(
             var=var,
             season=season,
             relative=True,
-            index_fn=indices.ann_sdii,
-            wet_threshold=1.0 * scale + shift,
-            cmean=True,
+            index_fn=specs["sdii"].index_fn,
+            **specs["sdii"].kwargs,
         )
 
         # Compute Relative Bias of 98th wet day percentile (over time): field
@@ -496,6 +500,131 @@ def fast(
     click.echo(f"Saved all fast-track metrics to {metrics_path_field} etc...")
 
     click.echo("Fast-track evaluation complete.")
+
+
+@main.command()
+@click.option(
+    "--hist",
+    required=True,
+    type=click.Path(exists=True),
+    help="Historical-period NetCDF for one source (RCM-truth or a model).",
+)
+@click.option(
+    "--fut",
+    required=True,
+    type=click.Path(exists=True),
+    help="Future-period NetCDF for the same source.",
+)
+@click.option("--var", required=True, type=str, help="Variable name to evaluate.")
+@click.option(
+    "--output",
+    required=True,
+    type=str,
+    help="Directory or file path for the output Zarr results.",
+)
+@click.option(
+    "--season",
+    type=str,
+    default=None,
+    help="Optional season/month to filter for the field/series/float metrics "
+    "(the month store always spans all 12 months).",
+)
+@click.option(
+    "--align-leap-days",
+    type=str,
+    default=None,
+    help="Option to align datasets to standard calendar by filling missing leap days.",
+)
+@click.option(
+    "--force-load",
+    type=bool,
+    default=False,
+    help="Option to load data into memory for quick testing of small datasets.",
+)
+def signal(
+    hist: str,
+    fut: str,
+    var: str,
+    output: str,
+    season: str | None,
+    align_leap_days: str | None,
+    force_load: bool,
+) -> None:
+    """
+    Run the climate-change-signal workflow for one source.
+
+    Computes the change of each climatological index between the historical and
+    future periods (future - historical) for a single source -- the RCM-truth or
+    one model. The command is source-agnostic and never needs the ground truth:
+    the signal *bias* (model vs. RCM-truth) is obtained downstream by comparing
+    two of these bundles (e.g. in the signal scorecard). The index set is
+    mean/P01/P99 for non-precip variables and R01/SDII/RX1day for precip; each is
+    stored as an absolute ``delta`` and a relative ``reldelta``.
+
+    Writes four Zarr bundles, each stacked along a ``diagnostic`` dimension:
+    ``metrics_signal_field`` (lat, lon), ``metrics_signal_series`` (year),
+    ``metrics_signal_month`` (month), and ``metrics_signal_float`` (scalars).
+
+    Parameters
+    ----------
+    hist, fut : str
+        Historical and future NetCDF files for the same source.
+    var : str
+        Variable name to evaluate.
+    output : str
+        Directory, file prefix, or final Zarr store path.
+    season : str | None
+        Optional season/month for the field/series/float metrics.
+    align_leap_days : str | None
+        Options to align datasets to standard calendar by filling missing leap days.
+    force_load : bool
+        Option to load data into memory for quick testing of small datasets.
+
+    Returns
+    -------
+    None
+    """
+    click.echo(f"Running climate-change-signal workflow for variable '{var}'...")
+    click.echo(f"Loading hist: {hist}")
+    hist_ds = canonicalize_units(
+        load_dataset(hist, align_leap_days=align_leap_days)[[var]], var
+    )
+    click.echo(f"Loading fut: {fut}")
+    fut_ds = canonicalize_units(
+        load_dataset(fut, align_leap_days=align_leap_days)[[var]], var
+    )
+    # Snap the future grid to the historical one so field arithmetic lines up.
+    fut_ds = snap_grid(hist_ds, fut_ds)
+
+    if force_load:
+        hist_ds.load()
+        fut_ds.load()
+
+    # Thresholds follow the (now canonical) data units.
+    scale, shift = convert_threshold_units(hist_ds, var)
+
+    click.echo("Computing delta and reldelta per index...")
+    field, series, month, flt = compute_signal(
+        hist_ds,
+        fut_ds,
+        var=var,
+        scale=scale,
+        shift=shift,
+        season=season,
+    )
+
+    click.echo("Combining and saving metrics...")
+    field_path = _get_output_path(output, "metrics_signal_field.zarr")
+    write_zarr(field, field_path, mode="w", var=var)
+    series_path = _get_output_path(output, "metrics_signal_series.zarr")
+    write_zarr(series, series_path, mode="w", var=var)
+    month_path = _get_output_path(output, "metrics_signal_month.zarr")
+    write_zarr(month, month_path, mode="w", var=var)
+    float_path = _get_output_path(output, "metrics_signal_float.zarr")
+    write_zarr(flt, float_path, mode="w", var=var)
+
+    click.echo(f"Saved all signal metrics to {field_path} etc...")
+    click.echo("Climate-change-signal workflow complete.")
 
 
 @main.command()
