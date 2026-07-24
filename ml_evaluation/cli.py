@@ -11,6 +11,9 @@ from ml_evaluation.evaluation.diagnostics import (
     calc_pdf_metric_xr,
     calc_histdata_xr,
     bias_multivariable_correlation,
+    bs_xr,
+    crps_xr,
+    mean_spread_skill_ratio,
 )
 import ml_evaluation.evaluation.indices as indices
 from ml_evaluation.evaluation.signal import (
@@ -1484,6 +1487,276 @@ def multivar(
     click.echo(f"Saved all multi-variate metrics to {metrics_path} etc...")
 
     click.echo("Multi-variate evaluation complete.")
+
+
+@main.command()
+@click.option(
+    "--x0",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to ground-truth NetCDF file.",
+)
+@click.option(
+    "--x1",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to predictions NetCDF file.",
+)
+@click.option("--var", required=True, type=str, help="Variable name to evaluate.")
+@click.option(
+    "--output",
+    required=True,
+    type=str,
+    help="Directory or file path for the output Zarr results.",
+)
+@click.option(
+    "--season",
+    type=str,
+    default=None,
+    help="Optional season/month to filter (e.g., DJF, MAM, JJA, SON, JAN).",
+)
+@click.option(
+    "--align-leap-days",
+    type=str,
+    default=None,
+    help="Option to align datasets to standard calendar by filling missing leap days.",
+)
+@click.option(
+    "--force-load",
+    type=bool,
+    default=False,
+    help="Option to load data into memory for quick testing of small datasets.",
+)
+@click.option(
+    "--use-dask",
+    type=bool,
+    default=False,
+    help="Option to use Dask for parallel processing.",
+)
+def prob(
+    x0: str,
+    x1: str,
+    var: str,
+    output: str,
+    season: str | None,
+    align_leap_days: str | None,
+    force_load: bool,
+    use_dask: bool,
+) -> None:
+    """
+    Run probabilistic evaluation workflow.
+
+    Computes Mean Bias, RMSE, and Pearson Correlation between x0 and x1
+    for the specified variable and optionally filters by season.
+
+    Parameters
+    ----------
+    x0 : str
+        Path to ground-truth NetCDF file.
+    x1 : str
+        Path to predictions NetCDF file.
+    var : str
+        Variable name to evaluate.
+    output : str
+        Directory, file prefix, or final Zarr store path.
+    season : str | None
+        Optional season or month standard name.
+    align_leap_days : str | None
+        Options to align datasets to standard calendar by filling missing leap days.
+    force_load : bool
+        Option to load data into memory for quick testing of small datasets.
+    use_dask : bool
+        Option to use Dask for parallel processing.
+
+    Returns
+    -------
+    None
+    """
+    if use_dask:
+        from dask.distributed import Client
+
+        _client = Client(**dask_default_params)
+        click.echo("Using dask")
+
+    click.echo(f"Running probabilistic evaluation for variable '{var}'...")
+    click.echo(f"Loading reference: {x0}")
+    x0_ds = load_dataset(
+        x0, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )
+    click.echo(f"Loading prediction: {x1}")
+    x1_ds = load_dataset(
+        x1, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )
+
+    x0_ds = x0_ds[[var]]
+    x1_ds = x1_ds[[var]]
+
+    # Check for different pr units in target vs prediction
+    if var == "pr":
+        if x1_ds["pr"].max() > 1 and x0_ds["pr"].max() < 1:
+            click.echo("WARNING: pr converted from mm/day to kg/m2/s")
+            x1_ds["pr"] = x1_ds["pr"] / 86400.0
+
+    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=None)
+
+    nmem = x1_ds.sizes[member_dim]
+
+    # Force loading when testing on smaller datasets so quick to run
+    # Works well on 6 years 3 members
+    if force_load:
+        x0_ds.load()
+        x1_ds.load()
+
+    scale, shift = convert_threshold_units(x0_ds, var)
+
+    # -------------------
+    # Brier Score
+    # -------------------
+
+    # Compute mean brier score wrt p50 (over time): field
+    click.echo("Computing mean brier score wrt p50 (over time): field...")
+    targ_p50 = indices.season_quantile(x0_ds, var, q=0.5, season=season)
+    bs50pf_ds = bs_xr(
+        x0_ds,
+        x1_ds,
+        var=var,
+        threshold=targ_p50,
+        relation="gt",
+        dim=("time"),
+        season=season,
+        fair_est=True,
+    )
+
+    # Compute mean brier score wrt p50 (over time, lat, lon): float
+    click.echo("Computing mean brier score wrt p50 (over time, lat, lon): float...")
+    bs50p_ds = bs50pf_ds.mean(dim=("lat", "lon"))
+
+    # Compute mean brier score wrt p1 (over time): field
+    click.echo("Computing mean brier score wrt p1 (over time): field...")
+    targ_p1 = indices.season_quantile(x0_ds, var, q=0.01, season=season)
+    bs1pf_ds = bs_xr(
+        x0_ds,
+        x1_ds,
+        var=var,
+        threshold=targ_p1,
+        relation="lt",
+        dim=("time"),
+        season=season,
+        fair_est=True,
+    )
+
+    # Compute mean brier score wrt p1 (over time, lat, lon): float
+    click.echo("Computing mean brier score wrt p1 (over time, lat, lon): float...")
+    bs1p_ds = bs1pf_ds.mean(dim=("lat", "lon"))
+
+    # Compute mean brier score wrt p99 (over time): field
+    click.echo("Computing mean brier score wrt p99 (over time): field...")
+    targ_p99 = indices.season_quantile(x0_ds, var, q=0.99, season=season)
+    bs99pf_ds = bs_xr(
+        x0_ds,
+        x1_ds,
+        var=var,
+        threshold=targ_p99,
+        relation="gt",
+        dim=("time"),
+        season=season,
+        fair_est=True,
+    )
+
+    # -------------------
+    # CRPS
+    # -------------------
+
+    # Compute mean brier score wrt p99 (over time, lat, lon): float
+    click.echo("Computing mean brier score wrt p99 (over time, lat, lon): float...")
+    bs99p_ds = bs99pf_ds.mean(dim=("lat", "lon"))
+
+    # Compute mean crps (over time): field
+    click.echo("Computing mean crps (over time): field...")
+    crpsf_ds = crps_xr(
+        x0_ds,
+        x1_ds,
+        var=var,
+        dim=("time"),
+        season=season,
+        fair_est=True,
+    )
+
+    # Compute mean crps (over time, lat, lon): float
+    click.echo("Computing mean crps (over time, lat, lon): float...")
+    crps_ds = crpsf_ds.mean(dim=("lat", "lon"))
+
+    # -------------------
+    # Spread-Error statistics
+    # -------------------
+
+    if nmem > 1:
+        # Compute spread-error stats (over time): field
+        click.echo("Computing spread-error stats (over time): field...")
+        ssratf_ds = mean_spread_skill_ratio(
+            x0_ds,
+            x1_ds,
+            var=var,
+            dim=("time"),
+            season=season,
+        )
+        # Compute spread-error stats (over time, lat, lon): float
+        click.echo("Computing spread-error stats (over time, lat, lon): float...")
+        ssrat_ds = mean_spread_skill_ratio(
+            x0_ds,
+            x1_ds,
+            var=var,
+            dim=("time", "lat", "lon"),
+            season=season,
+        )
+
+    else:
+        click.echo(
+            "WARNING: No. members < 2 so can't compute spread-error stats, CRPS reduces to MAE, and Brier Score reduces to 0/1 (indicator) loss."
+        )
+
+    # Save all fast-track metrics
+    click.echo("Combining and saving metrics...")
+
+    if nmem > 1:
+        metrics_field = {
+            "crps_mean_field": crpsf_ds,
+            "bs50p_field": bs50pf_ds,
+            "bs1p_field": bs1pf_ds,
+            "bs99p_field": bs99pf_ds,
+            "se_ssrat_field": ssratf_ds,
+        }
+        metrics_float = {
+            "crps_mean_float": crps_ds,
+            "bs50p_float": bs50p_ds,
+            "bs1p_float": bs1p_ds,
+            "bs99p_float": bs99p_ds,
+            "se_ssrat_float": ssrat_ds,
+        }
+
+    else:
+        metrics_field = {
+            "crps_mean_field": crpsf_ds,
+            "bs50p_field": bs50pf_ds,
+            "bs1p_field": bs1pf_ds,
+            "bs99p_field": bs99pf_ds,
+        }
+        metrics_float = {
+            "crps_mean_float": crps_ds,
+            "bs50p_float": bs50p_ds,
+            "bs1p_float": bs1p_ds,
+            "bs99p_float": bs99p_ds,
+        }
+
+    metrics_path_field = _get_output_path(output, "metrics_prob_field.zarr")
+    write_zarr(metrics_field, metrics_path_field, mode="w", var=var)
+
+    metrics_path_float = _get_output_path(output, "metrics_prob_float.zarr")
+    write_zarr(metrics_float, metrics_path_float, mode="w", var=var)
+
+    click.echo(f"Saved all probabilistic based metrics to {metrics_path_field} etc...")
+
+    click.echo("Probabilistic-track evaluation complete.")
 
 
 @main.command()
