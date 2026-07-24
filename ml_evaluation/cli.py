@@ -1610,6 +1610,25 @@ def prob(
     scale, shift = convert_threshold_units(x0_ds, var)
 
     # -------------------
+    # CRPS
+    # -------------------
+
+    # Compute mean crps (over time): field
+    click.echo("Computing mean crps (over time): field...")
+    crpsf_ds = crps_xr(
+        x0_ds,
+        x1_ds,
+        var=var,
+        dim=("time"),
+        season=season,
+        fair_est=True,
+    )
+
+    # Compute mean crps (over time, lat, lon): float
+    click.echo("Computing mean crps (over time, lat, lon): float...")
+    crps_ds = crpsf_ds.mean(dim=("lat", "lon"))
+
+    # -------------------
     # Brier Score
     # -------------------
 
@@ -1630,61 +1649,6 @@ def prob(
     # Compute mean brier score wrt p50 (over time, lat, lon): float
     click.echo("Computing mean brier score wrt p50 (over time, lat, lon): float...")
     bs50p_ds = bs50pf_ds.mean(dim=("lat", "lon"))
-
-    # Compute mean brier score wrt p1 (over time): field
-    click.echo("Computing mean brier score wrt p1 (over time): field...")
-    targ_p1 = indices.season_quantile(x0_ds, var, q=0.01, season=season)
-    bs1pf_ds = bs_xr(
-        x0_ds,
-        x1_ds,
-        var=var,
-        threshold=targ_p1,
-        relation="lt",
-        dim=("time"),
-        season=season,
-        fair_est=True,
-    )
-
-    # Compute mean brier score wrt p1 (over time, lat, lon): float
-    click.echo("Computing mean brier score wrt p1 (over time, lat, lon): float...")
-    bs1p_ds = bs1pf_ds.mean(dim=("lat", "lon"))
-
-    # Compute mean brier score wrt p99 (over time): field
-    click.echo("Computing mean brier score wrt p99 (over time): field...")
-    targ_p99 = indices.season_quantile(x0_ds, var, q=0.99, season=season)
-    bs99pf_ds = bs_xr(
-        x0_ds,
-        x1_ds,
-        var=var,
-        threshold=targ_p99,
-        relation="gt",
-        dim=("time"),
-        season=season,
-        fair_est=True,
-    )
-
-    # -------------------
-    # CRPS
-    # -------------------
-
-    # Compute mean brier score wrt p99 (over time, lat, lon): float
-    click.echo("Computing mean brier score wrt p99 (over time, lat, lon): float...")
-    bs99p_ds = bs99pf_ds.mean(dim=("lat", "lon"))
-
-    # Compute mean crps (over time): field
-    click.echo("Computing mean crps (over time): field...")
-    crpsf_ds = crps_xr(
-        x0_ds,
-        x1_ds,
-        var=var,
-        dim=("time"),
-        season=season,
-        fair_est=True,
-    )
-
-    # Compute mean crps (over time, lat, lon): float
-    click.echo("Computing mean crps (over time, lat, lon): float...")
-    crps_ds = crpsf_ds.mean(dim=("lat", "lon"))
 
     # -------------------
     # Spread-Error statistics
@@ -1724,15 +1688,11 @@ def prob(
         metrics_field = {
             "crps_mean_field": crpsf_ds,
             "bs50p_field": bs50pf_ds,
-            "bs1p_field": bs1pf_ds,
-            "bs99p_field": bs99pf_ds,
             "se_ssrat_field": ssratf_ds,
         }
         metrics_float = {
             "crps_mean_float": crps_ds,
             "bs50p_float": bs50p_ds,
-            "bs1p_float": bs1p_ds,
-            "bs99p_float": bs99p_ds,
             "se_ssrat_float": ssrat_ds,
         }
 
@@ -1740,14 +1700,10 @@ def prob(
         metrics_field = {
             "crps_mean_field": crpsf_ds,
             "bs50p_field": bs50pf_ds,
-            "bs1p_field": bs1pf_ds,
-            "bs99p_field": bs99pf_ds,
         }
         metrics_float = {
             "crps_mean_float": crps_ds,
             "bs50p_float": bs50p_ds,
-            "bs1p_float": bs1p_ds,
-            "bs99p_float": bs99p_ds,
         }
 
     metrics_path_field = _get_output_path(output, "metrics_prob_field.zarr")
