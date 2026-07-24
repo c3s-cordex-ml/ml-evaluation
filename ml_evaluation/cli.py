@@ -1691,8 +1691,8 @@ def prob(
     # -------------------
 
     if nmem > 1:
-        # Compute spread-error stats (over time): field
-        click.echo("Computing spread-error stats (over time): field...")
+        # Compute spread-error ratio (over time): field
+        click.echo("Computing spread-error ratio (over time): field...")
         ssratf_ds = mean_spread_skill_ratio(
             x0_ds,
             x1_ds,
@@ -1700,8 +1700,8 @@ def prob(
             dim=("time"),
             season=season,
         )
-        # Compute spread-error stats (over time, lat, lon): float
-        click.echo("Computing spread-error stats (over time, lat, lon): float...")
+        # Compute spread-error ratio (over time, lat, lon): float
+        click.echo("Computing spread-error ratio (over time, lat, lon): float...")
         ssrat_ds = mean_spread_skill_ratio(
             x0_ds,
             x1_ds,
@@ -1712,7 +1712,9 @@ def prob(
 
     else:
         click.echo(
-            "WARNING: No. members < 2 so can't compute spread-error stats, CRPS reduces to MAE, and Brier Score reduces to 0/1 (indicator) loss."
+            "WARNING: No. members < 2 so can't compute spread-error stats, "
+            "CRPS reduces to MAE, and Brier Score reduces to 0/1 "
+            "(indicator) loss."
         )
 
     # Save all fast-track metrics
@@ -2007,10 +2009,12 @@ def cdextremes(
 
     if not os.path.isfile(calday_90p_path) and not os.path.isfile(calday_10p_path):
         click.echo(
-            f"Target threshold files do not exist: {calday_90p_path}; {calday_10p_path}. Use track cdquantiles to compute these for variable {var}."
+            f"Target threshold files do not exist: {calday_90p_path}; {calday_10p_path}. "
+            f"Use track cdquantiles to compute these for variable {var}."
         )
         raise ValueError(
-            f"Target threshold files do not exist: {calday_90p_path}; {calday_10p_path}. Use track cdquantiles to compute these for variable {var}."
+            f"Target threshold files do not exist: {calday_90p_path}; {calday_10p_path}. "
+            f"Use track cdquantiles to compute these for variable {var}."
         )
 
     if os.path.isfile(calday_90p_path):
@@ -2106,7 +2110,8 @@ def cdextremes(
 
     else:
         click.echo(
-            f"Target threshold file does not exist: {calday_10p_path}. Use track cdquantiles to compute this for variable {var}."
+            f"Target threshold file does not exist: {calday_10p_path}. "
+            f"Use track cdquantiles to compute this for variable {var}."
         )
 
     click.echo("Combining and saving metrics...")
