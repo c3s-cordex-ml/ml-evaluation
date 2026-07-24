@@ -50,6 +50,7 @@ Example
         reference="UNET-MULTI",
     )
 """
+
 from __future__ import annotations
 
 import os
@@ -65,25 +66,33 @@ EPS = 1e-12
 
 # metric key -> (zarr store, diagnostic name, use_abs). All are errors (low=best).
 METRIC_SRC = {
-    "rmse":        ("metrics_fast_float.zarr", "rmse_float",        False),
-    "ralsd":       ("metrics_fast_float.zarr", "ralsd_float",       False),
-    "bias_acorr":  ("metrics_fast_field.zarr", "bias_acorr_field",  True),
-    "bias_mean":   ("metrics_fast_field.zarr", "bias_mean_field",   True),
-    "bias_p01":    ("metrics_fast_field.zarr", "bias_p1_field",     True),
-    "bias_p99":    ("metrics_fast_field.zarr", "bias_p99_field",    True),
+    "rmse": ("metrics_fast_float.zarr", "rmse_float", False),
+    "ralsd": ("metrics_fast_float.zarr", "ralsd_float", False),
+    "bias_acorr": ("metrics_fast_field.zarr", "bias_acorr_field", True),
+    "bias_mean": ("metrics_fast_field.zarr", "bias_mean_field", True),
+    "bias_p01": ("metrics_fast_field.zarr", "bias_p1_field", True),
+    "bias_p99": ("metrics_fast_field.zarr", "bias_p99_field", True),
     "bias_rx1day": ("metrics_fast_field.zarr", "bias_max1day_field", True),
-    "bias_r01":    ("metrics_pr_field.zarr",   "bias_r1_field",     True),
-    "bias_sdii":   ("metrics_pr_field.zarr",   "bias_sdii_field",   True),
+    "bias_r01": ("metrics_pr_field.zarr", "bias_r1_field", True),
+    "bias_sdii": ("metrics_pr_field.zarr", "bias_sdii_field", True),
 }
 
 # hexagon axes (metric key, axis label) per variable type
 HEX_TEMP = [
-    ("rmse", "RMSE"), ("bias_mean", "Bias mean"), ("bias_p01", "Bias P01"),
-    ("bias_p99", "Bias P99"), ("bias_acorr", "Bias lag-1 corr"), ("ralsd", "RALSD"),
+    ("rmse", "RMSE"),
+    ("bias_mean", "Bias mean"),
+    ("bias_p01", "Bias P01"),
+    ("bias_p99", "Bias P99"),
+    ("bias_acorr", "Bias lag-1 corr"),
+    ("ralsd", "RALSD"),
 ]
 HEX_PR = [
-    ("rmse", "RMSE"), ("bias_r01", "Bias R01"), ("bias_rx1day", "Bias Rx1day"),
-    ("bias_sdii", "Bias SDII"), ("bias_acorr", "Bias lag-1 corr"), ("ralsd", "RALSD"),
+    ("rmse", "RMSE"),
+    ("bias_r01", "Bias R01"),
+    ("bias_rx1day", "Bias Rx1day"),
+    ("bias_sdii", "Bias SDII"),
+    ("bias_acorr", "Bias lag-1 corr"),
+    ("ralsd", "RALSD"),
 ]
 
 
@@ -100,19 +109,19 @@ def hexagon_axes(var):
 # RMSE↕P01, lag-1 corr↕mean, RALSD↕P99.
 SCORECARD_TEMP = [
     ("bias_acorr", "Bias lag-1 corr"),  # 0 top
-    ("rmse",       "RMSE"),             # 1 upper-left
-    ("bias_p01",   "Bias P01"),         # 2 lower-left
-    ("bias_mean",  "Bias mean"),        # 3 bottom
-    ("bias_p99",   "Bias P99"),         # 4 lower-right
-    ("ralsd",      "RALSD"),            # 5 upper-right
+    ("rmse", "RMSE"),  # 1 upper-left
+    ("bias_p01", "Bias P01"),  # 2 lower-left
+    ("bias_mean", "Bias mean"),  # 3 bottom
+    ("bias_p99", "Bias P99"),  # 4 lower-right
+    ("ralsd", "RALSD"),  # 5 upper-right
 ]
 SCORECARD_PR = [
     ("bias_acorr", "Bias lag-1 corr"),  # 0 top
-    ("rmse",       "RMSE"),             # 1 upper-left
-    ("bias_r01",   "Bias R01"),         # 2 lower-left
-    ("bias_sdii",  "Bias SDII"),        # 3 bottom
-    ("bias_rx1day", "Bias Rx1day"),     # 4 lower-right
-    ("ralsd",      "RALSD"),            # 5 upper-right
+    ("rmse", "RMSE"),  # 1 upper-left
+    ("bias_r01", "Bias R01"),  # 2 lower-left
+    ("bias_sdii", "Bias SDII"),  # 3 bottom
+    ("bias_rx1day", "Bias Rx1day"),  # 4 lower-right
+    ("ralsd", "RALSD"),  # 5 upper-right
 ]
 
 
@@ -155,7 +164,7 @@ def read_hexagon_metrics(metrics_dir: str, var: str) -> dict[str, float]:
 # model may hold several checkpoints, each with its own metrics subtree); when
 # the caller does not pin one it is auto-resolved to the sole checkpoint dir.
 LAYOUT_PATTERNS = {
-    "d4p":  "{model}/outputs/evaluation/{checkpoint}/{var}/{case}/{season}",
+    "d4p": "{model}/outputs/evaluation/{checkpoint}/{var}/{case}/{season}",
     "flat": "{var}/{case}/{season}",
 }
 
@@ -177,17 +186,19 @@ def _resolve_checkpoint(root, pattern, model, checkpoint):
     if isinstance(checkpoint, dict) and checkpoint.get(model):
         return checkpoint[model]
     prefix = pattern.split("{checkpoint}")[0].format(
-        model=model, var="", case="", season="", checkpoint="")
+        model=model, var="", case="", season="", checkpoint=""
+    )
     base = os.path.join(root, prefix)
     if not os.path.isdir(base):
         return None
-    subs = sorted(d for d in os.listdir(base)
-                  if os.path.isdir(os.path.join(base, d)))
+    subs = sorted(d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d)))
     if len(subs) == 1:
         return subs[0]
     if len(subs) > 1:
-        print(f"[hexagon] {model}: {len(subs)} checkpoints {subs} under "
-              f"{prefix!r} -- pass checkpoint={{{model!r}: <tag>}} to pick one.")
+        print(
+            f"[hexagon] {model}: {len(subs)} checkpoints {subs} under "
+            f"{prefix!r} -- pass checkpoint={{{model!r}: <tag>}} to pick one."
+        )
     return None
 
 
@@ -195,8 +206,9 @@ def _metrics_dir(root, pattern, model, var, case, season, cp):
     """Absolute metrics dir for one cell, or None when the checkpoint is unresolved."""
     if "{checkpoint}" in pattern and not cp:
         return None
-    rel = pattern.format(model=model, var=var, case=case, season=season,
-                         checkpoint=cp or "")
+    rel = pattern.format(
+        model=model, var=var, case=case, season=season, checkpoint=cp or ""
+    )
     return os.path.join(root, rel)
 
 
@@ -226,8 +238,9 @@ def _pct_improvement(model_vals, ref_vals) -> np.ndarray:
     return pct
 
 
-def plot_hexagon(per_model, var, out_dir, *, models=None, reference=None,
-                 season="annual", case=""):
+def plot_hexagon(
+    per_model, var, out_dir, *, models=None, reference=None, season="annual", case=""
+):
     """Render one variable's hexagon PNG from precomputed per-model metrics.
 
     Parameters
@@ -283,10 +296,12 @@ def plot_hexagon(per_model, var, out_dir, *, models=None, reference=None,
         pad = 0.10 * max(hi - lo, 1.0)
         ymin, ymax = min(0.0, lo) - pad, max(0.0, hi) + pad
         for v in vals_by_model.values():
-            v[~np.isfinite(v)] = ymin                  # missing -> worst (inward)
+            v[~np.isfinite(v)] = ymin  # missing -> worst (inward)
         from matplotlib.ticker import MaxNLocator
-        yticks = [t for t in MaxNLocator(nbins=5).tick_values(ymin, ymax)
-                  if ymin <= t <= ymax]
+
+        yticks = [
+            t for t in MaxNLocator(nbins=5).tick_values(ymin, ymax) if ymin <= t <= ymax
+        ]
         if 0.0 not in yticks:
             yticks = sorted(yticks + [0.0])
         ylabels = ["ref" if t == 0 else f"{t:+.0f}%" for t in yticks]
@@ -318,8 +333,15 @@ def plot_hexagon(per_model, var, out_dir, *, models=None, reference=None,
     for m in models:
         vals = np.concatenate([vals_by_model[m], vals_by_model[m][:1]])
         if reference and m == reference:
-            ax.plot(closed, vals, color="0.25", lw=2.5, ls="--",
-                    label=f"{m} (ref)", zorder=5)
+            ax.plot(
+                closed,
+                vals,
+                color="0.25",
+                lw=2.5,
+                ls="--",
+                label=f"{m} (ref)",
+                zorder=5,
+            )
         else:
             ax.plot(closed, vals, color=cmap(ci % 10), lw=2, label=m)
             ax.fill(closed, vals, color=cmap(ci % 10), alpha=0.10)
@@ -327,7 +349,8 @@ def plot_hexagon(per_model, var, out_dir, *, models=None, reference=None,
 
     ax.set_title(
         f"{var} — evaluation hexagon\n({season}, {case})   {mode}",
-        fontsize=12, pad=20,
+        fontsize=12,
+        pad=20,
     )
     ax.legend(loc="upper right", bbox_to_anchor=(1.35, 1.10), fontsize=9)
     os.makedirs(out_dir, exist_ok=True)
@@ -338,8 +361,19 @@ def plot_hexagon(per_model, var, out_dir, *, models=None, reference=None,
     return out
 
 
-def plot_hexagons(root, out, variables, models, *, case, season="annual",
-                  reference=None, layout="d4p", pattern=None, checkpoint=None):
+def plot_hexagons(
+    root,
+    out,
+    variables,
+    models,
+    *,
+    case,
+    season="annual",
+    reference=None,
+    layout="d4p",
+    pattern=None,
+    checkpoint=None,
+):
     """Plot one hexagon per variable for an explicit list of models.
 
     Convenience wrapper over ``read_hexagon_metrics`` + ``plot_hexagon``. The
@@ -393,13 +427,15 @@ def plot_hexagons(root, out, variables, models, *, case, season="annual",
     """
     if pattern is None:
         if layout not in LAYOUT_PATTERNS:
-            raise ValueError(f"unknown layout {layout!r}; use one of "
-                             f"{sorted(LAYOUT_PATTERNS)} or pass pattern=.")
+            raise ValueError(
+                f"unknown layout {layout!r}; use one of "
+                f"{sorted(LAYOUT_PATTERNS)} or pass pattern=."
+            )
         pattern = LAYOUT_PATTERNS[layout]
     if not models:
         raise ValueError("models must be a non-empty list of emulator names to plot.")
 
-    plot_names = list(dict.fromkeys(models))     # de-dup, keep order
+    plot_names = list(dict.fromkeys(models))  # de-dup, keep order
     # Models whose metrics we must read: the ones to plot plus the reference.
     need = list(dict.fromkeys(plot_names + ([reference] if reference else [])))
     cp_by_model = {m: _resolve_checkpoint(root, pattern, m, checkpoint) for m in need}
@@ -407,45 +443,80 @@ def plot_hexagons(root, out, variables, models, *, case, season="annual",
     for var in variables:
         per_model = {}
         for model in need:
-            sdir = _metrics_dir(root, pattern, model, var, case, season,
-                                cp_by_model[model])
+            sdir = _metrics_dir(
+                root, pattern, model, var, case, season, cp_by_model[model]
+            )
             if sdir and os.path.isdir(sdir):
                 per_model[model] = read_hexagon_metrics(sdir, var)
         if reference and reference not in per_model:
-            print(f"[hexagon] {var}: reference '{reference}' has no data for "
-                  f"case '{case}' / season '{season}' — skipping variable.")
+            print(
+                f"[hexagon] {var}: reference '{reference}' has no data for "
+                f"case '{case}' / season '{season}' — skipping variable."
+            )
             continue
         avail = [m for m in plot_names if m in per_model]
-        if plot_hexagon(per_model, var, out, models=avail, reference=reference,
-                        season=season, case=case) is None:
-            print(f"[hexagon] {var}: no evaluated models for case '{case}' / "
-                  f"season '{season}' — skipping.")
+        if (
+            plot_hexagon(
+                per_model,
+                var,
+                out,
+                models=avail,
+                reference=reference,
+                season=season,
+                case=case,
+            )
+            is None
+        ):
+            print(
+                f"[hexagon] {var}: no evaluated models for case '{case}' / "
+                f"season '{season}' — skipping."
+            )
 
 
 def _resolve_pattern(layout, pattern):
     if pattern is not None:
         return pattern
     if layout not in LAYOUT_PATTERNS:
-        raise ValueError(f"unknown layout {layout!r}; use one of "
-                         f"{sorted(LAYOUT_PATTERNS)} or pass pattern=.")
+        raise ValueError(
+            f"unknown layout {layout!r}; use one of "
+            f"{sorted(LAYOUT_PATTERNS)} or pass pattern=."
+        )
     return LAYOUT_PATTERNS[layout]
 
 
 def _wedge(ax, cx, cy, i, radius, facecolor, edgecolor="white", lw=0.6):
     """Draw wedge ``i`` (0=top, counter-clockwise) of a 6-sided hexagon cell."""
     from matplotlib.patches import Polygon
+
     a0 = np.radians(90 + i * 60 - 30)
     a1 = np.radians(90 + i * 60 + 30)
-    tri = [(cx, cy),
-           (cx + radius * np.cos(a0), cy + radius * np.sin(a0)),
-           (cx + radius * np.cos(a1), cy + radius * np.sin(a1))]
-    ax.add_patch(Polygon(tri, closed=True, facecolor=facecolor,
-                         edgecolor=edgecolor, lw=lw))
+    tri = [
+        (cx, cy),
+        (cx + radius * np.cos(a0), cy + radius * np.sin(a0)),
+        (cx + radius * np.cos(a1), cy + radius * np.sin(a1)),
+    ]
+    ax.add_patch(
+        Polygon(tri, closed=True, facecolor=facecolor, edgecolor=edgecolor, lw=lw)
+    )
 
 
-def plot_scorecard(root, out, variables, models, *, case, reference,
-                   season="annual", layout="d4p", pattern=None, checkpoint=None,
-                   title=None, clip=100.0, cmap="RdBu", filename=None):
+def plot_scorecard(
+    root,
+    out,
+    variables,
+    models,
+    *,
+    case,
+    reference,
+    season="annual",
+    layout="d4p",
+    pattern=None,
+    checkpoint=None,
+    title=None,
+    clip=100.0,
+    cmap="RdBu",
+    filename=None,
+):
     """Model x variable scorecard of six-wedge hexagons.
 
     One figure: rows are ``models`` (the ``reference`` first), columns are
@@ -503,8 +574,11 @@ def plot_scorecard(root, out, variables, models, *, case, reference,
                     em, er = mv.get(key, np.nan), rv.get(key, np.nan)
                     if np.isfinite(em) and np.isfinite(er) and er != 0:
                         val = 100.0 * (er - em) / er
-                fc = cmap_o(norm(max(-clip, min(clip, val)))) if np.isfinite(val) \
+                fc = (
+                    cmap_o(norm(max(-clip, min(clip, val))))
+                    if np.isfinite(val)
                     else nan_color
+                )
                 _wedge(ax, cx, cy, i, R, fc)
 
     ax.set_xlim(-0.7, ncols - 0.3)

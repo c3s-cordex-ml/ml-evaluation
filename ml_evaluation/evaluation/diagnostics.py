@@ -1224,3 +1224,280 @@ def calc_histdata_xr(
     edge_ds = xr.Dataset({var: ("bins", pedge)})
 
     return phist_ds, qhist_ds, edge_ds
+
+
+def crps_xr(
+    x0: xr.Dataset,
+    x1: xr.Dataset,
+    var: str,
+    dim: str | tuple[str, ...] | None = None,
+    season: str | None = None,
+    fair_est: bool = True,
+) -> xr.Dataset:
+    """
+    Compute the crps for two xarray Datasets,
+    using the form:
+    CRPS(X, y) = E|X - y| - 1/2 * E|X - X'|
+
+
+    Parameters
+    ----------
+    x0 : xr.Dataset
+        Ground truth dataset.
+    x1 : xr.Dataset
+        Predicted dataset.
+    var : str
+        Variable name to analyse.
+    dim : str or tuple of str or None, optional
+        Dimension(s) along which to aggregate over.
+        None -> output has same dimensions as x0
+        Note, subsequent averages should define dim order for
+        floating point accuracy wrt crps_xr with dim ne None,
+        e.g. crps.mean(dim=("time", "lat", "lon"))
+    season : str | None, optional
+        Season to filter before computing the PSD.
+    fair_est : bool
+        True includes option to adjust to fair spread estimate,
+        i.e. ignores pairs i=j on diagonal.
+
+    Returns
+    -------
+    xr.Dataset
+        crps.
+
+    Raises
+    ------
+    ValueError
+        If can't determine member dimension
+    """
+    # Spot member dimension name if exists
+    member_dim = None
+    x0_dims = set(x0.dims)
+    x1_dims = set(x1.dims)
+    extra_dim = x1_dims - x0_dims
+    if len(extra_dim) > 1:
+        raise ValueError("Error: can't handle x1 with more than one extra dim than x0")
+    if len(extra_dim) == 1:
+        member_dim = list(extra_dim)[0]
+
+    x0_filtered = filter_by_monthseason(x0, season)
+    x1_filtered = filter_by_monthseason(x1, season)
+
+    x0_da = x0_filtered[var]
+    x1_da = x1_filtered[var]
+
+    nmembers = x1_da[member_dim].size
+    if nmembers < 2:
+        fair_est = False
+
+    # Accuracy
+    accuracy = np.abs(x1_da - x0_da).mean(member_dim)
+    # Spread
+    pred_i = x1_da
+    pred_j = x1_da.rename({member_dim: member_dim + "_2"})
+    spread = np.abs(pred_i - pred_j).mean([member_dim, member_dim + "_2"])
+    if fair_est:
+        spread = spread * (nmembers / (nmembers - 1))
+
+    crps_da = accuracy - 0.5 * spread
+
+    if dim is not None:
+        crps_da = crps_da.mean(dim=dim)
+
+    crps_ds = xr.Dataset({var: crps_da})
+
+    return crps_ds
+
+
+def data_to_binary(
+    x: xr.Dataset,
+    var: str,
+    threshold: xr.Dataset | xr.DataArray | int | float,
+    relation: str = "gt",
+) -> xr.Dataset:
+    ops = {
+        "ge": lambda a, t: a >= t,
+        "gt": lambda a, t: a > t,
+        "le": lambda a, t: a <= t,
+        "lt": lambda a, t: a < t,
+    }
+    if relation not in ops:
+        raise ValueError(f"relation must be one of {list(ops)}, got {relation!r}")
+
+    threshold_new: xr.DataArray | int | float
+    if isinstance(threshold, (int, float)):
+        threshold_new = threshold
+    elif isinstance(threshold, (xr.Dataset, xr.DataArray)):
+        # Pull out the matching variable var so work with a DataArray
+        thresh_da = threshold[var] if isinstance(threshold, xr.Dataset) else threshold
+
+        if (
+            x.sizes["lat"] != thresh_da.sizes["lat"]
+            or x.sizes["lon"] != thresh_da.sizes["lon"]
+        ):
+            raise ValueError(
+                f"Spatial shape mismatch: input ({x.sizes['lat']}, {x.sizes['lon']}) "
+                f"!= threshold ({thresh_da.sizes['lat']}, {thresh_da.sizes['lon']})"
+            )
+
+        dims_thresh = set(thresh_da.dims)
+        other_dims_thresh = dims_thresh - {"lat", "lon"}
+        if not other_dims_thresh:
+            threshold_new = thresh_da
+        else:
+            # Broadcast the threshold back onto actual time axis via dayofyear
+            doy = x["time"].dt.dayofyear
+            threshold_new = thresh_da.sel(dayofyear=doy)
+    else:
+        threshold_new = threshold
+
+    x_binary = xr.Dataset({var: ops[relation](x[var], threshold_new).astype(float)})
+    return x_binary
+
+
+def bs_xr(
+    x0: xr.Dataset,
+    x1: xr.Dataset,
+    var: str,
+    threshold: xr.Dataset | int | float,
+    relation: str = "gt",
+    dim: str | tuple[str, ...] | None = None,
+    season: str | None = None,
+    fair_est: bool = True,
+) -> xr.Dataset:
+    """
+    Compute the Brier Score (BS) for two xarray Datasets by first
+    converting truth and prediction datasets to a binary event fields
+    (relative to threshold) and then calling `crps_xr` on these
+    binary fields, as CRPS == Brier Score for probabilistic
+    forecasts (p in [0, 1]) of a binary event (y in {0, 1}):
+
+        E|X - y| - 1/2*E|X - X'| == (p - y)^2
+
+    Parameters
+    ----------
+    x0 : xr.Dataset
+        Ground truth dataset.
+    x1 : xr.Dataset
+        Predicted dataset.
+    var : str
+        Variable name to analyse.
+    threshold : xr.Dataset | int | float
+        Threshold used to define the binary event.
+    relation : str, default 'gt'
+        Relationship of event to threshold: 'gt', 'ge', 'lt', 'le'.
+    dim : str or tuple of str or None, optional
+        Dimension(s) along which to aggregate over.
+        None -> output has same dimensions as x0 (as crps_xr).
+    season : str | None, optional
+        Season to filter before computing the BS.
+    fair_est : bool
+        True adjusts to the fair (unbiased for finite ensemble size)
+        estimator, ignoring pairs i=j on the diagonal. Passed through
+        to crps_xr.
+
+    Returns
+    -------
+    xr.Dataset
+        Brier Score (bs).
+
+    Raises
+    ------
+    ValueError
+        If comparison is invalid, or crps_xr can't determine the
+        member dimension.
+    """
+
+    x0_filtered = filter_by_monthseason(x0, season)
+    x1_filtered = filter_by_monthseason(x1, season)
+
+    # Convert both fields to binary (0/1) event indicators, preserving
+    # all dims/coords (including the member dim on x1).
+    x0_binary = data_to_binary(x0_filtered, var, threshold, relation)
+    x1_binary = data_to_binary(x1_filtered, var, threshold, relation)
+
+    # CRPS of binary fields == (fair) Brier Score.
+    bs_ds = crps_xr(
+        x0_binary, x1_binary, var, dim=dim, season=season, fair_est=fair_est
+    )
+
+    return bs_ds
+
+
+def mean_spread_skill_ratio(
+    x0: xr.Dataset,
+    x1: xr.Dataset,
+    var: str,
+    dim: str | tuple[str, ...] | None = None,
+    season: str | None = None,
+) -> xr.Dataset | xr.DataArray:
+    """
+    Compute the spread skill ratio for an ensemble prediction.
+    For ensembles with at least 2 members.
+
+    Parameters
+    ----------
+    x0 : xr.Dataset
+        Ground truth dataset.
+    x1 : xr.Dataset
+        Predicted dataset.
+    var : str
+        Variable name to analyse.
+    dim : str or tuple of str or None, optional
+        Dimension(s) along which to aggregate over.
+    season : str | None, optional
+        Season to filter before computing the index.
+
+    Returns
+    -------
+    xr.Dataset or xr.DataArray
+        spread skill ratio
+        e.g. dim=['time'] -> output dims ['lat','lon']
+        ~1 = well calibrated
+        >1 => over-dispersive
+        <1 => under-dispersive
+
+    Raises
+    ------
+    ValueError
+        If can't determine member dimension
+    """
+    # Spot member dimension name if exists
+    member_dim = None
+    x0_dims = set(x0.dims)
+    x1_dims = set(x1.dims)
+    extra_dim = x1_dims - x0_dims
+    if len(extra_dim) > 1:
+        raise ValueError("Error: can't handle x1 with more than one extra dim than x0")
+    if len(extra_dim) == 1:
+        member_dim = list(extra_dim)[0]
+
+    if member_dim is None:
+        raise ValueError("Error: can't compute ensemble spread if no member dimension")
+
+    nmem = x1.sizes[member_dim]
+    if nmem < 2:
+        raise ValueError("Error: can't compute ensemble spread if < 2 members")
+
+    x0_filtered = filter_by_monthseason(x0, season)
+    x1_filtered = filter_by_monthseason(x1, season)
+
+    x0_da = x0_filtered[var]
+    x1_da = x1_filtered[var]
+
+    # Ensemble mean and spread with correction for small samples
+    ens_mean = x1_da.mean(member_dim)
+    ens_var = x1_da.var(member_dim, ddof=0) * (nmem + 1) / (nmem - 1)
+
+    # Error of ensemble mean vs target
+    error = ens_mean - x0_da
+    sq_error = error**2
+
+    rmserror = np.sqrt(sq_error.mean(dim=dim))
+    mean_spread = np.sqrt(ens_var.mean(dim=dim))
+
+    spread_skill_ratio = mean_spread / rmserror
+
+    spread_skill_ratio_ds = xr.Dataset({var: spread_skill_ratio})
+
+    return spread_skill_ratio_ds
