@@ -171,7 +171,7 @@ def fast(
     """
     Run the fast-track evaluation workflow.
 
-    Computes Mean Bias, RMSE, and Pearson Correlation between x0 and x1
+    Computes RMSE, RAPSD, and Bias of various indices for x1 wrt x0
     for the specified variable and optionally filters by season.
 
     Parameters
@@ -735,8 +735,9 @@ def slow(
     """
     Run the slow-track evaluation workflow.
 
-    Computes Power Spectral Density (PSD), Radially Averaged Log Spectral Distance (RALSD),
-    and Spatial Wasserstein Distance.
+    Computes Distribution scores, Bias of various indices,
+    and correlation metrics for x1 wrt x0
+    for the specified variable and optionally filters by season.
 
     Parameters
     ----------
@@ -1546,7 +1547,7 @@ def prob(
     """
     Run probabilistic evaluation workflow.
 
-    Computes Mean Bias, RMSE, and Pearson Correlation between x0 and x1
+    Computes CRPS, Brier Score and Spread-Error ratio between x0 and x1
     for the specified variable and optionally filters by season.
 
     Parameters
