@@ -1534,6 +1534,18 @@ def multivar(
     default=False,
     help="Option to use Dask for parallel processing.",
 )
+@click.option(
+    "--subset",
+    type=bool,
+    default=False,
+    help="Option to load subset.",
+)
+@click.option(
+    "--constrain",
+    type=bool,
+    default=False,
+    help="Option to constrain data to physical bounds.",
+)
 def prob(
     x0: str,
     x1: str,
@@ -1543,6 +1555,8 @@ def prob(
     align_leap_days: str | None,
     force_load: bool,
     use_dask: bool,
+    subset: bool,
+    constrain: bool,
 ) -> None:
     """
     Run probabilistic evaluation workflow.
@@ -1592,6 +1606,14 @@ def prob(
     x0_ds = x0_ds[[var]]
     x1_ds = x1_ds[[var]]
 
+    if subset:
+        x0_ds = x0_ds.sel(
+            time=(x0_ds.time.dt.year >= 2050) & (x0_ds.time.dt.year <= 2055)
+        )
+        x1_ds = x1_ds.sel(
+            time=(x1_ds.time.dt.year >= 2050) & (x1_ds.time.dt.year <= 2055)
+        )
+
     # Check for different pr units in target vs prediction
     if var == "pr":
         if x1_ds["pr"].max() > 1 and x0_ds["pr"].max() < 1:
@@ -1609,6 +1631,19 @@ def prob(
         x1_ds.load()
 
     scale, shift = convert_threshold_units(x0_ds, var)
+    
+    if constrain and var == "pr":
+        if x1_ds["pr"].min() < 0.0:
+            click.echo(f"WARNING: pr negative values clipped to 0.0 ({x1_ds["pr"].min()})")
+        x1_ds["pr"] = x1_ds["pr"].clip(min=0.0)
+    
+    if constrain and var == "hurs":
+        if x1_ds["hurs"].min() < 0.0:
+            click.echo(f"WARNING: hurs negative values clipped to 0.0 ({x1_ds["hurs"].min()})")
+        if x1_ds["hurs"].max() > 100.0:
+            click.echo(f"WARNING: hurs values > 100 clipped to 100.0 ({x1_ds["hurs"].max()})")
+        x1_ds["hurs"] = x1_ds["hurs"].clip(min=0.0)
+        x1_ds["hurs"] = x1_ds["hurs"].clip(max=100.0)
 
     # -------------------
     # CRPS
