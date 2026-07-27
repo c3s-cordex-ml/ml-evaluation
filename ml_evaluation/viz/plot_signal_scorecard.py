@@ -6,18 +6,17 @@ signal** (future minus historical) each emulator produces, from the
 ``metrics_signal_float.zarr`` bundles the ``ml-eval signal`` command writes.
 
 Unlike the evaluation scorecard in ``plot_hexagon`` (six *metrics* per hexagon,
-coloured by error improvement), here each hexagon holds **three indices, each
-split into two driving wedges**:
+coloured by error improvement), here each hexagon holds **three indices**, one
+per sector (a sector is a pair of wedges, so the hexagon still reads as six):
 
     non-precip : mean, P01, P99      (units: K, %, Pa, ...)
     precip (pr): R01, SDII, RX1day
 
-    wedge layout (see ``_wedge`` numbering 0=top .. counter-clockwise):
-        left  index : upper-left(1)=perfect / lower-left(2)=imperfect
-        mid   index : top(0)=perfect        / bottom(3)=imperfect
-        right index : upper-right(5)=perfect / lower-right(4)=imperfect
-    -> the upper half of every hexagon is *perfect* driving, the lower half
-       *imperfect*; the three index columns are left / mid / right.
+    sector layout (wedge ids per ``_wedge``: 0=top, counter-clockwise) -- each
+    sector is a contiguous 120 degree third of the hexagon:
+        1st index : "top"    = wedges 5 (upper-right) + 0 (top)
+        2nd index : "left"   = wedges 1 (upper-left)  + 2 (lower-left)
+        3rd index : "bottom" = wedges 3 (bottom)      + 4 (lower-right)
 
 The signal quantity is variable-dependent (see :func:`_signal_kind`): the
 absolute ``delta`` for temperature-like variables, the relative ``reldelta`` for
@@ -31,26 +30,27 @@ precip -- used for BOTH the colour and the printed number so they always agree.
             (``reldelta``), other variables as the absolute ``delta``.
 
 Every source (the RCM-truth and each model) has its own ``ml-eval signal`` run,
-which stores just ``delta``/``reldelta`` (no cross-source bias). The reference
-row is read from the RCM-truth's run -- driving-independent, so both wedges of
-each index show the same value ("uniform, no driving"); model rows are read from
-their own perfect/imperfect runs.
+which stores just ``delta``/``reldelta`` (no cross-source bias).
 
-Metrics directories are located exactly like ``plot_hexagon.plot_scorecard``
-(``root`` + ``pattern``, defaulting per ``layout``; the d4p ``{checkpoint}``
-segment auto-resolves). Two ``case`` tags are supplied for the models (one per
-driving) plus ``reference_case`` for the truth's run.
+Locating the data
+-----------------
+As in ``plot_hexagon``, rows come from an explicit ``{label: path}`` spec and one
+variable's stores are read from ``<path>/<var>/``. One entry = one row, so a
+model evaluated under several drivings is simply listed once per driving, under
+whatever labels you want on the rows.
 
 Example
 -------
     from ml_evaluation.viz.plot_signal_scorecard import plot_signal_scorecard
     plot_signal_scorecard(
-        "/.../EMULATORS",
+        {
+            "RCM-truth":             "/.../RCM-TRUTH_EC-Earth3_2041-2060/annual",
+            "UNet-single perfect":   "/.../SINGV-RCM_..._perfect/annual",
+            "UNet-single imperfect": "/.../SINGV-RCM_..._imperfect/annual",
+            "ResDiff-v3 perfect":    "/.../RESDIFF-RCM_..._perfect/annual",
+        },
         "/.../FIGURES/signal",
         ["tas", "tasmax", "pr"],
-        ["UNet-single", "UNet-MultiVar-v3", "ResDiff-v3", "DownViT"],
-        case_perfect="EC-Earth3_2041-2060_perfect",
-        case_imperfect="EC-Earth3_2041-2060_imperfect",
         units={"tas": "K", "tasmax": "K", "pr": "mm d$^{-1}$"},
     )
 """
@@ -66,27 +66,19 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from ml_evaluation.viz.plot_hexagon import (
-    _metrics_dir,
-    _resolve_checkpoint,
-    _resolve_pattern,
-    _wedge,
-)
+from ml_evaluation.viz.plot_hexagon import metrics_dir, normalize_paths
 
 EPS = 1e-12
 SIGNAL_STORE = "metrics_signal_float.zarr"
 
-# Index order per variable and, for each, which (perfect, imperfect) wedges it
+# Index order per variable and, for each, the two *adjacent* wedges its sector
 # occupies. Wedge ids follow ``_wedge``: 0 top, 1 upper-left, 2 lower-left,
-# 3 bottom, 4 lower-right, 5 upper-right.
-_WEDGE_PAIR = {"left": (1, 2), "mid": (0, 3), "right": (5, 4)}
-# Where to place each index's label around the legend hexagon (degrees, math
-# convention). The pair's wedge ids are non-contiguous in angle, so this is set
-# explicitly rather than averaged: left sector -> lower-left, mid -> top,
-# right sector -> lower-right (mirrors the target legend layout).
-_POS_LABEL_ANGLE = {"left": 205.0, "mid": 90.0, "right": 335.0}
-SIGNAL_INDICES_PR = [("sdii", "left"), ("r01", "mid"), ("rx1day", "right")]
-SIGNAL_INDICES_TEMP = [("mean", "left"), ("p01", "mid"), ("p99", "right")]
+# 3 bottom, 4 lower-right, 5 upper-right -- so each sector is a contiguous 120
+# degree third of the hexagon, and its bisector is the angle below.
+_WEDGE_PAIR = {"top": (5, 0), "left": (1, 2), "bottom": (3, 4)}
+_POS_LABEL_ANGLE = {"top": 60.0, "left": 180.0, "bottom": 300.0}
+SIGNAL_INDICES_PR = [("sdii", "top"), ("r01", "left"), ("rx1day", "bottom")]
+SIGNAL_INDICES_TEMP = [("mean", "top"), ("p01", "left"), ("p99", "bottom")]
 INDEX_LABEL = {
     "mean": "mean",
     "p01": "P01",
@@ -172,25 +164,40 @@ def _fmt(v: float, pct: bool = False) -> str:
     return f"{v:+.2f}"
 
 
-def _wedge_text_xy(cx: float, cy: float, i: int, radius: float) -> tuple[float, float]:
-    """Centroid-ish anchor for wedge ``i``'s number label."""
-    ang = np.radians(90 + i * 60)
+def _sector(ax, cx, cy, pos, radius, facecolor, edgecolor="white", lw=0.6):
+    """Draw one 120-degree sector (the two adjacent wedges of ``pos``).
+
+    Drawn as a single polygon rather than two ``_wedge`` calls so no divider
+    line runs through the middle of the sector -- that line would sit exactly
+    where the sector's number label goes.
+    """
+    from matplotlib.patches import Polygon
+
+    i0, i1 = _WEDGE_PAIR[pos]
+    angles = [90 + i0 * 60 - 30, 90 + i0 * 60 + 30, 90 + i1 * 60 + 30]
+    pts = [(cx, cy)] + [
+        (cx + radius * np.cos(np.radians(a)), cy + radius * np.sin(np.radians(a)))
+        for a in angles
+    ]
+    ax.add_patch(Polygon(pts, closed=True, facecolor=facecolor,
+                         edgecolor=edgecolor, lw=lw))
+
+
+def _sector_text_xy(cx: float, cy: float, pos: str, radius: float) -> tuple[float, float]:
+    """Anchor for a sector's number label: midway out along its bisector."""
+    ang = np.radians(_POS_LABEL_ANGLE[pos])
     return cx + 0.55 * radius * np.cos(ang), cy + 0.55 * radius * np.sin(ang)
 
 
 def _draw_legend_hex(ax, cx: float, cy: float, radius: float, var: str) -> None:
-    """Small template hexagon showing the index/driving wedge layout."""
+    """Small template hexagon showing which sector holds which index."""
     for key, pos in signal_scorecard_indices(var):
-        wp, wi = _WEDGE_PAIR[pos]
-        for wid, drv in ((wp, "P"), (wi, "I")):
-            _wedge(ax, cx, cy, wid, radius, "0.92", edgecolor="0.4", lw=0.7)
-            tx, ty = _wedge_text_xy(cx, cy, wid, radius)
-            ax.text(tx, ty, drv, ha="center", va="center", fontsize=7, color="0.3")
-        # index label just outside the sector, at an explicit per-position angle
+        _sector(ax, cx, cy, pos, radius, "0.92", edgecolor="0.4", lw=0.7)
+        # index label just outside the sector, along its bisector
         lab_ang = np.radians(_POS_LABEL_ANGLE[pos])
         ax.text(
-            cx + 1.55 * radius * np.cos(lab_ang),
-            cy + 1.55 * radius * np.sin(lab_ang),
+            cx + 1.45 * radius * np.cos(lab_ang),
+            cy + 1.45 * radius * np.sin(lab_ang),
             INDEX_LABEL[key],
             ha="center",
             va="center",
@@ -199,19 +206,14 @@ def _draw_legend_hex(ax, cx: float, cy: float, radius: float, var: str) -> None:
 
 
 def plot_signal_scorecard(
-    root: str,
+    paths,
     out: str,
     variables: list[str],
-    models: list[str],
     *,
-    case_perfect: str,
-    case_imperfect: str | None = None,
     reference: str = "RCM-truth",
-    reference_case: str | None = None,
+    reference_path: str | None = None,
     season: str = "annual",
-    layout: str = "d4p",
-    pattern: str | None = None,
-    checkpoint=None,
+    case: str = "",
     units: dict[str, str] | None = None,
     title: str | None = None,
     filename: str | None = None,
@@ -220,41 +222,37 @@ def plot_signal_scorecard(
 ) -> str:
     """Render the climate-change-signal scorecard.
 
-    Rows are the RCM-truth reference followed by ``models``; columns are
-    ``variables``. Each cell is a six-wedge hexagon (three indices x two driving
-    wedges) coloured by the per-(variable, index) normalised signal and, when
-    ``annotate``, annotated with the actual change.
+    Rows are the reference followed by the other labels of ``paths``; columns are
+    ``variables``. Each cell is a hexagon of three index sectors coloured by the
+    per-(variable, index) normalised signal and, when ``annotate``, annotated
+    with the actual change.
 
     Parameters
     ----------
-    root : str
-        Base directory the ``pattern`` is relative to.
+    paths : mapping or sequence
+        ``{label: path}`` of the signal runs to plot (see
+        ``plot_hexagon.normalize_paths``); one variable's stores are read from
+        ``<path>/<var>/``. One entry = one row, in the given order -- list a
+        model once per driving if you want both. If it contains the
+        ``reference`` label, that entry supplies the reference row.
     out : str
         Output directory for the PNG.
     variables : list of str
         Variables (columns).
-    models : list of str
-        Emulator names (rows, below the reference row).
-    case_perfect : str
-        Case tag for perfect driving (``{case}`` in the pattern).
-    case_imperfect : str, optional
-        Case tag for imperfect driving. If None, only the perfect wedge of each
-        index is filled and the imperfect wedge is left blank.
     reference : str, default "RCM-truth"
-        Name of the reference row -- a source with its own ``ml-eval signal`` run
-        (the RCM-truth). Its signal is read from that run, so it is driving-
-        independent and drawn as a uniform row.
-    reference_case : str, optional
-        Case tag for the reference's signal run. Defaults to ``case_perfect``
-        (the truth signal does not depend on the emulator driving).
+        Label of the reference row -- the source whose signal normalises the
+        colours (the RCM-truth).
+    reference_path : str, optional
+        Base directory of the reference's signal run. Required only when
+        ``reference`` is not a label of ``paths``; otherwise it overrides it.
     season : str, default "annual"
-        Season tag (``{season}`` in the pattern).
-    layout, pattern, checkpoint
-        Directory resolution, identical to ``plot_hexagon.plot_scorecard``.
+        Label only -- title and output file name.
+    case : str, default ""
+        Label only -- title.
     units : dict, optional
         ``{var: unit_label}`` shown under each column header.
     title : str, optional
-        Figure title (default derived from the cases/season).
+        Figure title (default derived from the case/season).
     filename : str, optional
         Output filename (default ``signal_scorecard_<season>.png``).
     cmap : str, default "RdBu_r"
@@ -270,39 +268,32 @@ def plot_signal_scorecard(
     from matplotlib.cm import ScalarMappable
     from matplotlib.colors import Normalize
 
-    pattern = _resolve_pattern(layout, pattern)
-    if not models:
-        raise ValueError("models must be a non-empty list of emulator names to plot.")
+    by_label = normalize_paths(paths)
     units = units or {}
-    drivings = [("P", case_perfect)]
-    if case_imperfect is not None:
-        drivings.append(("I", case_imperfect))
 
-    model_rows = [m for m in dict.fromkeys(models) if m != reference]
-    ref_case = reference_case or case_perfect
-    cp_by_model = {
-        m: _resolve_checkpoint(root, pattern, m, checkpoint)
-        for m in model_rows + [reference]
-    }
+    model_rows = [m for m in by_label if m != reference]
+    ref_base = reference_path or by_label.get(reference)
+    if ref_base is None:
+        raise KeyError(
+            f"reference '{reference}' is neither a label of paths "
+            f"({', '.join(by_label)}) nor given via reference_path=."
+        )
 
     # Signal quantity per variable: absolute delta (temperature) or relative
     # reldelta (precip). Each source's run stores just {kind}_{key}_float.
-    # signal[(model, var, driving)] = {key: model signal}; truth[var] from the
-    # reference's own (driving-independent) signal run.
-    signal: dict[tuple[str, str, str], dict[str, float]] = {}
+    # signal[(row, var)] = {key: that row's signal}; truth[var] from the
+    # reference's own signal run.
+    signal: dict[tuple[str, str], dict[str, float]] = {}
     truth: dict[str, dict[str, float]] = {}
     for var in variables:
         keys = [k for k, _ in signal_scorecard_indices(var)]
         kind = _signal_kind(var)
         for m in model_rows:
-            for drv, case in drivings:
-                d = _metrics_dir(root, pattern, m, var, case, season, cp_by_model[m])
-                if d and os.path.isdir(d):
-                    signal[(m, var, drv)] = _read_signal_floats(d, keys, kind)
-        rd = _metrics_dir(
-            root, pattern, reference, var, ref_case, season, cp_by_model[reference]
-        )
-        if rd and os.path.isdir(rd):
+            d = metrics_dir(by_label[m], var)
+            if os.path.isdir(d):
+                signal[(m, var)] = _read_signal_floats(d, keys, kind)
+        rd = metrics_dir(ref_base, var)
+        if os.path.isdir(rd):
             t = _read_signal_floats(rd, keys, kind)
             if any(np.isfinite(v) for v in t.values()):
                 truth[var] = t
@@ -329,34 +320,30 @@ def plot_signal_scorecard(
             cx, cy = c, -r
             pct = _is_pct(var)
             for key, pos in signal_scorecard_indices(var):
-                wp, wi = _WEDGE_PAIR[pos]
                 m = truth_norm.get((var, key), np.nan)
-                for wid, drv in ((wp, "P"), (wi, "I")):
-                    if is_ref:
-                        val = truth.get(var, {}).get(key, np.nan)
-                    elif drv == "I" and case_imperfect is None:
-                        val = np.nan
-                    else:
-                        val = signal.get((row, var, drv), {}).get(key, np.nan)
-                    if np.isfinite(val) and np.isfinite(m) and m > EPS:
-                        fc = cmap_o(norm(np.clip(val / m, -1.0, 1.0)))
-                    else:
-                        fc = nan_color
-                    _wedge(ax, cx, cy, wid, R, fc)
-                    if annotate and np.isfinite(val):
-                        tx, ty = _wedge_text_xy(cx, cy, wid, R)
-                        ax.text(
-                            tx,
-                            ty,
-                            _fmt(val, pct),
-                            ha="center",
-                            va="center",
-                            fontsize=6.0,
-                            color=_text_color(fc) if fc != nan_color else "0.4",
-                        )
+                if is_ref:
+                    val = truth.get(var, {}).get(key, np.nan)
+                else:
+                    val = signal.get((row, var), {}).get(key, np.nan)
+                if np.isfinite(val) and np.isfinite(m) and m > EPS:
+                    fc = cmap_o(norm(np.clip(val / m, -1.0, 1.0)))
+                else:
+                    fc = nan_color
+                _sector(ax, cx, cy, pos, R, fc)   # one index = one sector
+                if annotate and np.isfinite(val):
+                    tx, ty = _sector_text_xy(cx, cy, pos, R)
+                    ax.text(
+                        tx,
+                        ty,
+                        _fmt(val, pct),
+                        ha="center",
+                        va="center",
+                        fontsize=6.5,
+                        color=_text_color(fc) if fc != nan_color else "0.4",
+                    )
 
     ax.set_xlim(-0.7, ncols - 0.3)
-    ax.set_ylim(-(nrows - 1) - 1.9, 0.9)
+    ax.set_ylim(-(nrows - 1) - 2.7, 0.9)   # bottom band holds the legend
     ax.set_aspect("equal")
     ax.set_xticks(range(ncols))
     ax.set_xticklabels(
@@ -369,18 +356,21 @@ def plot_signal_scorecard(
     for s in ax.spines.values():
         s.set_visible(False)
 
-    # legend template hexagons (non-precip + precip) below the grid
-    y_leg = -(nrows - 1) - 1.25
-    _draw_legend_hex(ax, 0.35, y_leg, 0.34, "tas")
-    ax.text(0.35, y_leg - 0.7, "non-precip variables", ha="center", fontsize=7.5)
-    _draw_legend_hex(ax, 2.1, y_leg, 0.34, "pr")
-    ax.text(2.1, y_leg - 0.7, "precipitation (pr)", ha="center", fontsize=7.5)
+    # legend template hexagons (non-precip + precip) below the grid, placed
+    # inside the axes whatever the number of columns
+    y_leg = -(nrows - 1) - 1.55
+    x_lo, x_hi = -0.7, ncols - 0.3
+    xs = [x_lo + (x_hi - x_lo) * f for f in (0.3, 0.7)]
+    _draw_legend_hex(ax, xs[0], y_leg, 0.28, "tas")
+    ax.text(xs[0], y_leg - 0.60, "non-precip", ha="center", fontsize=7.5)
+    _draw_legend_hex(ax, xs[1], y_leg, 0.28, "pr")
+    ax.text(xs[1], y_leg - 0.60, "pr", ha="center", fontsize=7.5)
     ax.text(
-        min(ncols - 1, 4.0),
-        y_leg,
-        "each index wedge is split\nP = perfect | I = imperfect predictors\n"
-        f"({reference} row uniform, no driving)",
-        ha="left",
+        0.5 * (x_lo + x_hi),
+        y_leg - 1.0,
+        "one sector per index  ·  "
+        f"colours normalised by the {reference} row",
+        ha="center",
         va="center",
         fontsize=7.5,
     )
@@ -390,12 +380,12 @@ def plot_signal_scorecard(
     cb = fig.colorbar(sm, ax=ax, fraction=0.02, pad=0.02)
     cb.set_label(f"CC signal / |{reference} signal|  (clipped ±1)")
 
-    head = title or f"CC-signal scorecard — {case_perfect} — {season}"
+    head = title or f"CC-signal scorecard — {case} — {season}".replace(" —  — ", " — ")
     ax.set_title(
         f"{head}\n"
         f"colour = signal / |{reference} signal| per index (red = increase, blue = decrease)  ·  "
         "number = change (pr: % vs present; others: absolute)\n"
-        "pr wedges = R01/SDII/RX1day, others = P01/mean/P99",
+        "pr sectors = R01/SDII/RX1day, others = P01/mean/P99",
         fontsize=10,
         pad=16,
     )

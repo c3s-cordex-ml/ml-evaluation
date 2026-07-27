@@ -8,18 +8,18 @@ import ml_evaluation.viz.plot_signal_scorecard as ss
 
 
 def test_signal_scorecard_indices() -> None:
-    """The index/wedge layout differs for precip vs. other variables."""
+    """The index/sector layout differs for precip vs. other variables."""
     assert ss.signal_scorecard_indices("tasmax") == [
-        ("mean", "left"),
-        ("p01", "mid"),
-        ("p99", "right"),
+        ("mean", "top"),
+        ("p01", "left"),
+        ("p99", "bottom"),
     ]
     assert ss.signal_scorecard_indices("pr") == [
-        ("sdii", "left"),
-        ("r01", "mid"),
-        ("rx1day", "right"),
+        ("sdii", "top"),
+        ("r01", "left"),
+        ("rx1day", "bottom"),
     ]
-    # Every wedge position maps to a distinct (perfect, imperfect) wedge pair.
+    # The three sectors tile the hexagon: every wedge is used exactly once.
     used = [w for pair in ss._WEDGE_PAIR.values() for w in pair]
     assert sorted(used) == list(range(6))
 
@@ -29,69 +29,68 @@ def test_plot_signal_scorecard_renders(
 ) -> None:
     """The scorecard renders a PNG from signal-float scalars.
 
-    The zarr reader and directory resolution are monkeypatched with synthetic
-    signals so the drawing path (wedges, per-index normalisation, annotations,
-    legend hexagons) is exercised without on-disk stores.
+    The zarr reader is monkeypatched with synthetic signals so the drawing path
+    (sectors, per-index normalisation, annotations, legend hexagons) is
+    exercised without on-disk stores. Paths are real directories, so the
+    ``<path>/<var>`` resolution is exercised for real.
     """
     variables = ["tasmax", "pr"]
-    models = ["UNet-single", "ResDiff-v3"]
     scale = {"tasmax": 2.4, "pr": 6.0}
+    rows = {
+        "RCM-truth": tmp_path / "truth",
+        "UNet-single perfect": tmp_path / "unet_p",
+        "UNet-single imperfect": tmp_path / "unet_i",
+    }
+    for base in rows.values():
+        for var in variables:
+            (base / var).mkdir(parents=True)
 
     def fake_reader(metrics_dir: str, keys: list[str], kind: str) -> dict[str, float]:
-        head, var, drv = metrics_dir.split("::")
-        model = head.split("/")[-1]
+        d = pathlib.Path(metrics_dir)
+        var, model = d.name, d.parent.name
         base = scale[var]
-        is_truth = model == "RCM-truth"
-        out = {}
-        for j, k in enumerate(keys):
-            truth = base * (1.0 + 0.2 * j)
-            out[k] = truth if is_truth else truth * (0.9 if drv == "P" else 0.6)
-        return out
+        factor = {"truth": 1.0, "unet_p": 0.9, "unet_i": 0.6}[model]
+        return {k: base * (1.0 + 0.2 * j) * factor for j, k in enumerate(keys)}
 
-    monkeypatch.setattr(
-        ss,
-        "_metrics_dir",
-        lambda root, pat, model, var, case, season, cp: f"{root}/{model}::{var}::"
-        + ("I" if "imperfect" in case else "P"),
-    )
-    monkeypatch.setattr(ss, "_resolve_checkpoint", lambda *a, **k: "")
-    monkeypatch.setattr(ss.os.path, "isdir", lambda p: True)
     monkeypatch.setattr(ss, "_read_signal_floats", fake_reader)
 
     path = ss.plot_signal_scorecard(
-        str(tmp_path / "root"),
+        {k: str(v) for k, v in rows.items()},
         str(tmp_path / "fig"),
         variables,
-        models,
-        case_perfect="EC-Earth3_2041-2060_perfect",
-        case_imperfect="EC-Earth3_2041-2060_imperfect",
         units={"tasmax": "K", "pr": "mm/day"},
+        case="EC-Earth3_2041-2060",
     )
     assert pathlib.Path(path).is_file()
     assert pathlib.Path(path).stat().st_size > 0
 
 
-def test_plot_signal_scorecard_perfect_only(
+def test_plot_signal_scorecard_missing_rows(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Omitting the imperfect case still renders (imperfect wedges blank)."""
-    monkeypatch.setattr(
-        ss,
-        "_metrics_dir",
-        lambda root, pat, model, var, case, season, cp: f"{root}/{model}::{var}::P",
-    )
-    monkeypatch.setattr(ss, "_resolve_checkpoint", lambda *a, **k: "")
-    monkeypatch.setattr(ss.os.path, "isdir", lambda p: True)
+    """A row whose directory does not exist renders blank rather than raising."""
+    truth = tmp_path / "truth"
+    (truth / "tasmax").mkdir(parents=True)
     monkeypatch.setattr(
         ss,
         "_read_signal_floats",
         lambda d, keys, which: {k: 1.0 for k in keys},
     )
     path = ss.plot_signal_scorecard(
-        str(tmp_path / "root"),
+        {"RCM-truth": str(truth), "UNet-single": str(tmp_path / "absent")},
         str(tmp_path / "fig"),
         ["tasmax"],
-        ["UNet-single"],
-        case_perfect="c_perfect",
     )
     assert pathlib.Path(path).is_file()
+
+
+def test_plot_signal_scorecard_reference_must_be_locatable(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A reference that is neither in paths nor given explicitly is an error."""
+    with pytest.raises(KeyError, match="RCM-truth"):
+        ss.plot_signal_scorecard(
+            {"UNet-single": str(tmp_path)},
+            str(tmp_path / "fig"),
+            ["tasmax"],
+        )

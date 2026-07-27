@@ -20,34 +20,45 @@ modes:
                         100 * (err(MODEL) - err) / err(MODEL); the reference is
                         the zero hexagon (dashed), outward = better.
 
+Locating the data
+-----------------
+Every entry point takes an explicit ``paths`` spec -- ``{label: path}``, where
+``label`` is the name shown in the figure and ``path`` is that model's base
+directory. One variable's stores are read from ``<path>/<var>/``. Nothing is
+searched, and no directory convention is assumed; see :func:`normalize_paths`
+for the accepted spellings. ``case``/``season`` are labels for the title and the
+file name only.
+
 Public API
 ----------
+normalize_paths(paths)
+    Normalise a model->directory spec into an ordered ``{label: path}`` dict.
+metrics_dir(path, var)
+    The directory holding one variable's stores: ``<path>/<var>``.
 read_hexagon_metrics(metrics_dir, var)
     The hexagon-axis scalars for one ``ml-eval fast --output`` directory. Depends
     only on ml-eval's output format -- layout-agnostic, reusable by any project.
 plot_hexagon(per_model, var, out_dir, *, models=None, reference=None, season, case)
     Render one variable's hexagon from precomputed {label: {metric: value}}.
-plot_hexagons(root, out, variables, models, *, case, season, reference, layout, pattern)
-    Plot one hexagon per variable for an explicit list of ``models``. Each model's
-    metrics dir is ``root`` joined with a relative `pattern` filled from
-    {model}/{checkpoint}/{var}/{case}/{season} (`case` used verbatim; `checkpoint`
-    auto-resolved or pinned via `checkpoint=`). `pattern` defaults per `layout` --
-    "d4p": root/{model}/outputs/evaluation/{checkpoint}/{var}/{case}/{season};
-    "flat": root/{var}/{case}/{season}. Any concatenation (e.g. a stem dir named
-    <model>_<case>) lives in the caller's pattern. Projects with a layout neither
-    captures can build the per-model dict themselves (read_hexagon_metrics) and
-    call plot_hexagon.
+plot_hexagons(paths, out, variables, *, reference, season, case)
+    Plot one hexagon per variable, one series per entry of ``paths``.
+plot_scorecard(paths, out, variables, *, reference, season, case, ...)
+    Model x variable grid of six-wedge hexagons, coloured by % error improvement
+    over ``reference``.
 
 Example
 -------
     from ml_evaluation.viz.plot_hexagon import plot_hexagons
     plot_hexagons(
-        "/.../EMULATORS",
+        {
+            "UNET-MULTI":  "/.../MULTIV-RCM_EC-Earth3_2041-2060/annual",
+            "UNET-SINGLE": "/.../SINGV-RCM_EC-Earth3_2041-2060/annual",
+            "RESDIFF_V3":  "/.../RESDIFF-RCM_EC-Earth3_2041-2060/annual",
+        },
         "/.../FIGURES/hexagon/figures",
         ["pr", "tasmax"],
-        ["UNET-MULTI", "UNET-SINGLE", "RESDIFF_V3"],
-        case="EC-Earth3_2041-2060_perfect",
         reference="UNET-MULTI",
+        case="EC-Earth3_2041-2060_perfect",
     )
 """
 from __future__ import annotations
@@ -148,56 +159,59 @@ def read_hexagon_metrics(metrics_dir: str, var: str) -> dict[str, float]:
     return {k: _read_metric(metrics_dir, k) for k, _ in hexagon_axes(var)}
 
 
-# Relative path (from ``root``) of a model's metrics directory, per named layout.
-# Override with the ``pattern`` argument. Placeholders: {model} {checkpoint}
-# {var} {case} {season}. The metrics dir is the one holding the
-# metrics_fast_*.zarr stores. The d4p layout carries a {checkpoint} segment (a
-# model may hold several checkpoints, each with its own metrics subtree); when
-# the caller does not pin one it is auto-resolved to the sole checkpoint dir.
-LAYOUT_PATTERNS = {
-    "d4p":  "{model}/outputs/evaluation/{checkpoint}/{var}/{case}/{season}",
-    "flat": "{var}/{case}/{season}",
-}
+def normalize_paths(paths):
+    """Normalise a model->directory spec into an ordered ``{label: path}`` dict.
+
+    Every plotting entry point locates a model's metrics through an explicit
+    path, not by searching a root for a conventional directory layout. Each
+    ``path`` is the model's *base* directory; the metrics stores for one variable
+    live in ``<path>/<var>/`` (see :func:`metrics_dir`).
+
+    Accepted spellings (all preserve the given order, which becomes the row /
+    series order in the figures):
+
+    * a mapping -- ``{"UNET-MULTI": "/abs/.../annual", ...}``
+    * a sequence of ``(label, path)`` pairs
+    * a sequence of dicts -- ``[{"label": "UNET-MULTI", "path": "/abs/..."}, ...]``
+
+    Raises
+    ------
+    ValueError
+        If ``paths`` is empty, an entry is malformed, or a label is duplicated.
+    """
+    if not paths:
+        raise ValueError("paths must be a non-empty {label: path} mapping "
+                         "(or a sequence of (label, path) / {'label','path'} entries).")
+    if isinstance(paths, dict):
+        items = list(paths.items())
+    else:
+        items = []
+        for entry in paths:
+            if isinstance(entry, dict):
+                try:
+                    items.append((entry["label"], entry["path"]))
+                except KeyError:
+                    raise ValueError(
+                        f"path entry {entry!r} needs both 'label' and 'path' keys."
+                    ) from None
+            elif isinstance(entry, (tuple, list)) and len(entry) == 2:
+                items.append((entry[0], entry[1]))
+            else:
+                raise ValueError(
+                    f"cannot read path entry {entry!r}: expected a (label, path) "
+                    "pair or a {'label': ..., 'path': ...} dict."
+                )
+    out = {}
+    for label, path in items:
+        if label in out:
+            raise ValueError(f"duplicate label {label!r} in paths.")
+        out[str(label)] = str(path)
+    return out
 
 
-def _resolve_checkpoint(root, pattern, model, checkpoint):
-    """Checkpoint tag to use for `model`, or None if it can't be resolved.
-
-    Only meaningful when `pattern` contains a ``{checkpoint}`` segment (the d4p
-    layout does: a model may hold several checkpoints, each with its own metrics
-    subtree ``.../outputs/evaluation/<checkpoint>/<var>/<case>/<season>``).
-    `checkpoint` may be a plain str (the same tag for every model), a
-    ``{model: tag}`` dict, or None. When it does not pin a tag for `model`, the
-    tag is auto-resolved to the *sole* checkpoint directory present; if zero or
-    several exist the model is skipped (None) -- pass an explicit tag to choose."""
-    if "{checkpoint}" not in pattern:
-        return ""
-    if isinstance(checkpoint, str) and checkpoint:
-        return checkpoint
-    if isinstance(checkpoint, dict) and checkpoint.get(model):
-        return checkpoint[model]
-    prefix = pattern.split("{checkpoint}")[0].format(
-        model=model, var="", case="", season="", checkpoint="")
-    base = os.path.join(root, prefix)
-    if not os.path.isdir(base):
-        return None
-    subs = sorted(d for d in os.listdir(base)
-                  if os.path.isdir(os.path.join(base, d)))
-    if len(subs) == 1:
-        return subs[0]
-    if len(subs) > 1:
-        print(f"[hexagon] {model}: {len(subs)} checkpoints {subs} under "
-              f"{prefix!r} -- pass checkpoint={{{model!r}: <tag>}} to pick one.")
-    return None
-
-
-def _metrics_dir(root, pattern, model, var, case, season, cp):
-    """Absolute metrics dir for one cell, or None when the checkpoint is unresolved."""
-    if "{checkpoint}" in pattern and not cp:
-        return None
-    rel = pattern.format(model=model, var=var, case=case, season=season,
-                         checkpoint=cp or "")
-    return os.path.join(root, rel)
+def metrics_dir(path, var):
+    """The directory holding one variable's zarr stores: ``<path>/<var>``."""
+    return os.path.join(path, var)
 
 
 def _normalise(values: np.ndarray) -> np.ndarray:
@@ -338,97 +352,62 @@ def plot_hexagon(per_model, var, out_dir, *, models=None, reference=None,
     return out
 
 
-def plot_hexagons(root, out, variables, models, *, case, season="annual",
-                  reference=None, layout="d4p", pattern=None, checkpoint=None):
-    """Plot one hexagon per variable for an explicit list of models.
+def plot_hexagons(paths, out, variables, *, reference=None, season="annual",
+                  case=""):
+    """Plot one hexagon per variable for an explicit set of model paths.
 
     Convenience wrapper over ``read_hexagon_metrics`` + ``plot_hexagon``. The
-    emulators to plot are given explicitly in ``models`` (no directory is
-    searched to discover them). Each model's metrics directory (holding the
-    metrics_fast_*.zarr stores) is ``root`` joined with a relative ``pattern``
-    formatted with the ``{model}``/``{var}``/``{case}``/``{season}`` placeholders
-    -- ``case`` is used verbatim, nothing is concatenated here. If ``pattern`` is
-    None it defaults per ``layout`` (see ``LAYOUT_PATTERNS``):
-
-    * ``layout="d4p"`` (deep4production, default) --
-        ``root/{model}/outputs/evaluation/{checkpoint}/{var}/{case}/{season}``
-    * ``layout="flat"`` (centralized) --
-        ``root/{var}/{case}/{season}``
-
-    The d4p ``{checkpoint}`` segment (a model may hold several checkpoints) is
-    filled from ``checkpoint``: a str (same tag for all models), a
-    ``{model: tag}`` dict, or None -- auto-resolved to the model's sole
-    checkpoint dir, skipping any model with zero or several unless pinned.
-
-    Any concatenation (e.g. a d4p stem dir named ``<model>_<case>``) lives in the
-    caller's ``pattern``, e.g. ``"{model}/outputs/evaluation/{var}/{model}_{case}/{season}"``.
-    One PNG per variable is written under ``out``.
+    models to plot, their labels and their locations all come from ``paths``; no
+    directory is searched and no layout is assumed. One PNG per variable is
+    written under ``out``.
 
     Parameters
     ----------
-    root : str
-        Base directory the ``pattern`` is relative to.
+    paths : mapping or sequence
+        ``{label: path}`` (or ``(label, path)`` pairs / ``{'label','path'}``
+        dicts -- see :func:`normalize_paths`). ``path`` is the model's base
+        directory; one variable's stores are read from ``<path>/<var>/``. The
+        given order is the plotting order. The ``reference``, when set, must be
+        one of these labels.
     out : str
         Output directory for the PNGs.
     variables : iterable of str
         Variables to plot (one hexagon each).
-    models : list of str
-        Emulator names to plot (required). The ``reference`` is read and drawn
-        even if not listed here.
-    case : str
-        Case tag, substituted for ``{case}`` in the pattern (verbatim).
-    season : str
-        Season name, substituted for ``{season}`` (default "annual").
     reference : str, optional
-        Model used as the baseline (% improvement mode). None -> min-max mode.
-    layout : {"d4p", "flat"}
-        Selects the default ``pattern`` when ``pattern`` is None.
-    pattern : str, optional
-        Relative path from ``root`` with ``{model}``/``{checkpoint}``/``{var}``/
-        ``{case}``/``{season}`` placeholders. Overrides ``layout``'s default.
-    checkpoint : str or dict, optional
-        Which checkpoint to read when the pattern has a ``{checkpoint}`` segment:
-        a str (same tag for every model), a ``{model: tag}`` dict, or None
-        (default) to auto-resolve each model's sole checkpoint dir.
+        Label used as the baseline (% improvement mode). None -> min-max mode.
+    season, case : str
+        Labels only -- used for the title and the output file name. They no
+        longer take part in locating the data.
+
+    Returns
+    -------
+    list of str
+        Paths of the PNGs written (one per variable that had data).
     """
-    if pattern is None:
-        if layout not in LAYOUT_PATTERNS:
-            raise ValueError(f"unknown layout {layout!r}; use one of "
-                             f"{sorted(LAYOUT_PATTERNS)} or pass pattern=.")
-        pattern = LAYOUT_PATTERNS[layout]
-    if not models:
-        raise ValueError("models must be a non-empty list of emulator names to plot.")
+    by_label = normalize_paths(paths)
+    if reference is not None and reference not in by_label:
+        raise KeyError(f"reference model '{reference}' is not one of the "
+                       f"labels in paths ({', '.join(by_label)}).")
 
-    plot_names = list(dict.fromkeys(models))     # de-dup, keep order
-    # Models whose metrics we must read: the ones to plot plus the reference.
-    need = list(dict.fromkeys(plot_names + ([reference] if reference else [])))
-    cp_by_model = {m: _resolve_checkpoint(root, pattern, m, checkpoint) for m in need}
-
+    written = []
     for var in variables:
         per_model = {}
-        for model in need:
-            sdir = _metrics_dir(root, pattern, model, var, case, season,
-                                cp_by_model[model])
-            if sdir and os.path.isdir(sdir):
-                per_model[model] = read_hexagon_metrics(sdir, var)
+        for label, base in by_label.items():
+            sdir = metrics_dir(base, var)
+            if os.path.isdir(sdir):
+                per_model[label] = read_hexagon_metrics(sdir, var)
         if reference and reference not in per_model:
-            print(f"[hexagon] {var}: reference '{reference}' has no data for "
-                  f"case '{case}' / season '{season}' — skipping variable.")
+            print(f"[hexagon] {var}: reference '{reference}' has no data under "
+                  f"{metrics_dir(by_label[reference], var)!r} — skipping variable.")
             continue
-        avail = [m for m in plot_names if m in per_model]
-        if plot_hexagon(per_model, var, out, models=avail, reference=reference,
-                        season=season, case=case) is None:
-            print(f"[hexagon] {var}: no evaluated models for case '{case}' / "
-                  f"season '{season}' — skipping.")
-
-
-def _resolve_pattern(layout, pattern):
-    if pattern is not None:
-        return pattern
-    if layout not in LAYOUT_PATTERNS:
-        raise ValueError(f"unknown layout {layout!r}; use one of "
-                         f"{sorted(LAYOUT_PATTERNS)} or pass pattern=.")
-    return LAYOUT_PATTERNS[layout]
+        avail = [m for m in by_label if m in per_model]
+        path = plot_hexagon(per_model, var, out, models=avail,
+                            reference=reference, season=season, case=case)
+        if path is None:
+            print(f"[hexagon] {var}: no model directory found — skipping.")
+        else:
+            written.append(path)
+    return written
 
 
 def _wedge(ax, cx, cy, i, radius, facecolor, edgecolor="white", lw=0.6):
@@ -443,44 +422,60 @@ def _wedge(ax, cx, cy, i, radius, facecolor, edgecolor="white", lw=0.6):
                          edgecolor=edgecolor, lw=lw))
 
 
-def plot_scorecard(root, out, variables, models, *, case, reference,
-                   season="annual", layout="d4p", pattern=None, checkpoint=None,
-                   title=None, clip=100.0, cmap="RdBu", filename=None):
+def plot_scorecard(paths, out, variables, *, reference, season="annual",
+                   case="", title=None, clip=100.0, cmap="RdBu", filename=None):
     """Model x variable scorecard of six-wedge hexagons.
 
-    One figure: rows are ``models`` (the ``reference`` first), columns are
-    ``variables``. Each cell is a hexagon whose six wedges (from the top,
-    counter-clockwise; see ``hexagon_axes``) are coloured by the % improvement
-    of that model over the reference on each metric,
+    One figure: rows are the labels of ``paths`` (the ``reference`` first),
+    columns are ``variables``. Each cell is a hexagon whose six wedges (from the
+    top, counter-clockwise; see ``scorecard_axes``) are coloured by the %
+    improvement of that model over the reference on each metric,
     ``100 * (err_ref - err_model) / err_ref`` -- blue = better (lower error),
     red = worse, white = equal to the reference (so the reference row is blank).
     Values are clipped to +/- ``clip`` for colour.
 
-    Metrics dirs are located exactly like :func:`plot_hexagons` (``root`` +
-    ``pattern``, defaulting per ``layout``; the d4p ``{checkpoint}`` segment is
-    filled from ``checkpoint`` -- str, ``{model: tag}`` dict, or None to auto-
-    resolve the sole checkpoint dir). Writes one PNG to ``out`` and returns its
-    path.
+    Always plots the six "fast" hexagon metrics; there is no metric selection.
+
+    Parameters
+    ----------
+    paths : mapping or sequence
+        ``{label: path}`` as in :func:`plot_hexagons`; one variable's stores are
+        read from ``<path>/<var>/``. Row order follows the given order, with the
+        ``reference`` moved to the top.
+    out : str
+        Output directory for the PNG.
+    variables : iterable of str
+        Variables (columns).
+    reference : str
+        Label of the baseline row (required). Must be one of the ``paths``
+        labels.
+    season, case : str
+        Labels only -- title and output file name.
+    title, clip, cmap, filename
+        Figure title, colour saturation (%), diverging colormap, output name.
+
+    Returns
+    -------
+    str
+        Path of the written PNG.
     """
     from matplotlib.cm import ScalarMappable
     from matplotlib.colors import Normalize
 
-    pattern = _resolve_pattern(layout, pattern)
-    if not models:
-        raise ValueError("models must be a non-empty list of emulator names to plot.")
+    by_label = normalize_paths(paths)
+    if reference not in by_label:
+        raise KeyError(f"reference model '{reference}' is not one of the "
+                       f"labels in paths ({', '.join(by_label)}).")
 
-    rows = list(dict.fromkeys(models))
-    if reference not in rows:
-        rows = [reference] + rows
-    cp_by_model = {m: _resolve_checkpoint(root, pattern, m, checkpoint) for m in rows}
+    rows = [reference] + [m for m in by_label if m != reference]
 
     # metrics[model][var] = {metric_key: scalar}
     metrics = {}
     for m in rows:
         metrics[m] = {}
         for var in variables:
-            d = _metrics_dir(root, pattern, m, var, case, season, cp_by_model[m])
-            if d and os.path.isdir(d):
+            d = metrics_dir(by_label[m], var)
+            if os.path.isdir(d):
                 keys = [k for k, _ in scorecard_axes(var)]
                 metrics[m][var] = {k: _read_metric(d, k) for k in keys}
 
