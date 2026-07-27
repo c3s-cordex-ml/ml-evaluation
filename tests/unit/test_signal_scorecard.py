@@ -59,7 +59,6 @@ def test_plot_signal_scorecard_renders(
         str(tmp_path / "fig"),
         variables,
         units={"tasmax": "K", "pr": "mm/day"},
-        case="EC-Earth3_2041-2060",
     )
     assert pathlib.Path(path).is_file()
     assert pathlib.Path(path).stat().st_size > 0

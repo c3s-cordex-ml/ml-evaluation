@@ -4,7 +4,8 @@ Per-variable *performance scorecard* heatmap for ML RCM emulators.
 One figure per variable: rows are emulators, columns are the evaluation metrics,
 read from the zarr bundles an ``ml-eval fast`` call writes (metrics_fast_float /
 metrics_fast_field / metrics_pr_field). Unlike the six-wedge hexagon scorecard in
-``plot_hexagon.plot_scorecard`` (one cell per model x variable, coloured against a
+``plot_hexagon.plot_multivar_scorecard`` (one cell per model x variable, coloured
+against a
 reference model), here every metric gets its own column and the comparison is
 made *within* the column:
 
@@ -33,8 +34,8 @@ default, when ``metrics`` is None, is variable-dependent:
 Locating the data
 -----------------
 As in ``plot_hexagon``, models come from an explicit ``{label: path}`` spec and
-one variable's stores are read from ``<path>/<var>/``; ``case``/``season`` are
-labels for the title and the file name only.
+one variable's stores are read from ``<path>/<var>/``; ``season`` is a label for
+the title and the file name only.
 
 Public API
 ----------
@@ -43,15 +44,15 @@ var_scorecard_columns(var, metrics=None)
 read_var_scorecard_metrics(metrics_dir, var, metrics=None)
     ``{metric_key: (value, cv)}`` for one ``ml-eval fast --output`` directory.
     Depends only on ml-eval's output format -- layout-agnostic.
-plot_var_scorecard(per_model, var, out_dir, *, models, metrics, season, case)
+render_var_scorecard(per_model, var, out_dir, *, models, metrics, season)
     Render one variable's heatmap from precomputed {label: {metric: (value, cv)}}.
-plot_var_scorecards(paths, out, variables, *, metrics, season, case)
+plot_var_scorecard(paths, out, variables, *, metrics, season)
     One PNG per variable, one row per entry of ``paths``.
 
 Example
 -------
-    from ml_evaluation.viz.plot_var_scorecard import plot_var_scorecards
-    plot_var_scorecards(
+    from ml_evaluation.viz.plot_var_scorecard import plot_var_scorecard
+    plot_var_scorecard(
         {
             "UNet-single": "/.../SINGV-RCM_EC-Earth3_2041-2060/annual",
             "ResDiff-v3":  "/.../RESDIFF-RCM_EC-Earth3_2041-2060/annual",
@@ -60,7 +61,6 @@ Example
         "/.../FIGURES/scorecard",
         ["pr", "tasmax"],
         metrics=["rmse", "bias_mean", "bias_r01", "ralsd"],
-        case="EC-Earth3_2041-2060_perfect",
     )
 """
 from __future__ import annotations
@@ -253,7 +253,7 @@ def _fmt_value(v: float) -> str:
     return "" if not np.isfinite(v) else f"{v:.3g}"
 
 
-def plot_var_scorecard(
+def render_var_scorecard(
     per_model,
     var,
     out_dir,
@@ -261,7 +261,6 @@ def plot_var_scorecard(
     models=None,
     metrics=None,
     season="annual",
-    case="",
     title=None,
     filename=None,
     cmap="Blues",
@@ -286,12 +285,12 @@ def plot_var_scorecard(
         Columns to plot, in order -- metric keys from ``METRIC_LABELS`` and/or
         ``(metric_key, column_label)`` pairs. Default: the ``var`` column set.
         A metric absent from ``per_model`` renders as a blank column.
-    season, case : str
+    season : str
         Used for the title and the output file name.
     title : str, optional
-        Figure title (default derived from ``var``/``case``/``season``).
+        Figure title (default derived from ``var``/``season``).
     filename : str, optional
-        Output filename (default ``var_scorecard_<var>_<season>_<case>.png``).
+        Output filename (default ``var_scorecard_<var>_<season>.png``).
     cmap : str, default "Blues"
         Sequential colormap for the normalised score (dark = best).
     annotate : bool, default True
@@ -360,12 +359,12 @@ def plot_var_scorecard(
     cb = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
     cb.set_label("Normalized performance score (1 = best)")
 
-    head = title or f"Performance Scorecard — {var} — {case} — {season}"
+    head = title or f"Performance Scorecard — {var} — {season}"
     ax.set_title(head, fontsize=13, pad=12)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(
-        out_dir, filename or f"var_scorecard_{var}_{season}_{case}.png"
+        out_dir, filename or f"var_scorecard_{var}_{season}.png"
     )
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -373,19 +372,19 @@ def plot_var_scorecard(
     return path
 
 
-def plot_var_scorecards(
+def plot_var_scorecard(
     paths,
     out,
     variables,
     *,
     metrics=None,
     season="annual",
-    case="",
     **kwargs,
 ):
     """Plot one performance scorecard per variable for an explicit set of paths.
 
-    Convenience wrapper over ``read_var_scorecard_metrics`` + ``plot_var_scorecard``.
+    Convenience wrapper over ``read_var_scorecard_metrics`` +
+    ``render_var_scorecard``.
 
     Parameters
     ----------
@@ -400,10 +399,10 @@ def plot_var_scorecards(
     metrics : iterable, optional
         Columns to plot, in order -- metric keys from ``METRIC_LABELS`` and/or
         ``(metric_key, column_label)`` pairs. Default: the per-variable set.
-    season, case : str
-        Labels only -- title and output file name.
+    season : str
+        Label only -- title and output file name.
     **kwargs
-        Forwarded to :func:`plot_var_scorecard` (``title``, ``filename``,
+        Forwarded to :func:`render_var_scorecard` (``title``, ``filename``,
         ``cmap``, ``annotate``, ``text_color``).
 
     Returns
@@ -421,9 +420,8 @@ def plot_var_scorecards(
             if os.path.isdir(d):
                 per_model[label] = read_var_scorecard_metrics(d, var, metrics)
         avail = [m for m in by_label if m in per_model]
-        path = plot_var_scorecard(per_model, var, out, models=avail,
-                                  metrics=metrics, season=season, case=case,
-                                  **kwargs)
+        path = render_var_scorecard(per_model, var, out, models=avail,
+                                    metrics=metrics, season=season, **kwargs)
         if path is None:
             print(f"[var-scorecard] {var}: no model directory found — skipping.")
         else:

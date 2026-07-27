@@ -26,8 +26,8 @@ Every entry point takes an explicit ``paths`` spec -- ``{label: path}``, where
 ``label`` is the name shown in the figure and ``path`` is that model's base
 directory. One variable's stores are read from ``<path>/<var>/``. Nothing is
 searched, and no directory convention is assumed; see :func:`normalize_paths`
-for the accepted spellings. ``case``/``season`` are labels for the title and the
-file name only.
+for the accepted spellings. ``season`` is a label for the title and the file
+name only.
 
 Public API
 ----------
@@ -38,11 +38,11 @@ metrics_dir(path, var)
 read_hexagon_metrics(metrics_dir, var)
     The hexagon-axis scalars for one ``ml-eval fast --output`` directory. Depends
     only on ml-eval's output format -- layout-agnostic, reusable by any project.
-plot_hexagon(per_model, var, out_dir, *, models=None, reference=None, season, case)
+plot_hexagon(per_model, var, out_dir, *, models=None, reference=None, season)
     Render one variable's hexagon from precomputed {label: {metric: value}}.
-plot_hexagons(paths, out, variables, *, reference, season, case)
+plot_hexagons(paths, out, variables, *, reference, season)
     Plot one hexagon per variable, one series per entry of ``paths``.
-plot_scorecard(paths, out, variables, *, reference, season, case, ...)
+plot_multivar_scorecard(paths, out, variables, *, reference, season, ...)
     Model x variable grid of six-wedge hexagons, coloured by % error improvement
     over ``reference``.
 
@@ -58,7 +58,6 @@ Example
         "/.../FIGURES/hexagon/figures",
         ["pr", "tasmax"],
         reference="UNET-MULTI",
-        case="EC-Earth3_2041-2060_perfect",
     )
 """
 from __future__ import annotations
@@ -241,7 +240,7 @@ def _pct_improvement(model_vals, ref_vals) -> np.ndarray:
 
 
 def plot_hexagon(per_model, var, out_dir, *, models=None, reference=None,
-                 season="annual", case=""):
+                 season="annual"):
     """Render one variable's hexagon PNG from precomputed per-model metrics.
 
     Parameters
@@ -257,7 +256,7 @@ def plot_hexagon(per_model, var, out_dir, *, models=None, reference=None,
         The ``reference`` is always drawn.
     reference : str, optional
         Label used as the baseline -> % improvement mode. None -> min-max mode.
-    season, case : str
+    season : str
         Only used for the title and the output file name.
 
     Returns
@@ -340,20 +339,19 @@ def plot_hexagon(per_model, var, out_dir, *, models=None, reference=None,
             ci += 1
 
     ax.set_title(
-        f"{var} — evaluation hexagon\n({season}, {case})   {mode}",
+        f"{var} — evaluation hexagon\n({season})   {mode}",
         fontsize=12, pad=20,
     )
     ax.legend(loc="upper right", bbox_to_anchor=(1.35, 1.10), fontsize=9)
     os.makedirs(out_dir, exist_ok=True)
-    out = os.path.join(out_dir, f"hexagon_{var}_{season}_{case}.png")
+    out = os.path.join(out_dir, f"hexagon_{var}_{season}.png")
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"[hexagon] {out}  (models: {', '.join(models)})")
     return out
 
 
-def plot_hexagons(paths, out, variables, *, reference=None, season="annual",
-                  case=""):
+def plot_hexagons(paths, out, variables, *, reference=None, season="annual"):
     """Plot one hexagon per variable for an explicit set of model paths.
 
     Convenience wrapper over ``read_hexagon_metrics`` + ``plot_hexagon``. The
@@ -375,9 +373,9 @@ def plot_hexagons(paths, out, variables, *, reference=None, season="annual",
         Variables to plot (one hexagon each).
     reference : str, optional
         Label used as the baseline (% improvement mode). None -> min-max mode.
-    season, case : str
-        Labels only -- used for the title and the output file name. They no
-        longer take part in locating the data.
+    season : str
+        Label only -- used for the title and the output file name. It plays no
+        part in locating the data.
 
     Returns
     -------
@@ -402,7 +400,7 @@ def plot_hexagons(paths, out, variables, *, reference=None, season="annual",
             continue
         avail = [m for m in by_label if m in per_model]
         path = plot_hexagon(per_model, var, out, models=avail,
-                            reference=reference, season=season, case=case)
+                            reference=reference, season=season)
         if path is None:
             print(f"[hexagon] {var}: no model directory found — skipping.")
         else:
@@ -422,8 +420,9 @@ def _wedge(ax, cx, cy, i, radius, facecolor, edgecolor="white", lw=0.6):
                          edgecolor=edgecolor, lw=lw))
 
 
-def plot_scorecard(paths, out, variables, *, reference, season="annual",
-                   case="", title=None, clip=100.0, cmap="RdBu", filename=None):
+def plot_multivar_scorecard(paths, out, variables, *, reference, season="annual",
+                            title=None, clip=100.0, cmap="RdBu",
+                            filename=None):
     """Model x variable scorecard of six-wedge hexagons.
 
     One figure: rows are the labels of ``paths`` (the ``reference`` first),
@@ -449,8 +448,8 @@ def plot_scorecard(paths, out, variables, *, reference, season="annual",
     reference : str
         Label of the baseline row (required). Must be one of the ``paths``
         labels.
-    season, case : str
-        Labels only -- title and output file name.
+    season : str
+        Label only -- title and output file name.
     title, clip, cmap, filename
         Figure title, colour saturation (%), diverging colormap, output name.
 
@@ -520,7 +519,7 @@ def plot_scorecard(paths, out, variables, *, reference, season="annual",
     cb.set_label(f"% error improvement vs {reference}  (+ = better, − = worse)")
 
     # title + wedge-order key
-    head = title or f"Scorecard — {case} — {season}"
+    head = title or f"Scorecard — {season}"
     ax.set_title(
         f"{head}\nreference: {reference}\n"
         "wedges — upper: RMSE, Bias lag-1 corr, RALSD   "
@@ -531,7 +530,7 @@ def plot_scorecard(paths, out, variables, *, reference, season="annual",
     )
 
     os.makedirs(out, exist_ok=True)
-    path = os.path.join(out, filename or f"scorecard_{case}_{season}.png")
+    path = os.path.join(out, filename or f"scorecard_{season}.png")
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"[scorecard] {path}  (models: {', '.join(rows)})")

@@ -213,7 +213,6 @@ def plot_signal_scorecard(
     reference: str = "RCM-truth",
     reference_path: str | None = None,
     season: str = "annual",
-    case: str = "",
     units: dict[str, str] | None = None,
     title: str | None = None,
     filename: str | None = None,
@@ -247,12 +246,10 @@ def plot_signal_scorecard(
         ``reference`` is not a label of ``paths``; otherwise it overrides it.
     season : str, default "annual"
         Label only -- title and output file name.
-    case : str, default ""
-        Label only -- title.
     units : dict, optional
         ``{var: unit_label}`` shown under each column header.
     title : str, optional
-        Figure title (default derived from the case/season).
+        Figure title (default derived from the season).
     filename : str, optional
         Output filename (default ``signal_scorecard_<season>.png``).
     cmap : str, default "RdBu_r"
@@ -380,7 +377,7 @@ def plot_signal_scorecard(
     cb = fig.colorbar(sm, ax=ax, fraction=0.02, pad=0.02)
     cb.set_label(f"CC signal / |{reference} signal|  (clipped ±1)")
 
-    head = title or f"CC-signal scorecard — {case} — {season}".replace(" —  — ", " — ")
+    head = title or f"CC-signal scorecard — {season}"
     ax.set_title(
         f"{head}\n"
         f"colour = signal / |{reference} signal| per index (red = increase, blue = decrease)  ·  "
