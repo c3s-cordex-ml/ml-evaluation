@@ -41,8 +41,8 @@ whatever labels you want on the rows.
 
 Example
 -------
-    from ml_evaluation.viz.plot_signal_scorecard import plot_signal_scorecard
-    plot_signal_scorecard(
+    from ml_evaluation.viz.plot_multivar_signal_scorecard import plot_multivar_signal_scorecard
+    plot_multivar_signal_scorecard(
         {
             "RCM-truth":             "/.../RCM-TRUTH_EC-Earth3_2041-2060/annual",
             "UNet-single perfect":   "/.../SINGV-RCM_..._perfect/annual",
@@ -89,7 +89,7 @@ INDEX_LABEL = {
 }
 
 
-def signal_scorecard_indices(var: str) -> list[tuple[str, str]]:
+def signal_indices(var: str) -> list[tuple[str, str]]:
     """The ``(index_key, wedge_position)`` list for ``var``."""
     return SIGNAL_INDICES_PR if var == "pr" else SIGNAL_INDICES_TEMP
 
@@ -191,7 +191,7 @@ def _sector_text_xy(cx: float, cy: float, pos: str, radius: float) -> tuple[floa
 
 def _draw_legend_hex(ax, cx: float, cy: float, radius: float, var: str) -> None:
     """Small template hexagon showing which sector holds which index."""
-    for key, pos in signal_scorecard_indices(var):
+    for key, pos in signal_indices(var):
         _sector(ax, cx, cy, pos, radius, "0.92", edgecolor="0.4", lw=0.7)
         # index label just outside the sector, along its bisector
         lab_ang = np.radians(_POS_LABEL_ANGLE[pos])
@@ -205,7 +205,7 @@ def _draw_legend_hex(ax, cx: float, cy: float, radius: float, var: str) -> None:
         )
 
 
-def plot_signal_scorecard(
+def plot_multivar_signal_scorecard(
     paths,
     out: str,
     variables: list[str],
@@ -283,7 +283,7 @@ def plot_signal_scorecard(
     signal: dict[tuple[str, str], dict[str, float]] = {}
     truth: dict[str, dict[str, float]] = {}
     for var in variables:
-        keys = [k for k, _ in signal_scorecard_indices(var)]
+        keys = [k for k, _ in signal_indices(var)]
         kind = _signal_kind(var)
         for m in model_rows:
             d = metrics_dir(by_label[m], var)
@@ -299,7 +299,7 @@ def plot_signal_scorecard(
     # row saturates at +/-1 and each model reads as its signed fraction of truth.
     truth_norm: dict[tuple[str, str], float] = {}
     for var in variables:
-        for key, _ in signal_scorecard_indices(var):
+        for key, _ in signal_indices(var):
             tv = truth.get(var, {}).get(key, np.nan)
             truth_norm[(var, key)] = abs(tv) if np.isfinite(tv) else np.nan
 
@@ -316,7 +316,7 @@ def plot_signal_scorecard(
         for c, var in enumerate(variables):
             cx, cy = c, -r
             pct = _is_pct(var)
-            for key, pos in signal_scorecard_indices(var):
+            for key, pos in signal_indices(var):
                 m = truth_norm.get((var, key), np.nan)
                 if is_ref:
                     val = truth.get(var, {}).get(key, np.nan)

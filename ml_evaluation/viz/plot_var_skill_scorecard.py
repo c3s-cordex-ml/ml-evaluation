@@ -4,7 +4,7 @@ Per-variable *performance scorecard* heatmap for ML RCM emulators.
 One figure per variable: rows are emulators, columns are the evaluation metrics,
 read from the zarr bundles an ``ml-eval fast`` call writes (metrics_fast_float /
 metrics_fast_field / metrics_pr_field). Unlike the six-wedge hexagon scorecard in
-``plot_hexagon.plot_multivar_scorecard`` (one cell per model x variable, coloured
+``plot_hexagon.plot_multivar_skill_scorecard`` (one cell per model x variable, coloured
 against a
 reference model), here every metric gets its own column and the comparison is
 made *within* the column:
@@ -39,20 +39,20 @@ the title and the file name only.
 
 Public API
 ----------
-var_scorecard_columns(var, metrics=None)
+var_skill_columns(var, metrics=None)
     The (metric_key, column_label) list for one variable.
-read_var_scorecard_metrics(metrics_dir, var, metrics=None)
+read_var_skill_metrics(metrics_dir, var, metrics=None)
     ``{metric_key: (value, cv)}`` for one ``ml-eval fast --output`` directory.
     Depends only on ml-eval's output format -- layout-agnostic.
-render_var_scorecard(per_model, var, out_dir, *, models, metrics, season)
+render_var_skill_scorecard(per_model, var, out_dir, *, models, metrics, season)
     Render one variable's heatmap from precomputed {label: {metric: (value, cv)}}.
-plot_var_scorecard(paths, out, variables, *, metrics, season)
+plot_var_skill_scorecard(paths, out, variables, *, metrics, season)
     One PNG per variable, one row per entry of ``paths``.
 
 Example
 -------
-    from ml_evaluation.viz.plot_var_scorecard import plot_var_scorecard
-    plot_var_scorecard(
+    from ml_evaluation.viz.plot_var_skill_scorecard import plot_var_skill_scorecard
+    plot_var_skill_scorecard(
         {
             "UNet-single": "/.../SINGV-RCM_EC-Earth3_2041-2060/annual",
             "ResDiff-v3":  "/.../RESDIFF-RCM_EC-Earth3_2041-2060/annual",
@@ -133,7 +133,7 @@ DEFAULT_METRICS_PR = [
 ]
 
 
-def var_scorecard_columns(var: str, metrics=None) -> list[tuple[str, str]]:
+def var_skill_columns(var: str, metrics=None) -> list[tuple[str, str]]:
     """The ``(metric_key, column_label)`` list for ``var``.
 
     Parameters
@@ -212,7 +212,7 @@ def _read_cv(metrics_dir: str, key: str) -> float:
     return float(np.std(v)) / denom
 
 
-def read_var_scorecard_metrics(
+def read_var_skill_metrics(
     path: str, var: str, metrics=None
 ) -> dict[str, tuple[float, float]]:
     """Scorecard-column scalars for ``var`` from one ``ml-eval fast --output`` dir.
@@ -225,7 +225,7 @@ def read_var_scorecard_metrics(
     """
     return {
         k: (_read_value(path, k), _read_cv(path, k))
-        for k, _ in var_scorecard_columns(var, metrics)
+        for k, _ in var_skill_columns(var, metrics)
     }
 
 
@@ -253,7 +253,7 @@ def _fmt_value(v: float) -> str:
     return "" if not np.isfinite(v) else f"{v:.3g}"
 
 
-def render_var_scorecard(
+def render_var_skill_scorecard(
     per_model,
     var,
     out_dir,
@@ -273,10 +273,10 @@ def render_var_scorecard(
     ----------
     per_model : dict
         ``{label: {metric_key: (value, cv)}}`` (e.g. from
-        ``read_var_scorecard_metrics``). A plain ``{metric_key: value}`` mapping
+        ``read_var_skill_metrics``). A plain ``{metric_key: value}`` mapping
         is accepted too -- the CV line is then omitted.
     var : str
-        Variable name (selects the columns via ``var_scorecard_columns``).
+        Variable name (selects the columns via ``var_skill_columns``).
     out_dir : str
         Directory for the PNG (created if needed).
     models : list of str, optional
@@ -290,7 +290,7 @@ def render_var_scorecard(
     title : str, optional
         Figure title (default derived from ``var``/``season``).
     filename : str, optional
-        Output filename (default ``var_scorecard_<var>_<season>.png``).
+        Output filename (default ``var_skill_scorecard_<var>_<season>.png``).
     cmap : str, default "Blues"
         Sequential colormap for the normalised score (dark = best).
     annotate : bool, default True
@@ -310,7 +310,7 @@ def render_var_scorecard(
     if not models:
         return None
 
-    columns = var_scorecard_columns(var, metrics)
+    columns = var_skill_columns(var, metrics)
     keys = [k for k, _ in columns]
     labels = [lbl for _, lbl in columns]
 
@@ -364,15 +364,15 @@ def render_var_scorecard(
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(
-        out_dir, filename or f"var_scorecard_{var}_{season}.png"
+        out_dir, filename or f"var_skill_scorecard_{var}_{season}.png"
     )
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"[var-scorecard] {path}  (models: {', '.join(models)})")
+    print(f"[var-skill-scorecard] {path}  (models: {', '.join(models)})")
     return path
 
 
-def plot_var_scorecard(
+def plot_var_skill_scorecard(
     paths,
     out,
     variables,
@@ -383,8 +383,8 @@ def plot_var_scorecard(
 ):
     """Plot one performance scorecard per variable for an explicit set of paths.
 
-    Convenience wrapper over ``read_var_scorecard_metrics`` +
-    ``render_var_scorecard``.
+    Convenience wrapper over ``read_var_skill_metrics`` +
+    ``render_var_skill_scorecard``.
 
     Parameters
     ----------
@@ -402,7 +402,7 @@ def plot_var_scorecard(
     season : str
         Label only -- title and output file name.
     **kwargs
-        Forwarded to :func:`render_var_scorecard` (``title``, ``filename``,
+        Forwarded to :func:`render_var_skill_scorecard` (``title``, ``filename``,
         ``cmap``, ``annotate``, ``text_color``).
 
     Returns
@@ -418,12 +418,12 @@ def plot_var_scorecard(
         for label, base in by_label.items():
             d = metrics_dir(base, var)
             if os.path.isdir(d):
-                per_model[label] = read_var_scorecard_metrics(d, var, metrics)
+                per_model[label] = read_var_skill_metrics(d, var, metrics)
         avail = [m for m in by_label if m in per_model]
-        path = render_var_scorecard(per_model, var, out, models=avail,
+        path = render_var_skill_scorecard(per_model, var, out, models=avail,
                                     metrics=metrics, season=season, **kwargs)
         if path is None:
-            print(f"[var-scorecard] {var}: no model directory found — skipping.")
+            print(f"[var-skill-scorecard] {var}: no model directory found — skipping.")
         else:
             written.append(path)
     return written

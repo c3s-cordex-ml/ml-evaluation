@@ -4,17 +4,17 @@ import pathlib
 
 import pytest
 
-import ml_evaluation.viz.plot_signal_scorecard as ss
+import ml_evaluation.viz.plot_multivar_signal_scorecard as ss
 
 
-def test_signal_scorecard_indices() -> None:
+def test_signal_indices() -> None:
     """The index/sector layout differs for precip vs. other variables."""
-    assert ss.signal_scorecard_indices("tasmax") == [
+    assert ss.signal_indices("tasmax") == [
         ("mean", "top"),
         ("p01", "left"),
         ("p99", "bottom"),
     ]
-    assert ss.signal_scorecard_indices("pr") == [
+    assert ss.signal_indices("pr") == [
         ("sdii", "top"),
         ("r01", "left"),
         ("rx1day", "bottom"),
@@ -24,7 +24,7 @@ def test_signal_scorecard_indices() -> None:
     assert sorted(used) == list(range(6))
 
 
-def test_plot_signal_scorecard_renders(
+def test_plot_multivar_signal_scorecard_renders(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The scorecard renders a PNG from signal-float scalars.
@@ -54,7 +54,7 @@ def test_plot_signal_scorecard_renders(
 
     monkeypatch.setattr(ss, "_read_signal_floats", fake_reader)
 
-    path = ss.plot_signal_scorecard(
+    path = ss.plot_multivar_signal_scorecard(
         {k: str(v) for k, v in rows.items()},
         str(tmp_path / "fig"),
         variables,
@@ -64,7 +64,7 @@ def test_plot_signal_scorecard_renders(
     assert pathlib.Path(path).stat().st_size > 0
 
 
-def test_plot_signal_scorecard_missing_rows(
+def test_plot_multivar_signal_scorecard_missing_rows(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A row whose directory does not exist renders blank rather than raising."""
@@ -75,7 +75,7 @@ def test_plot_signal_scorecard_missing_rows(
         "_read_signal_floats",
         lambda d, keys, which: {k: 1.0 for k in keys},
     )
-    path = ss.plot_signal_scorecard(
+    path = ss.plot_multivar_signal_scorecard(
         {"RCM-truth": str(truth), "UNet-single": str(tmp_path / "absent")},
         str(tmp_path / "fig"),
         ["tasmax"],
@@ -83,12 +83,12 @@ def test_plot_signal_scorecard_missing_rows(
     assert pathlib.Path(path).is_file()
 
 
-def test_plot_signal_scorecard_reference_must_be_locatable(
+def test_plot_multivar_signal_scorecard_reference_must_be_locatable(
     tmp_path: pathlib.Path,
 ) -> None:
     """A reference that is neither in paths nor given explicitly is an error."""
     with pytest.raises(KeyError, match="RCM-truth"):
-        ss.plot_signal_scorecard(
+        ss.plot_multivar_signal_scorecard(
             {"UNet-single": str(tmp_path)},
             str(tmp_path / "fig"),
             ["tasmax"],

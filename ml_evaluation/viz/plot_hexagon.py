@@ -42,7 +42,7 @@ plot_hexagon(per_model, var, out_dir, *, models=None, reference=None, season)
     Render one variable's hexagon from precomputed {label: {metric: value}}.
 plot_hexagons(paths, out, variables, *, reference, season)
     Plot one hexagon per variable, one series per entry of ``paths``.
-plot_multivar_scorecard(paths, out, variables, *, reference, season, ...)
+plot_multivar_skill_scorecard(paths, out, variables, *, reference, season, ...)
     Model x variable grid of six-wedge hexagons, coloured by % error improvement
     over ``reference``.
 
@@ -420,7 +420,7 @@ def _wedge(ax, cx, cy, i, radius, facecolor, edgecolor="white", lw=0.6):
                          edgecolor=edgecolor, lw=lw))
 
 
-def plot_multivar_scorecard(paths, out, variables, *, reference, season="annual",
+def plot_multivar_skill_scorecard(paths, out, variables, *, reference, season="annual",
                             title=None, clip=100.0, cmap="RdBu",
                             filename=None):
     """Model x variable scorecard of six-wedge hexagons.
