@@ -107,7 +107,7 @@ There are also a selection of functions related:
     with their own preferences related to the data plotted. If your option is
     not included here, it will default to matplotlib derived ranges and related
     plots will not necessarily have the correctly matching color scales.
-    
+
 
 ------------------------------------------------------------------------------
 Example calls
@@ -153,7 +153,10 @@ import numpy as np
 import xarray as xr
 
 import matplotlib
-matplotlib.use('Agg')  # Improves plotting efficiency. Remove if you want to pause code and view plots within a run.
+
+matplotlib.use(
+    "Agg"
+)  # Improves plotting efficiency. Remove if you want to pause code and view plots within a run.
 import matplotlib.pyplot as plt
 
 import cartopy.crs as ccrs
@@ -161,10 +164,24 @@ import cartopy.feature
 
 
 # ----------------------------------------------------------------------------
-def plot_map_matrix_pcolormesh(lon_list, lat_list, data_list, ncols=1,
-    nrows=1, vminmax=None, filepath="filepath.png", title_list=None,
-    cbartitle_list=None, color_map_list=None, FIGWIDTH=None, FIGHEIGHT=None,
-    panel_size=4.0, title_fs=None, figtitle=None, incl_corner_mean=True):
+def plot_map_matrix_pcolormesh(
+    lon_list,
+    lat_list,
+    data_list,
+    ncols=1,
+    nrows=1,
+    vminmax=None,
+    filepath="filepath.png",
+    title_list=None,
+    cbartitle_list=None,
+    color_map_list=None,
+    FIGWIDTH=None,
+    FIGHEIGHT=None,
+    panel_size=4.0,
+    title_fs=None,
+    figtitle=None,
+    incl_corner_mean=True,
+):
     """
     Plot a matrix of lat/lon gridded fields using pcolormesh on a
     Cartopy PlateCarree projection.
@@ -289,11 +306,12 @@ def plot_map_matrix_pcolormesh(lon_list, lat_list, data_list, ncols=1,
 
     # Set up figure
     fig, axes = plt.subplots(
-        nrows, ncols,
+        nrows,
+        ncols,
         figsize=(FIGWIDTH, FIGHEIGHT),
-        subplot_kw={'projection': ccrs.PlateCarree()},
+        subplot_kw={"projection": ccrs.PlateCarree()},
         constrained_layout=True,
-        squeeze=False
+        squeeze=False,
     )
 
     # Only use optional per-panel lists if they cover every panel
@@ -304,7 +322,7 @@ def plot_map_matrix_pcolormesh(lon_list, lat_list, data_list, ncols=1,
     if cbartitle_list and len(cbartitle_list) < len_data_list:
         cbartitle_list = None
     if color_map_list and len(color_map_list) < len_data_list:
-        color_map_list = [plt.get_cmap('hot_r')] * len_data_list
+        color_map_list = [plt.get_cmap("hot_r")] * len_data_list
 
     icount = 0
     total_panels = nrows * ncols
@@ -313,7 +331,7 @@ def plot_map_matrix_pcolormesh(lon_list, lat_list, data_list, ncols=1,
             ax = axes[iiR, iiC]
 
             if _is_skipped(icount):
-                ax.axis('off')
+                ax.axis("off")
                 icount += 1
                 continue
 
@@ -322,16 +340,19 @@ def plot_map_matrix_pcolormesh(lon_list, lat_list, data_list, ncols=1,
                 if len(vminmax[icount]) == 2:
                     ivmin, ivmax = vminmax[icount]
                 else:
-                     ivmin, ivmax = None, None
+                    ivmin, ivmax = None, None
 
             color_map = color_map_list[icount]
 
             im_ax = ax.pcolormesh(
-                lon_list[icount], lat_list[icount], data_list[icount],
-                vmin=ivmin, vmax=ivmax,
+                lon_list[icount],
+                lat_list[icount],
+                data_list[icount],
+                vmin=ivmin,
+                vmax=ivmax,
                 cmap=color_map,
                 transform=ccrs.PlateCarree(),
-                shading='auto',
+                shading="auto",
             )
 
             if title_list:
@@ -340,17 +361,20 @@ def plot_map_matrix_pcolormesh(lon_list, lat_list, data_list, ncols=1,
             if incl_corner_mean:
                 mean_val = np.nanmean(data_list[icount])
                 ax.text(
-                    0.98, 0.98, f'{mean_val:.2f}',
+                    0.98,
+                    0.98,
+                    f"{mean_val:.2f}",
                     transform=ax.transAxes,
-                    ha='right', va='top',
-                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.8)
+                    ha="right",
+                    va="top",
+                    bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
                 )
 
             # Geographic features
-            ax.coastlines(resolution='50m')  # '10m' for more detail
+            ax.coastlines(resolution="50m")  # '10m' for more detail
             ax.add_feature(cartopy.feature.BORDERS, linewidth=0.5)
 
-            cbar = plt.colorbar(im_ax, ax=ax, orientation='horizontal', pad=0.01)
+            cbar = plt.colorbar(im_ax, ax=ax, orientation="horizontal", pad=0.01)
             if cbartitle_list:
                 cbar.set_label(cbartitle_list[icount])
 
@@ -361,7 +385,7 @@ def plot_map_matrix_pcolormesh(lon_list, lat_list, data_list, ncols=1,
 
     fig.suptitle(figtitle)
     print(filepath)
-    plt.savefig(filepath, dpi=150, bbox_inches='tight')
+    plt.savefig(filepath, dpi=150, bbox_inches="tight")
     plt.close()
     return filepath
 
@@ -452,29 +476,41 @@ def get_units_scale(ds, var, is_zarr=False):
         The units string read from the field's "units" attribute
         (may be None if not present).
     """
-    data = ds['value'] if is_zarr else ds[var]
+    data = ds["value"] if is_zarr else ds[var]
 
     scale = 1.0
     units = data.attrs.get("units")
     if var == "pr":
         # Convert to mm/day where necessary.
         # Units may differ between datasets and may not be specified.
-        if units in ["kg m-2 s-1", "kg/m2/s", "kg m^-2 s^-1", "kg.m-2.s-1", "kg m**-2 s**-1"]:
+        if units in [
+            "kg m-2 s-1",
+            "kg/m2/s",
+            "kg m^-2 s^-1",
+            "kg.m-2.s-1",
+            "kg m**-2 s**-1",
+        ]:
             scale = 86400.0
         elif units in ["mm/day", "mm day-1", "mm d-1", "mm.day-1"]:
             scale = 1.0
         elif data.max() > 1:
             scale = 1.0
-            print(f"WARNING: {var} has units = {units}, i.e. unknown or missing: assume mm/day")
+            print(
+                f"WARNING: {var} has units = {units}, i.e. unknown or missing: assume mm/day"
+            )
         else:
             scale = 86400.0
-            print(f"WARNING: {var} has units = {units}, i.e. unknown or missing: assume kg/m2/s so convert to mm/day")
-        units="mm/day"
+            print(
+                f"WARNING: {var} has units = {units}, i.e. unknown or missing: assume kg/m2/s so convert to mm/day"
+            )
+        units = "mm/day"
 
     if var == "uas" or var == "vas":
         units = "m/s"
         if units not in ["m/s", "m s-1", "m.s-1"]:
-            print(f"WARNING: {var} has units = {units}, i.e. unknown or missing: assume m/s")
+            print(
+                f"WARNING: {var} has units = {units}, i.e. unknown or missing: assume m/s"
+            )
 
     if var == "psl":
         # Convert to hPa where necessary
@@ -484,13 +520,18 @@ def get_units_scale(ds, var, is_zarr=False):
             scale = 1.0
         elif data.max() < 5000:
             scale = 1.0
-            print(f"WARNING: {var} has units = {units}, i.e. unknown or missing: assume hPa")
+            print(
+                f"WARNING: {var} has units = {units}, i.e. unknown or missing: assume hPa"
+            )
         else:
             scale = 1 / 100.0
-            print(f"WARNING: {var} has units = {units}, i.e. unknown or missing: assume Pa so convert to hPa")
-        units="hPa"
+            print(
+                f"WARNING: {var} has units = {units}, i.e. unknown or missing: assume Pa so convert to hPa"
+            )
+        units = "hPa"
 
     return scale, units
+
 
 # ----------------------------------------------------------------------------
 def get_example_color_scales(variable_name, metric_name, units=None, period=None):
@@ -542,15 +583,15 @@ def get_example_color_scales(variable_name, metric_name, units=None, period=None
     set of populated (metric_name, variable_name) combinations is
     illustrative only, not exhaustive.
     """
-    
+
     manually_defined = False
     vminmax = [None, None]
     vminmax_bias = [None, None]
-    cmap_name = 'hot_r' # default?
-    cmap_name_bias = 'hot_r' # default?
+    cmap_name = "hot_r"  # default?
+    cmap_name_bias = "hot_r"  # default?
 
     if metric_name in ["mean"]:
-        cmap_name = 'hot_r'
+        cmap_name = "hot_r"
         if variable_name in ["pr"]:
             vminmax = [0, 40]
             manually_defined = True
@@ -569,26 +610,27 @@ def get_example_color_scales(variable_name, metric_name, units=None, period=None
 
     if metric_name in ["acorr"]:
         if variable_name in ["pr"]:
-            vminmax = [0,0.6]
-            vminmax_bias = [-0.3,0.3]
+            vminmax = [0, 0.6]
+            vminmax_bias = [-0.3, 0.3]
             manually_defined = True
-            cmap_name = 'hot_r'
-            cmap_name_bias = 'PiYG_r'
+            cmap_name = "hot_r"
+            cmap_name_bias = "PiYG_r"
 
     if metric_name in ["mv_pcorr", "mv_scorr"]:
         if variable_name in ["pr"]:
-            vminmax = [-0.9,0.9]
-            vminmax_bias = [-0.06,0.06]
+            vminmax = [-0.9, 0.9]
+            vminmax_bias = [-0.06, 0.06]
             manually_defined = True
-            cmap_name = 'PiYG_r'
-            cmap_name_bias = 'PiYG_r'
+            cmap_name = "PiYG_r"
+            cmap_name_bias = "PiYG_r"
 
     if not manually_defined:
         print(
-            f"WARNING: color scales not set by get_example_color_scales() so may not match."
+            "WARNING: color scales not set by get_example_color_scales() so may not match."
         )
 
     return vminmax, cmap_name, vminmax_bias, cmap_name_bias
+
 
 # ----------------------------------------------------------------------------
 def get_variable_info(metric_name):
@@ -636,48 +678,117 @@ def get_variable_info(metric_name):
 
     METRIC_INFO = {
         # fast (basic) track metrics
-        "mean":     ("Climatology mean",      "", True,  "metrics_fast_field.zarr", None),
-        "p99":      ("99% Quantile",       "", True,  "metrics_fast_field.zarr", None),
-        "p1":       ("1% Quantile",        "", True,  "metrics_fast_field.zarr", None),
-        "max1day":  ("Mean of max1day",     "", True,  "metrics_fast_field.zarr", None),
-        "min1day":  ("Mean of min1day",     "", True,  "metrics_fast_field.zarr", None),
-        "acorr":    ("Auto-correlation", "correlation", False, "metrics_fast_field.zarr", None),
-
+        "mean": ("Climatology mean", "", True, "metrics_fast_field.zarr", None),
+        "p99": ("99% Quantile", "", True, "metrics_fast_field.zarr", None),
+        "p1": ("1% Quantile", "", True, "metrics_fast_field.zarr", None),
+        "max1day": ("Mean of max1day", "", True, "metrics_fast_field.zarr", None),
+        "min1day": ("Mean of min1day", "", True, "metrics_fast_field.zarr", None),
+        "acorr": (
+            "Auto-correlation",
+            "correlation",
+            False,
+            "metrics_fast_field.zarr",
+            None,
+        ),
         # pr: fast (basic) track metrics
-        "p98wet":   ("98% Quantile (wet days)", "", True, "metrics_fast_pr_field.zarr", "pr"),
-        "sdii":     ("Simple Daily Intensity Index", "", True, "metrics_fast_pr_field.zarr", "pr"),
-        "r1":       ("Mean of r1", "no. days", False, "metrics_fast_pr_field.zarr", "pr"),
-
+        "p98wet": (
+            "98% Quantile (wet days)",
+            "",
+            True,
+            "metrics_fast_pr_field.zarr",
+            "pr",
+        ),
+        "sdii": (
+            "Simple Daily Intensity Index",
+            "",
+            True,
+            "metrics_fast_pr_field.zarr",
+            "pr",
+        ),
+        "r1": ("Mean of r1", "no. days", False, "metrics_fast_pr_field.zarr", "pr"),
         # slow (extended) track metrics
-        "annstd":   ("Annual standard deviation", "", True, "metrics_slow_field.zarr", None),
-        "p90":      ("90% Quantile",           "", True, "metrics_slow_field.zarr", None),
-
+        "annstd": (
+            "Annual standard deviation",
+            "",
+            True,
+            "metrics_slow_field.zarr",
+            None,
+        ),
+        "p90": ("90% Quantile", "", True, "metrics_slow_field.zarr", None),
         # pr: slow (extended) track metrics
-        "p90wet":   ("90% Quantile (wet days)", "", True, "metrics_slow_pr_field.zarr", "pr"),
-        "r10":      ("Mean of r10", "no. days", False, "metrics_slow_pr_field.zarr", "pr"),
-        "cdd":      ("Mean of cdd",       "no. days", False, "metrics_slow_pr_field.zarr", "pr"),
-        "cwd":      ("Mean of cwd",       "no. days", False, "metrics_slow_pr_field.zarr", "pr"),
-
+        "p90wet": (
+            "90% Quantile (wet days)",
+            "",
+            True,
+            "metrics_slow_pr_field.zarr",
+            "pr",
+        ),
+        "r10": ("Mean of r10", "no. days", False, "metrics_slow_pr_field.zarr", "pr"),
+        "cdd": ("Mean of cdd", "no. days", False, "metrics_slow_pr_field.zarr", "pr"),
+        "cwd": ("Mean of cwd", "no. days", False, "metrics_slow_pr_field.zarr", "pr"),
         # tasmax: slow (extended) track metrics
-        "su":       ("Mean no. Summer days",  "no. days", False, "metrics_slow_tasmax_field.zarr", "tasmax"),
-        "hot":      ("Mean no. Hot days",     "no. days", False, "metrics_slow_tasmax_field.zarr", "tasmax"),
-        "ice":      ("Mean no. Ice days",     "no. days", False, "metrics_slow_tasmax_field.zarr", "tasmax"),
-
+        "su": (
+            "Mean no. Summer days",
+            "no. days",
+            False,
+            "metrics_slow_tasmax_field.zarr",
+            "tasmax",
+        ),
+        "hot": (
+            "Mean no. Hot days",
+            "no. days",
+            False,
+            "metrics_slow_tasmax_field.zarr",
+            "tasmax",
+        ),
+        "ice": (
+            "Mean no. Ice days",
+            "no. days",
+            False,
+            "metrics_slow_tasmax_field.zarr",
+            "tasmax",
+        ),
         # tasmin: slow (extended) track metrics
-        "tropnight":("Mean no. Tropical nights", "no. days", False, "metrics_slow_tasmin_field.zarr", "tasmin"),
-        "frost":    ("Mean no. Frost days",      "no. days", False, "metrics_slow_tasmin_field.zarr", "tasmin"),
-
+        "tropnight": (
+            "Mean no. Tropical nights",
+            "no. days",
+            False,
+            "metrics_slow_tasmin_field.zarr",
+            "tasmin",
+        ),
+        "frost": (
+            "Mean no. Frost days",
+            "no. days",
+            False,
+            "metrics_slow_tasmin_field.zarr",
+            "tasmin",
+        ),
         # multivariate metrics
-        "mv_pcorr": ("MV Pearson correlation",  "correlation", False, "metrics_mv_field.zarr", None),
-        "mv_scorr": ("MV Spearman correlation", "correlation", False, "metrics_mv_field.zarr", None),
+        "mv_pcorr": (
+            "MV Pearson correlation",
+            "correlation",
+            False,
+            "metrics_mv_field.zarr",
+            None,
+        ),
+        "mv_scorr": (
+            "MV Spearman correlation",
+            "correlation",
+            False,
+            "metrics_mv_field.zarr",
+            None,
+        ),
     }
 
     try:
-        title_name, units, VariableUnits, zarr_name, var_specific = METRIC_INFO[metric_name]
+        title_name, units, VariableUnits, zarr_name, var_specific = METRIC_INFO[
+            metric_name
+        ]
     except KeyError:
         raise ValueError(f"Unknown metric_name: {metric_name!r}")
 
     return title_name, units, VariableUnits, zarr_name, var_specific
+
 
 # ----------------------------------------------------------------------------
 def reduce_mem_dim(ds, member_dim, member_num):
@@ -719,7 +830,6 @@ def reduce_mem_dim(ds, member_dim, member_num):
     """
     mem_num_new = member_num
     if member_dim is not None and member_dim in ds.dims:
-        nmems = ds[member_dim].size
         if member_num < 0:
             # Average over the member dimension only
             ds = ds.mean(dim=member_dim)
@@ -728,8 +838,10 @@ def reduce_mem_dim(ds, member_dim, member_num):
             ds = ds.sel({member_dim: member_num}, drop=True)
             mem_num_new = member_num
         else:
-            print(f"Warning: member_num {member_num} doesn't exist "
-                  f"so use first member in list.")
+            print(
+                f"Warning: member_num {member_num} doesn't exist "
+                f"so use first member in list."
+            )
             ds = ds.isel({member_dim: 0}, drop=True)
             mem_num_new = 0
     else:
@@ -755,7 +867,7 @@ def plot_example_day(
     latlon_dims=["lat", "lon"],
     ncols=4,
     nrows=4,
-    ):
+):
     """
     Plot a truth-vs-prediction matrix of maps for a single chosen
     date, one row pair (truth, prediction) per variable in
@@ -817,7 +929,9 @@ def plot_example_day(
 
     # ncols should be even to align (truth, prediction) columns
     if ncols % 2 != 0:
-        print(f"Warning: ncols should be even to align (truth, prediction) columns, but got {ncols}")
+        print(
+            f"Warning: ncols should be even to align (truth, prediction) columns, but got {ncols}"
+        )
 
     x0_ds_tstep = xr.open_dataset(truth_file).sel(time=date_chosen).load()
     x1_ds_tstep = xr.open_dataset(prediction_file).sel(time=date_chosen).load()
@@ -841,7 +955,15 @@ def plot_example_day(
 
     nvariables = len(variable_list)
     if filename is None:
-        filename = "maps_exampleday_" + date_chosen + "_" + str(int(nvariables)) + "var_" + model_name + mem_info
+        filename = (
+            "maps_exampleday_"
+            + date_chosen
+            + "_"
+            + str(int(nvariables))
+            + "var_"
+            + model_name
+            + mem_info
+        )
 
     # Set up list of data fields and lat/lon info for plotting to matrix
     # (row-major order)
@@ -897,9 +1019,7 @@ def plot_example_day(
             manually_defined = True
 
         if not manually_defined:
-            print(
-                f"WARNING: color scales not set so may not match."
-            )
+            print("WARNING: color scales not set so may not match.")
 
         field_list.append(ds0.values * scale0)
         field_list.append(ds1.values * scale1)
@@ -908,15 +1028,25 @@ def plot_example_day(
 
     lat_list = [ds0[latlon_dims[0]].values] * nvariables * 2
     lon_list = [ds0[latlon_dims[1]].values] * nvariables * 2
-    cmap_list = [plt.get_cmap('hot_r')] * nvariables * 2  # 'gist_ncar_r'
+    cmap_list = [plt.get_cmap("hot_r")] * nvariables * 2  # 'gist_ncar_r'
 
     out_filepath = plot_map_matrix_pcolormesh(
-        lon_list, lat_list, field_list, ncols=ncols, nrows=nrows,
-        vminmax=vminmax_list, filepath=out_dir + filename + ".png",
-        title_list=title_list, cbartitle_list=ctitle_list,
-        color_map_list=cmap_list, FIGWIDTH=None, FIGHEIGHT=None,
-        panel_size=2.0, title_fs=None,
-        figtitle=date_chosen + " - " + model_name + " " + experiment_info)
+        lon_list,
+        lat_list,
+        field_list,
+        ncols=ncols,
+        nrows=nrows,
+        vminmax=vminmax_list,
+        filepath=out_dir + filename + ".png",
+        title_list=title_list,
+        cbartitle_list=ctitle_list,
+        color_map_list=cmap_list,
+        FIGWIDTH=None,
+        FIGHEIGHT=None,
+        panel_size=2.0,
+        title_fs=None,
+        figtitle=date_chosen + " - " + model_name + " " + experiment_info,
+    )
 
     return out_filepath
 
@@ -941,7 +1071,7 @@ def plot_truth_predict_fields_1model(
     latlon_dims=["lat", "lon"],
     ncols=4,
     nrows=4,
-    ):
+):
     """
     Plot a truth-vs-prediction matrix of climatological mean maps
     for a single model, one row pair (truth, prediction) per
@@ -1019,7 +1149,9 @@ def plot_truth_predict_fields_1model(
 
     # ncols should be even to align (truth, prediction) columns
     if ncols % 2 != 0:
-        print(f"Warning: ncols should be even to align (truth, prediction) columns, but got {ncols}")
+        print(
+            f"Warning: ncols should be even to align (truth, prediction) columns, but got {ncols}"
+        )
 
     # Reduce ensemble data to single member or ensemble mean
     mem_info = "_m0"
@@ -1037,7 +1169,15 @@ def plot_truth_predict_fields_1model(
 
     # Output filename if not given
     if filename is None:
-        filename = "maps_clim_" + metric_name + "_" + str(int(nvariables)) + "var_" + model_name + mem_info
+        filename = (
+            "maps_clim_"
+            + metric_name
+            + "_"
+            + str(int(nvariables))
+            + "var_"
+            + model_name
+            + mem_info
+        )
         if season is not None:
             filename = filename + "_" + season
 
@@ -1047,28 +1187,30 @@ def plot_truth_predict_fields_1model(
     scale = 1
     units = ""
 
-    VariableUnits = False # used to flag if metric units depend on original variable
+    VariableUnits = False  # used to flag if metric units depend on original variable
 
     # Get data information for specific metric_name
     # default text for title, data units and the name of the linked zarr file
     # VariableUnits : bool, flags that units depended on prediction variable
     # variable_specific : str, None, flags if metric specific to just one variable
-    title_name, units, VariableUnits, zarr_name, var_specific = get_variable_info(metric_name)
+    title_name, units, VariableUnits, zarr_name, var_specific = get_variable_info(
+        metric_name
+    )
 
     # Overall title for matrix of plots if not given
     if full_title is None:
-        full_title=title_name + " - " + model_name
+        full_title = title_name + " - " + model_name
         if season is not None:
-            full_title=title_name + " " +season + " - " + model_name
+            full_title = title_name + " " + season + " - " + model_name
         if experiment_info is not None:
             full_title = full_title + " " + experiment_info
 
     # Set up list of data fields and lat/lon info for plotting to matrix
     # (row-major order)
-    field_list = [] # list of fields to be plotted
-    title_list = [] # list of titles for each single plot
-    vminmax_list = [] # list of color ranges where available else use default
-    ctitle_list = [] # list of labels for colorbar (generally the units of the variable)
+    field_list = []  # list of fields to be plotted
+    title_list = []  # list of titles for each single plot
+    vminmax_list = []  # list of color ranges where available else use default
+    ctitle_list = []  # list of labels for colorbar (generally the units of the variable)
     cmap_list = []
 
     # Loop over all variables in variable_list
@@ -1086,15 +1228,19 @@ def plot_truth_predict_fields_1model(
         title_list.append("Pred: " + variable_name)
 
         # Build filepath for target and prediction fields
-        diagnostics_file = pre_path + model_dir + mid_path + variable_name + post_path + zarr_name
+        diagnostics_file = (
+            pre_path + model_dir + mid_path + variable_name + post_path + zarr_name
+        )
         if inv_mod_var:
             # If variable directory comes before model directory, inverse order
-            diagnostics_file = pre_path + variable_name + mid_path + model_dir + post_path + zarr_name
+            diagnostics_file = (
+                pre_path + variable_name + mid_path + model_dir + post_path + zarr_name
+            )
         ds = xr.open_zarr(diagnostics_file)
 
         # Load target and prediction fields
-        targ_ds = ds['value'].sel(diagnostic="targ_" + metric_name + "_field").load()
-        pred_ds = ds['value'].sel(diagnostic="pred_" + metric_name + "_field").load()
+        targ_ds = ds["value"].sel(diagnostic="targ_" + metric_name + "_field").load()
+        pred_ds = ds["value"].sel(diagnostic="pred_" + metric_name + "_field").load()
 
         # Check if member dimension, if so pick correct member
         # Reduce ensemble data to single member or ensemble mean
@@ -1112,9 +1258,11 @@ def plot_truth_predict_fields_1model(
             scale, units = get_units_scale(ds, variable_name, is_zarr=True)
 
         # Load defined colorscales if available
-        vminmax1, cmap_name1, vminmax_bias1, cmap_name_bias1 = get_example_color_scales(variable_name, metric_name)
-        vminmax_list.append(vminmax1) # For truth
-        vminmax_list.append(vminmax1) # Same for prediction
+        vminmax1, cmap_name1, vminmax_bias1, cmap_name_bias1 = get_example_color_scales(
+            variable_name, metric_name
+        )
+        vminmax_list.append(vminmax1)  # For truth
+        vminmax_list.append(vminmax1)  # Same for prediction
         cmap_list.append(cmap_name1)
         cmap_list.append(cmap_name1)
 
@@ -1130,12 +1278,22 @@ def plot_truth_predict_fields_1model(
     lon_list = [ds[latlon_dims[1]].values] * len(field_list)
 
     out_filepath = plot_map_matrix_pcolormesh(
-        lon_list, lat_list, field_list, ncols=ncols, nrows=nrows,
-        vminmax=vminmax_list, filepath=out_dir + filename + ".png",
-        title_list=title_list, cbartitle_list=ctitle_list,
-        color_map_list=cmap_list, FIGWIDTH=None, FIGHEIGHT=None,
-        panel_size=2.0, title_fs=None,
-        figtitle=full_title)
+        lon_list,
+        lat_list,
+        field_list,
+        ncols=ncols,
+        nrows=nrows,
+        vminmax=vminmax_list,
+        filepath=out_dir + filename + ".png",
+        title_list=title_list,
+        cbartitle_list=ctitle_list,
+        color_map_list=cmap_list,
+        FIGWIDTH=None,
+        FIGHEIGHT=None,
+        panel_size=2.0,
+        title_fs=None,
+        figtitle=full_title,
+    )
 
     return out_filepath
 
@@ -1160,7 +1318,7 @@ def plot_truth_predict_bias_1variable_portrait(
     latlon_dims=["lat", "lon"],
     ncols=2,
     nrows=2,
-    ):
+):
     """
     Plot a prediction metric/bias map matrix for one variable across
     multiple models, in "portrait" panel order: for each model the
@@ -1242,8 +1400,9 @@ def plot_truth_predict_bias_1variable_portrait(
 
     # ncols should be even to align (prediction metric, bias) columns
     if ncols % 2 != 0:
-        print(f"Warning: ncols should be even to align (prediction metric, bias) columns, but got {ncols}")
-
+        print(
+            f"Warning: ncols should be even to align (prediction metric, bias) columns, but got {ncols}"
+        )
 
     # Reduce ensemble data to single member or ensemble mean
     mem_info = "_m0"
@@ -1261,7 +1420,16 @@ def plot_truth_predict_bias_1variable_portrait(
 
     # Output filename if not given
     if filename is None:
-        filename = "mapsP_" + metric_name + "_" + variable_name + "_" + str(int(nmodels)) + "models" + mem_info
+        filename = (
+            "mapsP_"
+            + metric_name
+            + "_"
+            + variable_name
+            + "_"
+            + str(int(nmodels))
+            + "models"
+            + mem_info
+        )
         if season is not None:
             filename = filename + "_" + season
 
@@ -1271,13 +1439,15 @@ def plot_truth_predict_bias_1variable_portrait(
     scale = 1
     units = ""
 
-    VariableUnits = False # used to flag if metric units depend on original variable
+    VariableUnits = False  # used to flag if metric units depend on original variable
 
     # Get data information for specific metric_name
     # default text for title, data units and the name of the linked zarr file
     # VariableUnits : bool, flags that units depended on prediction variable
     # variable_specific : str, None, flags if metric specific to just one variable
-    title_name, units, VariableUnits, zarr_name, var_specific = get_variable_info(metric_name)
+    title_name, units, VariableUnits, zarr_name, var_specific = get_variable_info(
+        metric_name
+    )
 
     if var_specific is not None and variable_name != var_specific:
         raise ValueError(
@@ -1288,39 +1458,45 @@ def plot_truth_predict_bias_1variable_portrait(
 
     # Overall title for matrix of plots if not given
     if full_title is None:
-        full_title=title_name + " - " + variable_name
+        full_title = title_name + " - " + variable_name
         if season is not None:
-            full_title=title_name + " " +season + " - " + variable_name
+            full_title = title_name + " " + season + " - " + variable_name
         if experiment_info is not None:
             full_title = full_title + " " + experiment_info
 
     # Set up list of data fields and lat/lon info for plotting to matrix
     # (row-major order)
-    field_list = [] # list of fields to be plotted
-    title_list = [] # list of titles for each single plot
-    vminmax_list = [] # list of color ranges where available else use default
-    ctitle_list = [] # list of labels for colorbar (generally the units of the variable)
-    cmap_list = [] # list of color maps (so can have different colors for bias if need be)
+    field_list = []  # list of fields to be plotted
+    title_list = []  # list of titles for each single plot
+    vminmax_list = []  # list of color ranges where available else use default
+    ctitle_list = []  # list of labels for colorbar (generally the units of the variable)
+    cmap_list = []  # list of color maps (so can have different colors for bias if need be)
 
     for nn in range(nmodels):
         model_dir = model_dir_list[nn]
         model_name = model_name_list[nn]
 
         # Build filepath for target and prediction fields
-        diagnostics_file = pre_path + model_dir + mid_path + variable_name + post_path + zarr_name
+        diagnostics_file = (
+            pre_path + model_dir + mid_path + variable_name + post_path + zarr_name
+        )
         if inv_mod_var:
             # If variable directory comes before model directory, inverse order
-            diagnostics_file = pre_path + variable_name + mid_path + model_dir + post_path + zarr_name
+            diagnostics_file = (
+                pre_path + variable_name + mid_path + model_dir + post_path + zarr_name
+            )
 
         ds = xr.open_zarr(diagnostics_file)
 
         if nn == 0:
             # Only load target field once
-            targ_ds = ds['value'].sel(diagnostic="targ_" + metric_name + "_field").load()
+            targ_ds = (
+                ds["value"].sel(diagnostic="targ_" + metric_name + "_field").load()
+            )
 
         # Load prediction and bias fields
-        pred_ds = ds['value'].sel(diagnostic="pred_" + metric_name + "_field").load()
-        bias_ds = ds['value'].sel(diagnostic="bias_" + metric_name + "_field").load()
+        pred_ds = ds["value"].sel(diagnostic="pred_" + metric_name + "_field").load()
+        bias_ds = ds["value"].sel(diagnostic="bias_" + metric_name + "_field").load()
 
         # Check if member dimension, if so pick correct member
         # Reduce ensemble data to single member or ensemble mean
@@ -1342,7 +1518,9 @@ def plot_truth_predict_bias_1variable_portrait(
             scale, units = get_units_scale(ds, variable_name, is_zarr=True)
 
         # Load defined colorscales if available
-        vminmax1, cmap_name1, vminmax_bias1, cmap_name_bias1 = get_example_color_scales(variable_name, metric_name)
+        vminmax1, cmap_name1, vminmax_bias1, cmap_name_bias1 = get_example_color_scales(
+            variable_name, metric_name
+        )
 
         # - Append text for single plot title
         # - Append info for colorbar label
@@ -1350,20 +1528,20 @@ def plot_truth_predict_bias_1variable_portrait(
 
         if nn == 0:
             # Truth correlation map gets its own row-pair slot up front
-            title_list.append("Truth") # plot titles
+            title_list.append("Truth")  # plot titles
             title_list.append(None)
-            cmap_list.append(plt.get_cmap(cmap_name1)) # plot color maps
+            cmap_list.append(plt.get_cmap(cmap_name1))  # plot color maps
             cmap_list.append(None)
-            vminmax_list.append(vminmax1) # plot color scale
+            vminmax_list.append(vminmax1)  # plot color scale
             vminmax_list.append([None, None])
             ctitle_list.append(units)
             ctitle_list.append(None)
 
-        title_list.append(model_name) # plot titles
+        title_list.append(model_name)  # plot titles
         title_list.append("bias: " + model_name)
-        cmap_list.append(plt.get_cmap(cmap_name1)) # plot color maps
+        cmap_list.append(plt.get_cmap(cmap_name1))  # plot color maps
         cmap_list.append(plt.get_cmap(cmap_name_bias1))
-        vminmax_list.append(vminmax1) # plot color scale
+        vminmax_list.append(vminmax1)  # plot color scale
         vminmax_list.append(vminmax_bias1)
         ctitle_list.append(None)
         ctitle_list.append(None)
@@ -1379,12 +1557,22 @@ def plot_truth_predict_bias_1variable_portrait(
     lon_list = [ds[latlon_dims[1]].values] * len(field_list)
 
     out_filepath = plot_map_matrix_pcolormesh(
-        lon_list, lat_list, field_list, ncols=ncols, nrows=nrows,
-        vminmax=vminmax_list, filepath=out_dir + filename + ".png",
-        title_list=title_list, cbartitle_list=ctitle_list,
-        color_map_list=cmap_list, FIGWIDTH=None, FIGHEIGHT=None,
-        panel_size=2.0, title_fs=None,
-        figtitle=full_title)
+        lon_list,
+        lat_list,
+        field_list,
+        ncols=ncols,
+        nrows=nrows,
+        vminmax=vminmax_list,
+        filepath=out_dir + filename + ".png",
+        title_list=title_list,
+        cbartitle_list=ctitle_list,
+        color_map_list=cmap_list,
+        FIGWIDTH=None,
+        FIGHEIGHT=None,
+        panel_size=2.0,
+        title_fs=None,
+        figtitle=full_title,
+    )
 
     return out_filepath
 
@@ -1409,7 +1597,7 @@ def plot_truth_predict_bias_1variable_landscape(
     latlon_dims=["lat", "lon"],
     ncols=3,
     nrows=1,
-    ):
+):
     """
     Plot a correlation/bias map matrix for one variable across
     multiple models, in "landscape" panel order: the truth
@@ -1490,7 +1678,9 @@ def plot_truth_predict_bias_1variable_landscape(
 
     # ncols should be odd to align (target, prediction metric, bias) columns
     if ncols % 2 != 1:
-        print(f"Warning: ncols should be odd to align (target, prediction metric, bias) columns, but got {ncols}")
+        print(
+            f"Warning: ncols should be odd to align (target, prediction metric, bias) columns, but got {ncols}"
+        )
 
     # Reduce ensemble data to single member or ensemble mean
     mem_info = "_m0"
@@ -1508,7 +1698,16 @@ def plot_truth_predict_bias_1variable_landscape(
 
     # Output filename if not given
     if filename is None:
-        filename = "mapsL_" + metric_name + "_" + variable_name + "_" + str(int(nmodels)) + "models" + mem_info
+        filename = (
+            "mapsL_"
+            + metric_name
+            + "_"
+            + variable_name
+            + "_"
+            + str(int(nmodels))
+            + "models"
+            + mem_info
+        )
         if season is not None:
             filename = filename + "_" + season
 
@@ -1518,13 +1717,15 @@ def plot_truth_predict_bias_1variable_landscape(
     scale = 1
     units = ""
 
-    VariableUnits = False # used to flag if metric units depend on original variable
+    VariableUnits = False  # used to flag if metric units depend on original variable
 
     # Get data information for specific metric_name
     # default text for title, data units and the name of the linked zarr file
     # VariableUnits : bool, flags that units depended on prediction variable
     # variable_specific : str, None, flags if metric specific to just one variable
-    title_name, units, VariableUnits, zarr_name, var_specific = get_variable_info(metric_name)
+    title_name, units, VariableUnits, zarr_name, var_specific = get_variable_info(
+        metric_name
+    )
 
     if var_specific is not None and variable_name != var_specific:
         raise ValueError(
@@ -1535,40 +1736,46 @@ def plot_truth_predict_bias_1variable_landscape(
 
     # Overall title for matrix of plots if not given
     if full_title is None:
-        full_title=title_name + " - " + variable_name
+        full_title = title_name + " - " + variable_name
         if season is not None:
-            full_title=title_name + " " +season + " - " + variable_name
+            full_title = title_name + " " + season + " - " + variable_name
         if experiment_info is not None:
             full_title = full_title + " " + experiment_info
 
     # Set up list of data fields and lat/lon info for plotting to matrix
     # (row-major order)
-    field_list = [] # list of fields to be plotted
-    title_list = [] # list of titles for each single plot
-    vminmax_list = [] # list of color ranges where available else use default
-    ctitle_list = [] # list of labels for colorbar (generally the units of the variable)
-    cmap_list = [] # list of color maps (so can have different colors for bias if need be)
+    field_list = []  # list of fields to be plotted
+    title_list = []  # list of titles for each single plot
+    vminmax_list = []  # list of color ranges where available else use default
+    ctitle_list = []  # list of labels for colorbar (generally the units of the variable)
+    cmap_list = []  # list of color maps (so can have different colors for bias if need be)
 
     for nn in range(nmodels):
         model_dir = model_dir_list[nn]
         model_name = model_name_list[nn]
 
         # Build filepath for target and prediction fields
-        diagnostics_file = pre_path + model_dir + mid_path + variable_name + post_path + zarr_name
+        diagnostics_file = (
+            pre_path + model_dir + mid_path + variable_name + post_path + zarr_name
+        )
         if inv_mod_var:
             # If variable directory comes before model directory, inverse order
-            diagnostics_file = pre_path + variable_name + mid_path + model_dir + post_path + zarr_name
+            diagnostics_file = (
+                pre_path + variable_name + mid_path + model_dir + post_path + zarr_name
+            )
 
         # Load data
         ds = xr.open_zarr(diagnostics_file)
 
         if nn == 0:
             # Only load target field once
-            targ_ds = ds['value'].sel(diagnostic="targ_" + metric_name + "_field").load()
+            targ_ds = (
+                ds["value"].sel(diagnostic="targ_" + metric_name + "_field").load()
+            )
 
         # Load prediction and bias fields
-        pred_ds = ds['value'].sel(diagnostic="pred_" + metric_name + "_field").load()
-        bias_ds = ds['value'].sel(diagnostic="bias_" + metric_name + "_field").load()
+        pred_ds = ds["value"].sel(diagnostic="pred_" + metric_name + "_field").load()
+        bias_ds = ds["value"].sel(diagnostic="bias_" + metric_name + "_field").load()
 
         # Check if member dimension, if so pick correct member
         # Reduce ensemble data to single member or ensemble mean
@@ -1590,7 +1797,9 @@ def plot_truth_predict_bias_1variable_landscape(
             scale, units = get_units_scale(ds, variable_name, is_zarr=True)
 
         # Load defined colorscales if available
-        vminmax1, cmap_name1, vminmax_bias1, cmap_name_bias1 = get_example_color_scales(variable_name, metric_name)
+        vminmax1, cmap_name1, vminmax_bias1, cmap_name_bias1 = get_example_color_scales(
+            variable_name, metric_name
+        )
 
         # - Append text for single plot title
         # - Append info for colorbar label
@@ -1615,29 +1824,40 @@ def plot_truth_predict_bias_1variable_landscape(
         cmap_list.append(plt.get_cmap(cmap_name_bias1))
         vminmax_list.append(vminmax1)
         vminmax_list.append(vminmax_bias1)
-        ctitle_list.append(None) # None or repeat units for every single plot?
+        ctitle_list.append(None)  # None or repeat units for every single plot?
         ctitle_list.append(None)
 
         # Plot Maps of field metrics
         if nn == 0:
-            field_list.append(targ_ds.values * scale) # Truth just once
+            field_list.append(targ_ds.values * scale)  # Truth just once
         if nn > 0:
             field_list.append(None)
 
-        field_list.append(pred_ds.values * scale) # Prediction
-        field_list.append(bias_ds.values * scale) # Prediction bias
+        field_list.append(pred_ds.values * scale)  # Prediction
+        field_list.append(bias_ds.values * scale)  # Prediction bias
 
     lat_list = [ds[latlon_dims[0]].values] * len(field_list)
     lon_list = [ds[latlon_dims[1]].values] * len(field_list)
 
     out_filepath = plot_map_matrix_pcolormesh(
-        lon_list, lat_list, field_list, ncols=ncols, nrows=nrows,
-        vminmax=vminmax_list, filepath=out_dir + filename + ".png",
-        title_list=title_list, cbartitle_list=ctitle_list,
-        color_map_list=cmap_list, FIGWIDTH=None, FIGHEIGHT=None,
-        panel_size=2.0, title_fs=None,
-        figtitle=full_title)
+        lon_list,
+        lat_list,
+        field_list,
+        ncols=ncols,
+        nrows=nrows,
+        vminmax=vminmax_list,
+        filepath=out_dir + filename + ".png",
+        title_list=title_list,
+        cbartitle_list=ctitle_list,
+        color_map_list=cmap_list,
+        FIGWIDTH=None,
+        FIGHEIGHT=None,
+        panel_size=2.0,
+        title_fs=None,
+        figtitle=full_title,
+    )
 
     return out_filepath
+
 
 # ----------------------------------------------------------------------------
