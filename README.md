@@ -148,15 +148,15 @@ ______________________________________________________________________
 
 ## Command Line Interface (CLI)
 
-The repository provides a `ml-eval` CLI executable through `click`. It supports several workflows that partition the diagnostics for ease of computation as summarised below. The diagnostics are applied to input NetCDF datasets (ground truth and prediction) that are assumed to contain a number of different variables.
+The repository provides a `ml-eval` CLI executable through `click`. It supports several workflows that partition the diagnostics for ease of computation as summarised below. The diagnostics are applied to input NetCDF datasets (ground truth and prediction) that are assumed to contain a number of different variables. Output is stored as zarr files.
 
 ### 1. Fast-Track Workflow
 
 Computes **RMSE**, **RALSD** and also **Bias** for various indices, comparing predictions `x1` against reference `x0`.
 
-General - mean, P01, P99, lag-1 day auto-correlation, and average annual extrema.
+General: mean, P01, P99, lag-1 day auto-correlation, and average annual extrema.
 
-Precipitation specific - SDII, P98wet and R01 (average annual no. wet days wrt 1mm).
+Precipitation specific: SDII, P98wet and R01 (average annual no. wet days wrt 1mm).
 
 ```bash
 ml-eval fast --x0 <ref.nc> --x1 <pred.nc> --var <variable> --output <prefix_or_dir> [--season <season>]
@@ -172,7 +172,7 @@ ml-eval signal --hist <hist.nc> --fut <fut.nc> --var <variable> --output <prefix
 
 ### 3. Slow-Track Workflow
 
-Computes **distribution scores**, **bias of various additional indices**, and **correlation metrics** for `x1` with respect to `x0`. This is the heavier counterpart to `fast`.
+Computes **distribution scores**, **Bias** for various additional indices (including variable specific), and **correlation** metrics for `x1` with respect to `x0`. This is the heavier counterpart to `fast`.
 
 ```bash
 ml-eval slow --x0 <ref.nc> --x1 <pred.nc> --var <variable> --output <prefix_or_dir> [--season <season>]
@@ -181,7 +181,7 @@ ml-eval slow --x0 <ref.nc> --x1 <pred.nc> --var <variable> --output <prefix_or_d
 
 ### 4. Multi-Variate Workflow (`multivar`)
 
-Computes **Pearson and Spearman correlation** between two variables for the reference and prediction datasets, along with their biases.
+Computes **correlation** (Pearson and Spearman's rank) between two variables for the reference and prediction datasets, along with their biases.
 
 ```bash
 ml-eval multivar --x0 <ref.nc> --x1 <pred.nc> --var <variable> --var2 <second_variable> --output <prefix_or_dir> [--season <season>]
@@ -234,6 +234,12 @@ These optional flags are shared across most `ml-eval` subcommands (see `--help` 
 --force-load <bool>        # Load data fully into memory up front (useful for quick tests on small data)
 --use-dask <bool>          # Use a Dask distributed client for parallel processing
 ```
+
+______________________________________________________________________
+
+## Visualisation Tools
+
+Visualisation tools are being developed (ml_evaluation/viz/) to compare ML model performance using scorecards (hexagon plots and heat maps) and extended analysis figures (such as spatial maps of indices and the ML model bias). These use the output Zarr files from CLI such that the computation part of the assessment need only happen once.
 
 ______________________________________________________________________
 
