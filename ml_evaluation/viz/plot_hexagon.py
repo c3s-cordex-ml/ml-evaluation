@@ -60,6 +60,7 @@ Example
         reference="UNET-MULTI",
     )
 """
+
 from __future__ import annotations
 
 import os
@@ -75,25 +76,33 @@ EPS = 1e-12
 
 # metric key -> (zarr store, diagnostic name, use_abs). All are errors (low=best).
 METRIC_SRC = {
-    "rmse":        ("metrics_fast_float.zarr", "rmse_float",        False),
-    "ralsd":       ("metrics_fast_float.zarr", "ralsd_float",       False),
-    "bias_acorr":  ("metrics_fast_field.zarr", "bias_acorr_field",  True),
-    "bias_mean":   ("metrics_fast_field.zarr", "bias_mean_field",   True),
-    "bias_p01":    ("metrics_fast_field.zarr", "bias_p1_field",     True),
-    "bias_p99":    ("metrics_fast_field.zarr", "bias_p99_field",    True),
+    "rmse": ("metrics_fast_float.zarr", "rmse_float", False),
+    "ralsd": ("metrics_fast_float.zarr", "ralsd_float", False),
+    "bias_acorr": ("metrics_fast_field.zarr", "bias_acorr_field", True),
+    "bias_mean": ("metrics_fast_field.zarr", "bias_mean_field", True),
+    "bias_p01": ("metrics_fast_field.zarr", "bias_p1_field", True),
+    "bias_p99": ("metrics_fast_field.zarr", "bias_p99_field", True),
     "bias_rx1day": ("metrics_fast_field.zarr", "bias_max1day_field", True),
-    "bias_r01":    ("metrics_pr_field.zarr",   "bias_r1_field",     True),
-    "bias_sdii":   ("metrics_pr_field.zarr",   "bias_sdii_field",   True),
+    "bias_r01": ("metrics_pr_field.zarr", "bias_r1_field", True),
+    "bias_sdii": ("metrics_pr_field.zarr", "bias_sdii_field", True),
 }
 
 # hexagon axes (metric key, axis label) per variable type
 HEX_TEMP = [
-    ("rmse", "RMSE"), ("bias_mean", "Bias mean"), ("bias_p01", "Bias P01"),
-    ("bias_p99", "Bias P99"), ("bias_acorr", "Bias lag-1 corr"), ("ralsd", "RALSD"),
+    ("rmse", "RMSE"),
+    ("bias_mean", "Bias mean"),
+    ("bias_p01", "Bias P01"),
+    ("bias_p99", "Bias P99"),
+    ("bias_acorr", "Bias lag-1 corr"),
+    ("ralsd", "RALSD"),
 ]
 HEX_PR = [
-    ("rmse", "RMSE"), ("bias_r01", "Bias R01"), ("bias_rx1day", "Bias Rx1day"),
-    ("bias_sdii", "Bias SDII"), ("bias_acorr", "Bias lag-1 corr"), ("ralsd", "RALSD"),
+    ("rmse", "RMSE"),
+    ("bias_r01", "Bias R01"),
+    ("bias_rx1day", "Bias Rx1day"),
+    ("bias_sdii", "Bias SDII"),
+    ("bias_acorr", "Bias lag-1 corr"),
+    ("ralsd", "RALSD"),
 ]
 
 
@@ -110,19 +119,19 @@ def hexagon_axes(var):
 # RMSE↕P01, lag-1 corr↕mean, RALSD↕P99.
 SCORECARD_TEMP = [
     ("bias_acorr", "Bias lag-1 corr"),  # 0 top
-    ("rmse",       "RMSE"),             # 1 upper-left
-    ("bias_p01",   "Bias P01"),         # 2 lower-left
-    ("bias_mean",  "Bias mean"),        # 3 bottom
-    ("bias_p99",   "Bias P99"),         # 4 lower-right
-    ("ralsd",      "RALSD"),            # 5 upper-right
+    ("rmse", "RMSE"),  # 1 upper-left
+    ("bias_p01", "Bias P01"),  # 2 lower-left
+    ("bias_mean", "Bias mean"),  # 3 bottom
+    ("bias_p99", "Bias P99"),  # 4 lower-right
+    ("ralsd", "RALSD"),  # 5 upper-right
 ]
 SCORECARD_PR = [
     ("bias_acorr", "Bias lag-1 corr"),  # 0 top
-    ("rmse",       "RMSE"),             # 1 upper-left
-    ("bias_r01",   "Bias R01"),         # 2 lower-left
-    ("bias_sdii",  "Bias SDII"),        # 3 bottom
-    ("bias_rx1day", "Bias Rx1day"),     # 4 lower-right
-    ("ralsd",      "RALSD"),            # 5 upper-right
+    ("rmse", "RMSE"),  # 1 upper-left
+    ("bias_r01", "Bias R01"),  # 2 lower-left
+    ("bias_sdii", "Bias SDII"),  # 3 bottom
+    ("bias_rx1day", "Bias Rx1day"),  # 4 lower-right
+    ("ralsd", "RALSD"),  # 5 upper-right
 ]
 
 
@@ -179,8 +188,10 @@ def normalize_paths(paths):
         If ``paths`` is empty, an entry is malformed, or a label is duplicated.
     """
     if not paths:
-        raise ValueError("paths must be a non-empty {label: path} mapping "
-                         "(or a sequence of (label, path) / {'label','path'} entries).")
+        raise ValueError(
+            "paths must be a non-empty {label: path} mapping "
+            "(or a sequence of (label, path) / {'label','path'} entries)."
+        )
     if isinstance(paths, dict):
         items = list(paths.items())
     else:
@@ -239,8 +250,9 @@ def _pct_improvement(model_vals, ref_vals) -> np.ndarray:
     return pct
 
 
-def plot_hexagon(per_model, var, out_dir, *, models=None, reference=None,
-                 season="annual"):
+def plot_hexagon(
+    per_model, var, out_dir, *, models=None, reference=None, season="annual"
+):
     """Render one variable's hexagon PNG from precomputed per-model metrics.
 
     Parameters
@@ -296,10 +308,12 @@ def plot_hexagon(per_model, var, out_dir, *, models=None, reference=None,
         pad = 0.10 * max(hi - lo, 1.0)
         ymin, ymax = min(0.0, lo) - pad, max(0.0, hi) + pad
         for v in vals_by_model.values():
-            v[~np.isfinite(v)] = ymin                  # missing -> worst (inward)
+            v[~np.isfinite(v)] = ymin  # missing -> worst (inward)
         from matplotlib.ticker import MaxNLocator
-        yticks = [t for t in MaxNLocator(nbins=5).tick_values(ymin, ymax)
-                  if ymin <= t <= ymax]
+
+        yticks = [
+            t for t in MaxNLocator(nbins=5).tick_values(ymin, ymax) if ymin <= t <= ymax
+        ]
         if 0.0 not in yticks:
             yticks = sorted(yticks + [0.0])
         ylabels = ["ref" if t == 0 else f"{t:+.0f}%" for t in yticks]
@@ -331,8 +345,15 @@ def plot_hexagon(per_model, var, out_dir, *, models=None, reference=None,
     for m in models:
         vals = np.concatenate([vals_by_model[m], vals_by_model[m][:1]])
         if reference and m == reference:
-            ax.plot(closed, vals, color="0.25", lw=2.5, ls="--",
-                    label=f"{m} (ref)", zorder=5)
+            ax.plot(
+                closed,
+                vals,
+                color="0.25",
+                lw=2.5,
+                ls="--",
+                label=f"{m} (ref)",
+                zorder=5,
+            )
         else:
             ax.plot(closed, vals, color=cmap(ci % 10), lw=2, label=m)
             ax.fill(closed, vals, color=cmap(ci % 10), alpha=0.10)
@@ -340,7 +361,8 @@ def plot_hexagon(per_model, var, out_dir, *, models=None, reference=None,
 
     ax.set_title(
         f"{var} — evaluation hexagon\n({season})   {mode}",
-        fontsize=12, pad=20,
+        fontsize=12,
+        pad=20,
     )
     ax.legend(loc="upper right", bbox_to_anchor=(1.35, 1.10), fontsize=9)
     os.makedirs(out_dir, exist_ok=True)
@@ -384,8 +406,10 @@ def plot_hexagons(paths, out, variables, *, reference=None, season="annual"):
     """
     by_label = normalize_paths(paths)
     if reference is not None and reference not in by_label:
-        raise KeyError(f"reference model '{reference}' is not one of the "
-                       f"labels in paths ({', '.join(by_label)}).")
+        raise KeyError(
+            f"reference model '{reference}' is not one of the "
+            f"labels in paths ({', '.join(by_label)})."
+        )
 
     written = []
     for var in variables:
@@ -395,12 +419,15 @@ def plot_hexagons(paths, out, variables, *, reference=None, season="annual"):
             if os.path.isdir(sdir):
                 per_model[label] = read_hexagon_metrics(sdir, var)
         if reference and reference not in per_model:
-            print(f"[hexagon] {var}: reference '{reference}' has no data under "
-                  f"{metrics_dir(by_label[reference], var)!r} — skipping variable.")
+            print(
+                f"[hexagon] {var}: reference '{reference}' has no data under "
+                f"{metrics_dir(by_label[reference], var)!r} — skipping variable."
+            )
             continue
         avail = [m for m in by_label if m in per_model]
-        path = plot_hexagon(per_model, var, out, models=avail,
-                            reference=reference, season=season)
+        path = plot_hexagon(
+            per_model, var, out, models=avail, reference=reference, season=season
+        )
         if path is None:
             print(f"[hexagon] {var}: no model directory found — skipping.")
         else:
@@ -411,18 +438,31 @@ def plot_hexagons(paths, out, variables, *, reference=None, season="annual"):
 def _wedge(ax, cx, cy, i, radius, facecolor, edgecolor="white", lw=0.6):
     """Draw wedge ``i`` (0=top, counter-clockwise) of a 6-sided hexagon cell."""
     from matplotlib.patches import Polygon
+
     a0 = np.radians(90 + i * 60 - 30)
     a1 = np.radians(90 + i * 60 + 30)
-    tri = [(cx, cy),
-           (cx + radius * np.cos(a0), cy + radius * np.sin(a0)),
-           (cx + radius * np.cos(a1), cy + radius * np.sin(a1))]
-    ax.add_patch(Polygon(tri, closed=True, facecolor=facecolor,
-                         edgecolor=edgecolor, lw=lw))
+    tri = [
+        (cx, cy),
+        (cx + radius * np.cos(a0), cy + radius * np.sin(a0)),
+        (cx + radius * np.cos(a1), cy + radius * np.sin(a1)),
+    ]
+    ax.add_patch(
+        Polygon(tri, closed=True, facecolor=facecolor, edgecolor=edgecolor, lw=lw)
+    )
 
 
-def plot_multivar_skill_scorecard(paths, out, variables, *, reference, season="annual",
-                            title=None, clip=100.0, cmap="RdBu",
-                            filename=None):
+def plot_multivar_skill_scorecard(
+    paths,
+    out,
+    variables,
+    *,
+    reference,
+    season="annual",
+    title=None,
+    clip=100.0,
+    cmap="RdBu",
+    filename=None,
+):
     """Model x variable scorecard of six-wedge hexagons.
 
     One figure: rows are the labels of ``paths`` (the ``reference`` first),
@@ -463,8 +503,10 @@ def plot_multivar_skill_scorecard(paths, out, variables, *, reference, season="a
 
     by_label = normalize_paths(paths)
     if reference not in by_label:
-        raise KeyError(f"reference model '{reference}' is not one of the "
-                       f"labels in paths ({', '.join(by_label)}).")
+        raise KeyError(
+            f"reference model '{reference}' is not one of the "
+            f"labels in paths ({', '.join(by_label)})."
+        )
 
     rows = [reference] + [m for m in by_label if m != reference]
 
@@ -497,8 +539,11 @@ def plot_multivar_skill_scorecard(paths, out, variables, *, reference, season="a
                     em, er = mv.get(key, np.nan), rv.get(key, np.nan)
                     if np.isfinite(em) and np.isfinite(er) and er != 0:
                         val = 100.0 * (er - em) / er
-                fc = cmap_o(norm(max(-clip, min(clip, val)))) if np.isfinite(val) \
+                fc = (
+                    cmap_o(norm(max(-clip, min(clip, val))))
+                    if np.isfinite(val)
                     else nan_color
+                )
                 _wedge(ax, cx, cy, i, R, fc)
 
     ax.set_xlim(-0.7, ncols - 0.3)

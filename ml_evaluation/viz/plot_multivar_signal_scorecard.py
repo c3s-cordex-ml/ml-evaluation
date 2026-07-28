@@ -179,11 +179,14 @@ def _sector(ax, cx, cy, pos, radius, facecolor, edgecolor="white", lw=0.6):
         (cx + radius * np.cos(np.radians(a)), cy + radius * np.sin(np.radians(a)))
         for a in angles
     ]
-    ax.add_patch(Polygon(pts, closed=True, facecolor=facecolor,
-                         edgecolor=edgecolor, lw=lw))
+    ax.add_patch(
+        Polygon(pts, closed=True, facecolor=facecolor, edgecolor=edgecolor, lw=lw)
+    )
 
 
-def _sector_text_xy(cx: float, cy: float, pos: str, radius: float) -> tuple[float, float]:
+def _sector_text_xy(
+    cx: float, cy: float, pos: str, radius: float
+) -> tuple[float, float]:
     """Anchor for a sector's number label: midway out along its bisector."""
     ang = np.radians(_POS_LABEL_ANGLE[pos])
     return cx + 0.55 * radius * np.cos(ang), cy + 0.55 * radius * np.sin(ang)
@@ -326,7 +329,7 @@ def plot_multivar_signal_scorecard(
                     fc = cmap_o(norm(np.clip(val / m, -1.0, 1.0)))
                 else:
                     fc = nan_color
-                _sector(ax, cx, cy, pos, R, fc)   # one index = one sector
+                _sector(ax, cx, cy, pos, R, fc)  # one index = one sector
                 if annotate and np.isfinite(val):
                     tx, ty = _sector_text_xy(cx, cy, pos, R)
                     ax.text(
@@ -340,7 +343,7 @@ def plot_multivar_signal_scorecard(
                     )
 
     ax.set_xlim(-0.7, ncols - 0.3)
-    ax.set_ylim(-(nrows - 1) - 2.7, 0.9)   # bottom band holds the legend
+    ax.set_ylim(-(nrows - 1) - 2.7, 0.9)  # bottom band holds the legend
     ax.set_aspect("equal")
     ax.set_xticks(range(ncols))
     ax.set_xticklabels(
@@ -365,8 +368,7 @@ def plot_multivar_signal_scorecard(
     ax.text(
         0.5 * (x_lo + x_hi),
         y_leg - 1.0,
-        "one sector per index  ·  "
-        f"colours normalised by the {reference} row",
+        "one sector per index  ·  " f"colours normalised by the {reference} row",
         ha="center",
         va="center",
         fontsize=7.5,

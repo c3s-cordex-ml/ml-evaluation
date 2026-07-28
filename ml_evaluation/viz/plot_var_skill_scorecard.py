@@ -63,6 +63,7 @@ Example
         metrics=["rmse", "bias_mean", "bias_r01", "ralsd"],
     )
 """
+
 from __future__ import annotations
 
 import copy
@@ -82,53 +83,63 @@ EPS = 1e-12
 # metric key -> (zarr store, diagnostic, use_abs) for the plotted *value*. All are
 # errors (lower is better); bias fields are reduced to a scalar as mean(|field|).
 VALUE_SRC = {
-    "rmse":         ("metrics_fast_float.zarr", "rmse_float",         False),
-    "ralsd":        ("metrics_fast_float.zarr", "ralsd_float",        False),
-    "bias_mean":    ("metrics_fast_field.zarr", "bias_mean_field",    True),
-    "bias_p01":     ("metrics_fast_field.zarr", "bias_p1_field",      True),
-    "bias_p99":     ("metrics_fast_field.zarr", "bias_p99_field",     True),
-    "bias_acorr":   ("metrics_fast_field.zarr", "bias_acorr_field",   True),
-    "bias_rx1day":  ("metrics_fast_field.zarr", "bias_max1day_field", True),
-    "bias_r01":     ("metrics_pr_field.zarr",   "bias_r1_field",      True),
-    "bias_sdii":    ("metrics_pr_field.zarr",   "bias_sdii_field",    True),
-    "bias_p98wet":  ("metrics_pr_field.zarr",   "bias_p98wet_field",  True),
+    "rmse": ("metrics_fast_float.zarr", "rmse_float", False),
+    "ralsd": ("metrics_fast_float.zarr", "ralsd_float", False),
+    "bias_mean": ("metrics_fast_field.zarr", "bias_mean_field", True),
+    "bias_p01": ("metrics_fast_field.zarr", "bias_p1_field", True),
+    "bias_p99": ("metrics_fast_field.zarr", "bias_p99_field", True),
+    "bias_acorr": ("metrics_fast_field.zarr", "bias_acorr_field", True),
+    "bias_rx1day": ("metrics_fast_field.zarr", "bias_max1day_field", True),
+    "bias_r01": ("metrics_pr_field.zarr", "bias_r1_field", True),
+    "bias_sdii": ("metrics_pr_field.zarr", "bias_sdii_field", True),
+    "bias_p98wet": ("metrics_pr_field.zarr", "bias_p98wet_field", True),
 }
 
 # metric key -> (store, diagnostic) of the *field* the CV is computed from. The
 # float-only metrics map to their field counterpart where ml-eval writes one
 # (RMSE); RALSD has none, so its cells carry no CV line.
 CV_SRC = {
-    "rmse":        ("metrics_fast_field.zarr", "rmse_field"),
-    "bias_mean":   ("metrics_fast_field.zarr", "bias_mean_field"),
-    "bias_p01":    ("metrics_fast_field.zarr", "bias_p1_field"),
-    "bias_p99":    ("metrics_fast_field.zarr", "bias_p99_field"),
-    "bias_acorr":  ("metrics_fast_field.zarr", "bias_acorr_field"),
+    "rmse": ("metrics_fast_field.zarr", "rmse_field"),
+    "bias_mean": ("metrics_fast_field.zarr", "bias_mean_field"),
+    "bias_p01": ("metrics_fast_field.zarr", "bias_p1_field"),
+    "bias_p99": ("metrics_fast_field.zarr", "bias_p99_field"),
+    "bias_acorr": ("metrics_fast_field.zarr", "bias_acorr_field"),
     "bias_rx1day": ("metrics_fast_field.zarr", "bias_max1day_field"),
-    "bias_r01":    ("metrics_pr_field.zarr",   "bias_r1_field"),
-    "bias_sdii":   ("metrics_pr_field.zarr",   "bias_sdii_field"),
-    "bias_p98wet": ("metrics_pr_field.zarr",   "bias_p98wet_field"),
+    "bias_r01": ("metrics_pr_field.zarr", "bias_r1_field"),
+    "bias_sdii": ("metrics_pr_field.zarr", "bias_sdii_field"),
+    "bias_p98wet": ("metrics_pr_field.zarr", "bias_p98wet_field"),
 }
 
 # Column header for every selectable metric key.
 METRIC_LABELS = {
-    "rmse":        "RMSE",
-    "ralsd":       "RALSD",
-    "bias_mean":   "Mean bias",
-    "bias_p01":    "P01 bias",
-    "bias_p99":    "P99 bias",
-    "bias_acorr":  "Lag1 corr bias",
+    "rmse": "RMSE",
+    "ralsd": "RALSD",
+    "bias_mean": "Mean bias",
+    "bias_p01": "P01 bias",
+    "bias_p99": "P99 bias",
+    "bias_acorr": "Lag1 corr bias",
     "bias_rx1day": "Rx1day bias",
-    "bias_r01":    "Wet-day freq bias",
-    "bias_sdii":   "SDII bias",
+    "bias_r01": "Wet-day freq bias",
+    "bias_sdii": "SDII bias",
     "bias_p98wet": "P98Wet bias",
 }
 
 # Default column set (metric keys, in order) when the caller passes no ``metrics``.
 DEFAULT_METRICS_TEMP = [
-    "rmse", "bias_mean", "bias_p01", "bias_p99", "ralsd", "bias_acorr",
+    "rmse",
+    "bias_mean",
+    "bias_p01",
+    "bias_p99",
+    "ralsd",
+    "bias_acorr",
 ]
 DEFAULT_METRICS_PR = [
-    "rmse", "bias_mean", "bias_r01", "bias_sdii", "bias_p98wet", "ralsd",
+    "rmse",
+    "bias_mean",
+    "bias_r01",
+    "bias_sdii",
+    "bias_p98wet",
+    "ralsd",
     "bias_acorr",
 ]
 
@@ -318,7 +329,7 @@ def render_var_skill_scorecard(
         entry = per_model[model].get(key, (np.nan, np.nan))
         if isinstance(entry, tuple):
             return float(entry[0]), float(entry[1])
-        return float(entry), np.nan       # plain {metric: value} mapping
+        return float(entry), np.nan  # plain {metric: value} mapping
 
     values = np.array([[_cell(m, k)[0] for k in keys] for m in models])
     cvs = np.array([[_cell(m, k)[1] for k in keys] for m in models])
@@ -329,7 +340,7 @@ def render_var_skill_scorecard(
     nrows, ncols = len(models), len(keys)
     fig, ax = plt.subplots(figsize=(1.15 * ncols + 4.0, 0.72 * nrows + 3.2))
     masked = np.ma.masked_invalid(scores)
-    cmap_o = copy.copy(plt.get_cmap(cmap))   # copy: never mutate the global cmap
+    cmap_o = copy.copy(plt.get_cmap(cmap))  # copy: never mutate the global cmap
     cmap_o.set_bad("0.9")
     im = ax.imshow(masked, cmap=cmap_o, vmin=0.0, vmax=1.0, aspect="auto")
 
@@ -341,8 +352,16 @@ def render_var_skill_scorecard(
                 txt = _fmt_value(values[r, c])
                 if np.isfinite(cvs[r, c]):
                     txt += f"\nCV {cvs[r, c]:.2f}"
-                ax.text(c, r, txt, ha="center", va="center", fontsize=7.5,
-                        fontweight="bold", color=text_color)
+                ax.text(
+                    c,
+                    r,
+                    txt,
+                    ha="center",
+                    va="center",
+                    fontsize=7.5,
+                    fontweight="bold",
+                    color=text_color,
+                )
 
     ax.set_xticks(range(ncols))
     ax.set_xticklabels(labels, rotation=90)
@@ -363,9 +382,7 @@ def render_var_skill_scorecard(
     ax.set_title(head, fontsize=13, pad=12)
 
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(
-        out_dir, filename or f"var_skill_scorecard_{var}_{season}.png"
-    )
+    path = os.path.join(out_dir, filename or f"var_skill_scorecard_{var}_{season}.png")
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"[var-skill-scorecard] {path}  (models: {', '.join(models)})")
@@ -420,8 +437,9 @@ def plot_var_skill_scorecard(
             if os.path.isdir(d):
                 per_model[label] = read_var_skill_metrics(d, var, metrics)
         avail = [m for m in by_label if m in per_model]
-        path = render_var_skill_scorecard(per_model, var, out, models=avail,
-                                    metrics=metrics, season=season, **kwargs)
+        path = render_var_skill_scorecard(
+            per_model, var, out, models=avail, metrics=metrics, season=season, **kwargs
+        )
         if path is None:
             print(f"[var-skill-scorecard] {var}: no model directory found — skipping.")
         else:

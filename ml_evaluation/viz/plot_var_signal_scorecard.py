@@ -64,6 +64,7 @@ Example
         reference="RCM",
     )
 """
+
 from __future__ import annotations
 
 import copy
@@ -269,10 +270,11 @@ def render_var_signal_scorecard(
 
     nrows, ncols = len(models), len(cells)
     fig, ax = plt.subplots(figsize=(1.15 * ncols + 4.0, 0.72 * nrows + 3.2))
-    cmap_o = copy.copy(plt.get_cmap(cmap))   # copy: never mutate the global cmap
+    cmap_o = copy.copy(plt.get_cmap(cmap))  # copy: never mutate the global cmap
     cmap_o.set_bad("0.85")
-    im = ax.imshow(np.ma.masked_invalid(colours), cmap=cmap_o,
-                   vmin=-1.0, vmax=1.0, aspect="auto")
+    im = ax.imshow(
+        np.ma.masked_invalid(colours), cmap=cmap_o, vmin=-1.0, vmax=1.0, aspect="auto"
+    )
 
     if annotate:
         for r in range(nrows):
@@ -281,11 +283,12 @@ def render_var_signal_scorecard(
                 if not txt:
                     continue
                 pos = colours[r, c]
-                colour = "0.3" if not np.isfinite(pos) else _text_color(
-                    cmap_o((pos + 1.0) / 2.0)
+                colour = (
+                    "0.3"
+                    if not np.isfinite(pos)
+                    else _text_color(cmap_o((pos + 1.0) / 2.0))
                 )
-                ax.text(c, r, txt, ha="center", va="center", fontsize=8,
-                        color=colour)
+                ax.text(c, r, txt, ha="center", va="center", fontsize=8, color=colour)
 
     ax.set_xticks(range(ncols))
     ax.set_xticklabels(labels, rotation=90)
@@ -306,7 +309,8 @@ def render_var_signal_scorecard(
 
     cb = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
     cb.set_label(
-        f"CC signal / |{reference} signal|  (clipped ±1)" if ref_index is not None
+        f"CC signal / |{reference} signal|  (clipped ±1)"
+        if ref_index is not None
         else "CC signal / column max |signal|"
     )
 
@@ -314,9 +318,7 @@ def render_var_signal_scorecard(
     ax.set_title(head, fontsize=13, pad=12)
 
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(
-        out_dir, filename or f"var_signal_scorecard_{var}_{season}.png"
-    )
+    path = os.path.join(out_dir, filename or f"var_signal_scorecard_{var}_{season}.png")
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"[var-signal-scorecard] {path}  (rows: {', '.join(models)})")
@@ -369,8 +371,10 @@ def plot_var_signal_scorecard(
     """
     by_label = normalize_paths(paths)
     if reference is not None and reference not in by_label:
-        raise KeyError(f"reference '{reference}' is not one of the labels in "
-                       f"paths ({', '.join(by_label)}).")
+        raise KeyError(
+            f"reference '{reference}' is not one of the labels in "
+            f"paths ({', '.join(by_label)})."
+        )
 
     written = []
     for var in variables:
@@ -381,12 +385,21 @@ def plot_var_signal_scorecard(
                 per_model[label] = read_var_signal_metrics(d, var, indices, kinds)
         avail = [m for m in by_label if m in per_model]
         path = render_var_signal_scorecard(
-            per_model, var, out, models=avail, indices=indices, kinds=kinds,
-            reference=reference, season=season, **kwargs
+            per_model,
+            var,
+            out,
+            models=avail,
+            indices=indices,
+            kinds=kinds,
+            reference=reference,
+            season=season,
+            **kwargs,
         )
         if path is None:
-            print(f"[var-signal-scorecard] {var}: no source directory found "
-                  "— skipping.")
+            print(
+                f"[var-signal-scorecard] {var}: no source directory found "
+                "— skipping."
+            )
         else:
             written.append(path)
     return written
