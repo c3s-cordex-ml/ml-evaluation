@@ -8,15 +8,12 @@ This repository is structured as a standard Python package with self-contained e
 
 - `ml_evaluation/` - Core package containing the Python source code:
   - `cli.py` - Command-line interface definitions and logic using `click`.
+  - `io.py` - Dataset loading and Zarr-writing utilities, plus default Dask cluster parameters.
+  - `transformations.py` - Dimension alignment and threshold/unit conversion helpers shared across CLI workflows.
   - `evaluation/` - Core and extended evaluation indices and diagnostics.
     - `indices.py` - Standard evaluation indices (e.g., mean, wet/dry day frequency).
     - `diagnostics.py` - Standard performance diagnostics comparing predictions and reference data (e.g., bias, RMSE, correlation).
-    - `indices_plus.py` - Extended/advanced indices.
-    - `diagnostics_plus.py` - Extended/advanced performance diagnostics (e.g., power spectral density, Wasserstein distance).
-  - `format_predictions/` - Utilities for formatting and templates for model predictions.
-    - `templates/` - NetCDF template files matching CORDEX-ML-Bench expected schemas (ALPS, NZ, SA regions).
-- `requirements/` - Conda environment configurations.
-  - `environment.yaml` - Legacy Conda environment description.
+- `environment.yaml` - Legacy Conda environment description.
 - `tests/` - Unit tests for testing the CLI, diagnostics, and indices.
 - `Dockerfile` - Docker configuration to containerize the evaluation environment and CLI.
 - `pixi.toml` - Project configuration file for Pixi, specifying Conda and PyPI dependencies, build platforms, and developer tasks.
@@ -72,11 +69,11 @@ To set up the development environment using Conda:
 
 1. Create a conda environment from the provided environment file:
    ```bash
-   conda env create -f requirements/environment.yaml
+   conda env create -f environment.yaml
    ```
 1. Activate the environment:
    ```bash
-   conda activate rcm-emulation
+   conda activate env
    ```
 1. Install the package in editable mode:
    ```bash
@@ -151,22 +148,51 @@ ______________________________________________________________________
 
 ## Command Line Interface (CLI)
 
-The repository provides a `ml-eval` CLI executable through `click`. It supports two workflows: a fast-track workflow for computationally inexpensive metrics, and a slow-track workflow for heavy metrics.
+The repository provides a `ml-eval` CLI executable through `click`. It supports several workflows that partition the diagnostics for ease of computation as summarised below. The diagnostics are applied to input NetCDF datasets (ground truth and prediction) that are assumed to contain a number of different variables.
 
 ### 1. Fast-Track Workflow
 
-Computes **Mean Bias**, **RMSE**, and **Pearson Correlation** on input NetCDF datasets.
+Computes **RMSE**, **RALSD** and also **Bias** for various indices, comparing predictions `x1` against reference `x0`.
+
+General - mean, P01, P99, lag-1 day auto-correlation, and average annual extrema.
+
+Precipitation specific - SDII, P98wet and R01 (average annual no. wet days wrt 1mm).
 
 ```bash
 ml-eval fast --x0 <ref.nc> --x1 <pred.nc> --var <variable> --output <prefix_or_dir> [--season <season>]
 ```
 
-### 2. Slow-Track Workflow
+### 2. Climate-Change-Signal Workflow (`signal`)
 
-Computes **Power Spectral Density (PSD)**, **Radially Averaged Log Spectral Distance (RALSD)**, and **Spatial Wasserstein Distance**.
+Computes the change of each climatological index (mean/P01/P99 for non-precip variables; R01/SDII/RX1day for precip) between a historical and future period, for a single source (RCM-truth or a model). This workflow is source-agnostic and does not require ground truth - the signal *bias* between two sources (e.g. model vs. RCM-truth) is obtained downstream by comparing two `signal` output bundles.
+
+```bash
+ml-eval signal --hist <hist.nc> --fut <fut.nc> --var <variable> --output <prefix_or_dir> [--season <season>]
+```
+
+### 3. Slow-Track Workflow
+
+Computes **distribution scores**, **bias of various additional indices**, and **correlation metrics** for `x1` with respect to `x0`. This is the heavier counterpart to `fast`.
 
 ```bash
 ml-eval slow --x0 <ref.nc> --x1 <pred.nc> --var <variable> --output <prefix_or_dir> [--season <season>]
+
+```
+
+### 4. Multi-Variate Workflow (`multivar`)
+
+Computes **Pearson and Spearman correlation** between two variables for the reference and prediction datasets, along with their biases.
+
+```bash
+ml-eval multivar --x0 <ref.nc> --x1 <pred.nc> --var <variable> --var2 <second_variable> --output <prefix_or_dir> [--season <season>]
+```
+
+### 5. Probabilistic Workflow (`prob`)
+
+Computes **CRPS**, **Brier Score**, and the **spread-error ratio** between `x0` and `x1`, evaluated across the full ensemble (no `--member-num` selection).
+
+```bash
+ml-eval prob --x0 <ref.nc> --x1 <pred.nc> --var <variable> --output <prefix_or_dir> [--season <season>]
 ```
 
 ### Docker Integration (Kubernetes ready)
@@ -197,19 +223,17 @@ pixi run -e dev python -m ml_evaluation.cli slow --x0 <ref.nc> --x1 <pred.nc> --
 
 ### Optional Input Parameters for ml-eval
 
+These optional flags are shared across most `ml-eval` subcommands (see `--help` on each command for exact availability):
+
 ```bash
---season <season> # Option to filter by standard seasons or months
---cal365 <bool> # Option to align data to 365day calendar
+--season <season>          # Filter by standard season (DJF, MAM, JJA, SON) or a single month (e.g. JAN)
+--align-leap-days <bool>   # Align datasets to a standard calendar by filling missing leap days
+--member-num <int>         # Evaluate a single ensemble member (>=0, selected by position) or the
+                            #   ensemble mean (-1 or omitted). Ignored with a warning if no member
+                            #   dimension is present. Not available on `prob`.
+--force-load <bool>        # Load data fully into memory up front (useful for quick tests on small data)
+--use-dask <bool>          # Use a Dask distributed client for parallel processing
 ```
-
-______________________________________________________________________
-
-## Prediction Formatting & Templates
-
-This package provides templates to prepare model predictions for CORDEX-ML-Benchmark:
-
-- Ready-to-fill templates (NetCDF files matching the benchmark's expected schema) are located in `ml_evaluation/format_predictions/templates/`.
-- Use the files in `ml_evaluation/format_predictions/templates/` directly as a starting point. They contain the correct dimensions, coordinates, and a placeholder field for the requested variable. Replace the values with your model predictions, preserving the coordinate and dimension structures.
 
 ______________________________________________________________________
 
