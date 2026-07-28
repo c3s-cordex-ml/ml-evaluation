@@ -7,6 +7,7 @@ This module builds on the set of evaluation indices and diagnostics recommended 
 This repository is structured as a standard Python package with self-contained environments managed by Pixi or Conda:
 
 - `ml_evaluation/` - Core package containing the Python source code:
+  - `chunking.py` - Optimisation of chunks if Dask parallel processing approach is used.
   - `cli.py` - Command-line interface definitions and logic using `click`.
   - `io.py` - Dataset loading and Zarr-writing utilities, plus default Dask cluster parameters.
   - `transformations.py` - Dimension alignment and threshold/unit conversion helpers shared across CLI workflows.
@@ -73,7 +74,7 @@ To set up the development environment using Conda:
    ```
 1. Activate the environment:
    ```bash
-   conda activate env
+   conda activate ml-evaluation
    ```
 1. Install the package in editable mode:
    ```bash
