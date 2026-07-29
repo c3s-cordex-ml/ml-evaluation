@@ -6,6 +6,91 @@ import pandas as pd
 import cftime
 
 
+# Horizontal dimension names, most specific convention first. A regular grid
+# dimensioned by lat/lon (TROPICAL) matches the first pair; a rotated or
+# otherwise curvilinear grid dimensioned by y/x with 2-D lat(y,x)/lon(y,x)
+# coordinates (CORDEX-BENCH-ALPS) matches the second.
+SPATIAL_DIM_CANDIDATES: tuple[tuple[str, str], ...] = (
+    ("lat", "lon"),
+    ("latitude", "longitude"),
+    ("y", "x"),
+    ("rlat", "rlon"),
+)
+
+
+def spatial_dims(obj: xr.DataArray | xr.Dataset, var: str | None = None) -> tuple[str, str]:
+    """
+    The two horizontal dimensions of a variable, whatever convention it uses.
+
+    Resolution is done on the DIMENSIONS OF THE VARIABLE, never on coordinate
+    names and never on ``Dataset.dims``. That distinction is what makes the
+    common curvilinear layout unambiguous: a CORDEX file carries lat, lon, y
+    and x all four as coordinates, but its data variables are dimensioned by
+    (y, x) alone, with lat and lon as 2-D auxiliary coordinates over them. Only
+    (y, x) can be reduced over, and only (y, x) is returned here.
+
+    Passing a Dataset without ``var`` resolves against the dataset's dimensions
+    and is therefore only safe when every variable shares one horizontal grid;
+    prefer passing the DataArray, or the Dataset plus the variable name.
+
+    Parameters
+    ----------
+    obj : xr.DataArray or xr.Dataset
+        The object whose horizontal dims are wanted.
+    var : str, optional
+        Variable to resolve against when ``obj`` is a Dataset.
+
+    Returns
+    -------
+    tuple of str
+        The (vertical, horizontal) dimension names, e.g. ("lat", "lon") or
+        ("y", "x").
+
+    Raises
+    ------
+    ValueError
+        If no candidate pair is present, or if several are and the trailing
+        two dimensions do not settle which one carries the data.
+    """
+    if var is not None:
+        obj = obj[var]
+    dims = tuple(str(d) for d in obj.dims)
+    dim_set = set(dims)
+
+    matches = [pair for pair in SPATIAL_DIM_CANDIDATES if set(pair) <= dim_set]
+    if not matches:
+        raise ValueError(
+            f"No horizontal dimensions found in {dims}; expected one of "
+            f"{[list(p) for p in SPATIAL_DIM_CANDIDATES]}."
+        )
+    if len(matches) > 1:
+        # Both conventions are dimensions of the same variable (rare). The
+        # horizontal axes are the trailing two by convention -- if that picks
+        # one of the candidates, trust it; otherwise refuse to guess.
+        trailing = set(dims[-2:])
+        trailing_matches = [pair for pair in matches if set(pair) == trailing]
+        if len(trailing_matches) != 1:
+            raise ValueError(
+                f"Ambiguous horizontal dimensions in {dims}: "
+                f"{[list(p) for p in matches]} all present."
+            )
+        return trailing_matches[0]
+    return matches[0]
+
+
+def spatial_dims_present(obj: xr.DataArray | xr.Dataset, var: str | None = None) -> tuple[str, ...]:
+    """
+    Like :func:`spatial_dims`, but returns ``()`` instead of raising.
+
+    For code that merely wants to reduce over the horizontal dims if there are
+    any (spatial means over already-reduced metrics, chunk sizing, ...).
+    """
+    try:
+        return spatial_dims(obj, var)
+    except ValueError:
+        return ()
+
+
 def align_calendar(
     dataset: xr.Dataset, align_leap_days: str | None = None
 ) -> xr.Dataset:

@@ -25,6 +25,8 @@ from ml_evaluation.io import load_dataset, write_zarr, dask_default_params
 from ml_evaluation.transformations import (
     align_dims,
     convert_threshold_units,
+    spatial_dims,
+    spatial_dims_present,
 )
 
 
@@ -81,7 +83,8 @@ def _select_member(ds, var: str, member_num: int | None):
     """
     if member_num is None or member_num < 0:
         return ds
-    extra = [d for d in ds[var].dims if d not in ("time", "lat", "lon")]
+    reduced = ("time",) + spatial_dims_present(ds, var)
+    extra = [d for d in ds[var].dims if d not in reduced]
     if not extra:
         click.echo("WARNING: --member-num ignored (no member dimension in data)")
         return ds
@@ -228,6 +231,9 @@ def fast(
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
 
     x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
+    # Horizontal dims of THIS variable: (lat, lon) on a regular grid,
+    # (y, x) on a curvilinear one where lat/lon are 2-D coordinates.
+    sdims = spatial_dims(x1_ds, var)
 
     # Force loading when testing on smaller datasets so quick to run
     # Works well on 6 years 3 members
@@ -258,7 +264,7 @@ def fast(
         x1_ds,
         var=var,
         season=season,
-        dim=("time", "lat", "lon"),
+        dim=("time", *sdims),
     )
 
     # -------------------
@@ -792,6 +798,9 @@ def slow(
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
 
     x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
+    # Horizontal dims of THIS variable: (lat, lon) on a regular grid,
+    # (y, x) on a curvilinear one where lat/lon are 2-D coordinates.
+    sdims = spatial_dims(x1_ds, var)
 
     # Force loading when testing on smaller datasets so quick to run
     # Works well on 6 years 3 members
@@ -923,7 +932,7 @@ def slow(
         var=var,
         season=season,
         index_fn=None,
-        dim=("time", "lat", "lon"),
+        dim=("time", *sdims),
         bins_arr=None,
         nbins=100,
         bin_target_only=True,
@@ -939,7 +948,7 @@ def slow(
         var=var,
         season=season,
         index_fn=None,
-        dim=("time", "lat", "lon"),
+        dim=("time", *sdims),
         bins_arr=None,
         nbins=100,
         bin_target_only=True,
@@ -955,7 +964,7 @@ def slow(
         var=var,
         season=season,
         index_fn=None,
-        dim=("time", "lat", "lon"),
+        dim=("time", *sdims),
         bins_arr=None,
         nbins=100,
         bin_target_only=True,
@@ -971,7 +980,7 @@ def slow(
         var=var,
         season=season,
         index_fn=None,
-        dim=("time", "lat", "lon"),
+        dim=("time", *sdims),
         bins_arr=None,
         nbins=100,
         bin_target_only=True,
@@ -1028,7 +1037,7 @@ def slow(
         x1_ds,
         var=var,
         season=season,
-        dim=("lat", "lon"),
+        dim=sdims,
     )
 
     # Compute Pearson Correlation of daily data (over lat, lon): series
@@ -1038,7 +1047,7 @@ def slow(
         x1_ds,
         var=var,
         season=season,
-        dim=("lat", "lon"),
+        dim=sdims,
     )
 
     # Compute Spearman Correlation of daily data (over lat, lon): series
@@ -1050,7 +1059,7 @@ def slow(
         x1_ds,
         var=var,
         season=season,
-        dim=("lat", "lon"),
+        dim=sdims,
         srank=True,
     )
 
@@ -1434,6 +1443,8 @@ def multivar(
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
 
     x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
+    # Horizontal dims of THIS variable: (lat, lon) on a regular grid,
+    # (y, x) on a curvilinear one where lat/lon are 2-D coordinates.
 
     # Force loading when testing on smaller datasets so quick to run
     # Works well on 6 years 3 members
@@ -1599,6 +1610,7 @@ def prob(
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
 
     x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=None)
+    sdims = spatial_dims(x1_ds, var)
 
     nmem = x1_ds.sizes[member_dim]
 
@@ -1627,7 +1639,7 @@ def prob(
 
     # Compute mean crps (over time, lat, lon): float
     click.echo("Computing mean crps (over time, lat, lon): float...")
-    crps_ds = crpsf_ds.mean(dim=("lat", "lon"))
+    crps_ds = crpsf_ds.mean(dim=sdims)
 
     # -------------------
     # Brier Score
@@ -1649,7 +1661,7 @@ def prob(
 
     # Compute mean brier score wrt p50 (over time, lat, lon): float
     click.echo("Computing mean brier score wrt p50 (over time, lat, lon): float...")
-    bs50p_ds = bs50pf_ds.mean(dim=("lat", "lon"))
+    bs50p_ds = bs50pf_ds.mean(dim=sdims)
 
     # -------------------
     # Spread-Error statistics
@@ -1671,7 +1683,7 @@ def prob(
             x0_ds,
             x1_ds,
             var=var,
-            dim=("time", "lat", "lon"),
+            dim=("time", *sdims),
             season=season,
         )
 
@@ -1954,6 +1966,8 @@ def cdextremes(
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
 
     x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
+    # Horizontal dims of THIS variable: (lat, lon) on a regular grid,
+    # (y, x) on a curvilinear one where lat/lon are 2-D coordinates.
 
     # Force loading when testing on smaller datasets so quick to run
     # Works well on 6 years 3 members

@@ -2,8 +2,10 @@
 Per-variable *performance scorecard* heatmap for ML RCM emulators.
 
 One figure per variable: rows are emulators, columns are the evaluation metrics,
-read from the zarr bundles an ``ml-eval fast`` call writes (metrics_fast_float /
-metrics_fast_field / metrics_pr_field). Unlike the six-wedge hexagon scorecard in
+read from the zarr bundles ``ml-eval fast`` writes (metrics_fast_float /
+metrics_fast_field / metrics_fast_pr_field) and, for the distribution-distance
+and variability columns, the ones ``ml-eval slow`` writes (metrics_slow_field)
+into the same directory. Unlike the six-wedge hexagon scorecard in
 ``plot_hexagon.plot_multivar_skill_scorecard`` (one cell per model x variable, coloured
 against a
 reference model), here every metric gets its own column and the comparison is
@@ -90,9 +92,19 @@ VALUE_SRC = {
     "bias_p99": ("metrics_fast_field.zarr", "bias_p99_field", True),
     "bias_acorr": ("metrics_fast_field.zarr", "bias_acorr_field", True),
     "bias_rx1day": ("metrics_fast_field.zarr", "bias_max1day_field", True),
-    "bias_r01": ("metrics_pr_field.zarr", "bias_r1_field", True),
-    "bias_sdii": ("metrics_pr_field.zarr", "bias_sdii_field", True),
-    "bias_p98wet": ("metrics_pr_field.zarr", "bias_p98wet_field", True),
+    "bias_r01": ("metrics_fast_pr_field.zarr", "bias_r1_field", True),
+    "bias_sdii": ("metrics_fast_pr_field.zarr", "bias_sdii_field", True),
+    "bias_p98wet": ("metrics_fast_pr_field.zarr", "bias_p98wet_field", True),
+    # --- slow track (metrics_slow_*.zarr, written by `ml-eval slow`) ---------
+    # Only the error-type diagnostics are exposed: pss / pcorr / scorr are
+    # higher-is-better and would score inverted under `_scores`, which treats
+    # every column as an error.
+    "wd": ("metrics_slow_field.zarr", "wd_field", False),
+    "wdh": ("metrics_slow_field.zarr", "wdh_field", False),
+    "fcss": ("metrics_slow_field.zarr", "fcss_field", False),
+    "lhd": ("metrics_slow_field.zarr", "lhd_field", False),
+    "bias_annstd": ("metrics_slow_field.zarr", "bias_annstd_field", True),
+    "bias_p90": ("metrics_slow_field.zarr", "bias_p90_field", True),
 }
 
 # metric key -> (store, diagnostic) of the *field* the CV is computed from. The
@@ -105,9 +117,15 @@ CV_SRC = {
     "bias_p99": ("metrics_fast_field.zarr", "bias_p99_field"),
     "bias_acorr": ("metrics_fast_field.zarr", "bias_acorr_field"),
     "bias_rx1day": ("metrics_fast_field.zarr", "bias_max1day_field"),
-    "bias_r01": ("metrics_pr_field.zarr", "bias_r1_field"),
-    "bias_sdii": ("metrics_pr_field.zarr", "bias_sdii_field"),
-    "bias_p98wet": ("metrics_pr_field.zarr", "bias_p98wet_field"),
+    "bias_r01": ("metrics_fast_pr_field.zarr", "bias_r1_field"),
+    "bias_sdii": ("metrics_fast_pr_field.zarr", "bias_sdii_field"),
+    "bias_p98wet": ("metrics_fast_pr_field.zarr", "bias_p98wet_field"),
+    "wd": ("metrics_slow_field.zarr", "wd_field"),
+    "wdh": ("metrics_slow_field.zarr", "wdh_field"),
+    "fcss": ("metrics_slow_field.zarr", "fcss_field"),
+    "lhd": ("metrics_slow_field.zarr", "lhd_field"),
+    "bias_annstd": ("metrics_slow_field.zarr", "bias_annstd_field"),
+    "bias_p90": ("metrics_slow_field.zarr", "bias_p90_field"),
 }
 
 # Column header for every selectable metric key.
@@ -122,6 +140,12 @@ METRIC_LABELS = {
     "bias_r01": "Wet-day freq bias",
     "bias_sdii": "SDII bias",
     "bias_p98wet": "P98Wet bias",
+    "wd": "Wasserstein",
+    "wdh": "Wasserstein (PDF)",
+    "fcss": "FCSS",
+    "lhd": "LHD",
+    "bias_annstd": "Ann. std bias",
+    "bias_p90": "P90 bias",
 }
 
 # Default column set (metric keys, in order) when the caller passes no ``metrics``.

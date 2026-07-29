@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import xarray as xr
 
+from ml_evaluation.transformations import spatial_dims_present
+
 
 def get_optimized_chunks(
     dataset: xr.Dataset, var_name: str = "value"
@@ -30,13 +32,14 @@ def get_optimized_chunks(
         raise ValueError(f"Variable '{var_name}' not found in dataset.")
 
     da = dataset[var_name]
+    sdims = spatial_dims_present(da)
     chunks: list[int] = []
 
     for dim in da.dims:
         size = da.sizes[dim]
         if dim == "diagnostic":
             chunks.append(1)
-        elif dim in ("lat", "lon"):
+        elif dim in sdims:
             if size > 500:
                 chunks.append(250)
             else:

@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 import xarray as xr
 
+from ml_evaluation.transformations import spatial_dims
+
 from ml_evaluation.evaluation.utils import (
     filter_by_monthseason,
     xr_assign_dayofyear_noleap,
@@ -326,17 +328,18 @@ def ann_freq_wrt_array(
         threshold_new = threshold
     elif isinstance(threshold, xr.Dataset):
         # Should include check that shape matches
-        if (
-            da.sizes["lat"] != threshold.sizes["lat"]
-            or da.sizes["lon"] != threshold.sizes["lon"]
-        ):
+        sdims = spatial_dims(da, var)
+        if any(da.sizes[d] != threshold.sizes.get(d) for d in sdims):
             raise ValueError(
-                f"Spatial shape mismatch: input ({da.sizes['lat']}, {da.sizes['lon']}) "
-                f"!= threshold ({threshold.sizes['lat']}, {threshold.sizes['lon']})"
+                f"Spatial shape mismatch: input "
+                f"({', '.join(str(da.sizes[d]) for d in sdims)}) "
+                f"!= threshold "
+                f"({', '.join(str(threshold.sizes.get(d)) for d in sdims)}) "
+                f"on dims {sdims}"
             )
 
         dims_thresh = set(threshold.dims)
-        other_dims_thresh = dims_thresh - {"lat", "lon"}
+        other_dims_thresh = dims_thresh - set(sdims)
 
         if not other_dims_thresh:
             threshold_new = threshold
@@ -451,17 +454,18 @@ def ann_maxspell_wrt_array(
         threshold_new = threshold
     elif isinstance(threshold, xr.Dataset):
         # Should include check that shape matches
-        if (
-            da.sizes["lat"] != threshold.sizes["lat"]
-            or da.sizes["lon"] != threshold.sizes["lon"]
-        ):
+        sdims = spatial_dims(da, var)
+        if any(da.sizes[d] != threshold.sizes.get(d) for d in sdims):
             raise ValueError(
-                f"Spatial shape mismatch: input ({da.sizes['lat']}, {da.sizes['lon']}) "
-                f"!= threshold ({threshold.sizes['lat']}, {threshold.sizes['lon']})"
+                f"Spatial shape mismatch: input "
+                f"({', '.join(str(da.sizes[d]) for d in sdims)}) "
+                f"!= threshold "
+                f"({', '.join(str(threshold.sizes.get(d)) for d in sdims)}) "
+                f"on dims {sdims}"
             )
 
         dims_thresh = set(threshold.dims)
-        other_dims_thresh = dims_thresh - {"lat", "lon"}
+        other_dims_thresh = dims_thresh - set(sdims)
 
         if not other_dims_thresh:
             threshold_new = threshold

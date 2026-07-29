@@ -17,6 +17,7 @@ from ml_evaluation.evaluation.utils import (
     radial_average,
     xr_spearman_corr,
 )
+from ml_evaluation.transformations import spatial_dims
 
 
 def bias_index(
@@ -1331,17 +1332,18 @@ def data_to_binary(
         # Pull out the matching variable var so work with a DataArray
         thresh_da = threshold[var] if isinstance(threshold, xr.Dataset) else threshold
 
-        if (
-            x.sizes["lat"] != thresh_da.sizes["lat"]
-            or x.sizes["lon"] != thresh_da.sizes["lon"]
-        ):
+        sdims = spatial_dims(x, var)
+        if any(x.sizes[d] != thresh_da.sizes.get(d) for d in sdims):
             raise ValueError(
-                f"Spatial shape mismatch: input ({x.sizes['lat']}, {x.sizes['lon']}) "
-                f"!= threshold ({thresh_da.sizes['lat']}, {thresh_da.sizes['lon']})"
+                f"Spatial shape mismatch: input "
+                f"({', '.join(str(x.sizes[d]) for d in sdims)}) "
+                f"!= threshold "
+                f"({', '.join(str(thresh_da.sizes.get(d)) for d in sdims)}) "
+                f"on dims {sdims}"
             )
 
         dims_thresh = set(thresh_da.dims)
-        other_dims_thresh = dims_thresh - {"lat", "lon"}
+        other_dims_thresh = dims_thresh - set(sdims)
         if not other_dims_thresh:
             threshold_new = thresh_da
         else:

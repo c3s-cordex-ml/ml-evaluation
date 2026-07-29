@@ -3,7 +3,7 @@ Evaluation *hexagon* radar plots for ML RCM emulators.
 
 Renders the 6-metric performance hexagon per variable from the zarr bundles a
 reference ``ml-eval fast`` call writes (metrics_fast_field / metrics_fast_float /
-metrics_pr_field). Each store holds one ``value`` array stacked along a
+metrics_fast_pr_field). Each store holds one ``value`` array stacked along a
 ``diagnostic`` dimension, selected with ``ds["value"].sel(diagnostic=<name>)``.
 
 The hexagon axes differ by variable:
@@ -83,8 +83,8 @@ METRIC_SRC = {
     "bias_p01": ("metrics_fast_field.zarr", "bias_p1_field", True),
     "bias_p99": ("metrics_fast_field.zarr", "bias_p99_field", True),
     "bias_rx1day": ("metrics_fast_field.zarr", "bias_max1day_field", True),
-    "bias_r01": ("metrics_pr_field.zarr", "bias_r1_field", True),
-    "bias_sdii": ("metrics_pr_field.zarr", "bias_sdii_field", True),
+    "bias_r01": ("metrics_fast_pr_field.zarr", "bias_r1_field", True),
+    "bias_sdii": ("metrics_fast_pr_field.zarr", "bias_sdii_field", True),
 }
 
 # hexagon axes (metric key, axis label) per variable type

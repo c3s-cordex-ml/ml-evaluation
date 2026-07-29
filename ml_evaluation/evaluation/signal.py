@@ -48,6 +48,10 @@ import xarray as xr
 
 from ml_evaluation.evaluation import indices
 from ml_evaluation.evaluation.utils import filter_by_monthseason
+from ml_evaluation.transformations import (
+    SPATIAL_DIM_CANDIDATES,
+    spatial_dims_present,
+)
 
 # Relative-delta guard: mask where the historical baseline is below this (in
 # canonical units: mm/day for pr, K for temperature).
@@ -217,7 +221,7 @@ def snap_grid(ref: xr.Dataset, other: xr.Dataset) -> xr.Dataset:
     xr.Dataset
         ``other`` with lat/lon aligned to ``ref`` where within tolerance.
     """
-    for c in ("lat", "lon"):
+    for c in sorted({n for pair in SPATIAL_DIM_CANDIDATES for n in pair}):
         if c in ref.coords and c in other.coords:
             rv, ov = ref[c].values, other[c].values
             if (
@@ -236,7 +240,7 @@ def _drop_extra(da: xr.DataArray, keep: tuple[str, ...]) -> xr.DataArray:
 
 
 def _spatial_mean(da: xr.DataArray) -> xr.DataArray:
-    dims = [d for d in ("lat", "lon") if d in da.dims]
+    dims = list(spatial_dims_present(da))
     return da.mean(dims) if dims else da
 
 
@@ -251,7 +255,7 @@ def _period_field(
     """Period climatology of one index as a ``(lat, lon)`` field."""
     out = spec.index_fn(ds, var=var, season=season, **spec.kwargs)
     da = out[var] if isinstance(out, xr.Dataset) else out
-    return _drop_extra(da, keep=("lat", "lon"))
+    return _drop_extra(da, keep=spatial_dims_present(da))
 
 
 def _annual_reduce(
@@ -286,16 +290,10 @@ def _annual_series(
     wet: float,
 ) -> xr.DataArray:
     """Raw annual spatial-mean series over hist+fut on one ``year`` axis."""
-    sh = _spatial_mean(
-        _drop_extra(
-            _annual_reduce(dh, var, spec, season, wet), keep=("year", "lat", "lon")
-        )
-    )
-    sf = _spatial_mean(
-        _drop_extra(
-            _annual_reduce(df, var, spec, season, wet), keep=("year", "lat", "lon")
-        )
-    )
+    ah = _annual_reduce(dh, var, spec, season, wet)
+    af = _annual_reduce(df, var, spec, season, wet)
+    sh = _spatial_mean(_drop_extra(ah, keep=("year", *spatial_dims_present(ah))))
+    sf = _spatial_mean(_drop_extra(af, keep=("year", *spatial_dims_present(af))))
     return xr.concat([sh, sf], dim="year")
 
 
@@ -306,7 +304,9 @@ def _monthly_cycle(ds: xr.Dataset, var: str, spec: IndexSpec) -> xr.DataArray:
         sub = filter_by_monthseason(ds, m)
         out = spec.index_fn(sub, var=var, **spec.kwargs)
         da = out[var] if isinstance(out, xr.Dataset) else out
-        vals.append(float(_spatial_mean(_drop_extra(da, keep=("lat", "lon")))))
+        vals.append(
+            float(_spatial_mean(_drop_extra(da, keep=spatial_dims_present(da))))
+        )
     return xr.DataArray(
         np.asarray(vals, dtype="float64"),
         dims=["month"],
