@@ -60,6 +60,10 @@ The same simplified CORDEX-BENCH configuration used by the deep4production tutor
 - **Predictands:** `pr` (precipitation, mm day⁻¹) and `tasmax` (daily maximum temperature, K)
 - **Training:** 1961-1980 · **Test:** historical 1981-2000 and mid-century 2041-2060
 
+![The CORDEX-BENCH Alps domains: a 16 x 16 predictor box and the 128 x 128 predictand grid](figures/domains.png)
+
+*The two grids of the experiment. The predictors (red) cover 16 × 16 boxes at ~2°, far wider than the region actually downscaled; the predictands (blue) are the RCM's 128 × 128 grid at ~0.11°. That grid is Lambert-Conformal, so its outline is a trapezoid in lat/lon rather than a rectangle — the same tilt visible in every map figure below. Produced by `plot_domain`, which reads both grids straight from the source NetCDFs.*
+
 Four emulators are scored, all trained on the same data:
 
 | Label | What it is | deep4production tutorial |
@@ -438,6 +442,7 @@ The two averages are not the same quantity, which is why neither is silent: `mem
 | `plot_var_series` | one per (variable, index): interannual line plot, one line per source | `metrics_signal_series` | `index`, `reference` / `driver` / `baseline` (+ `_path`), `years`, `units` |
 | `plot_multivar_skill_maps` | **one** figure: variables (columns) × models (rows), truth on top | any `*_field` store the metric lives in | `metric`, `kind`, `show_truth`, `reference` |
 | `plot_var_skill_maps` | one per variable: truth at (1,1), models down column 2, error in column 3 | ″ | `metric`, `kind`, `show_truth`, `reference` |
+| `plot_domain` | one map: the outline of each experiment grid over coastlines (documentation, not evaluation) — the figure in §2 | the grids' own **NetCDF** | `title`, `resolutions`, `margin` |
 | `plot_multivar_probskill_scorecard` | **one** figure: models × variables, each cell a triangle of CRPS / BS / SERAT for ensemble predictions | `metrics_prob_float` | `metrics` (wedges), `season`, `annotate` |
 | `plot_var_signal_maps` | one per variable: the RCM's own signal at (1,1), each model's signal down column 2, its signal error in column 3 | `metrics_signal_field` | `index`, `quantity`, `kind`, `reference_path` |
 | `plot_multivar_signal_maps` | **one** figure: variables × sources, the RCM's signal on top | ″ | ″ |
@@ -774,6 +779,10 @@ print(plot_multivar_signal_scorecard(
 
 The `units` mapping picks the quantity per variable: temperature changes are read as absolute deltas (K), precipitation as a relative change (%), which is what `ml-eval signal` stores as `delta` and `reldelta` respectively.
 
+![Climate-change-signal scorecard: sources as rows, variables as columns, three index sectors per cell](figures/signal_scorecard_annual.png)
+
+*The RCM's own change leads the rows, and each emulator appears twice — once per boundary framework. The colour is the signal relative to the RCM's, so a cell matching the truth is the same shade as the top row. Under **perfect** predictors every emulator reproduces the RCM's +2.26 K mean warming to within 0.3 K and its +7 % RX1day intensification to within 1-2 points. Under **imperfect** predictors all three warm less (+1.74 to +1.76 K) and wet less — the signal each one carries from the driving GCM, not a failure of the downscaling. That contrast is the whole reason each source is referenced to its own baseline.*
+
 #### 7.2.2 Univariate signal scorecard — `plot_var_signal_scorecard`
 
 One variable at a time, with the indices as columns and both `delta` and `reldelta` available through `kinds`:
@@ -791,6 +800,10 @@ print(plot_var_signal_scorecard(
     season=SEASON,
 ))
 ```
+
+![Per-variable signal scorecard for precipitation: sources as rows, indices as columns](figures/var_signal_scorecard_pr_annual.png)
+
+*Precipitation alone, with each index shown as both a raw change and a percentage. It resolves what the multivariable cell compresses: the RCM's wet-day frequency *falls* (-1.44 days, -1 %) while intensity and extremes rise (SDII +0.43 mm/day, RX1day +3.45 mm/day) — fewer but heavier wet days. RESDIFF under perfect predictors reproduces all three almost exactly; UNET-SINGLE gets the sign right but only half the RX1day intensification; and UNET-MULTI under imperfect predictors even flips the R01 sign (+0.70 days).*
 
 #### 7.2.3 Spatial maps of the signal — `plot_var_signal_maps`
 
@@ -821,9 +834,9 @@ Index names also differ between the two stores: the annual maximum is `rx1day` i
 
 Because a change straddles zero, *every* panel here is diverging and symmetric about it — including the signal columns, not just the error one.
 
-![RX1day signal maps: the RCM's own change, each model's change, and the difference](figures/var_signal_maps_pr_rx1day_delta_bias_annual.png)
+![tasmax mean-signal maps: the RCM's own warming, each model's warming, and the difference](figures/var_signal_maps_tasmax_mean_delta_bias_annual.png)
 
-*The mid-century change in RX1day against the 1981-2000 baseline, each source referenced to its own historical climate. The RCM intensifies the wettest day by +3.45 mm/day on average, with the strongest signal along the Dinaric Alps and over the Tyrrhenian. RESDIFF reproduces both the magnitude (+3.45) and the pattern — its error column is essentially blank. The two U-Nets project only +1.98 and +2.35, and their error columns are systematically brown: they under-predict the intensification almost everywhere, not merely on average. Compare with §7.1.4, where the same models were ~11 mm/day too low on RX1day *itself*: a large bias in the field and a large error in its change are separate failures, and here both happen to point the same way.*
+*The mid-century change in mean `tasmax` against the 1981-2000 baseline, each source referenced to its own historical climate. The RCM warms by +1.90 K on average, most strongly over the Alpine ridge and the Balkans and least over the sea. All three emulators reproduce that pattern and land within 0.1 K of it (+1.82, +1.81, +1.82), so the error columns are nearly white — note their scale is ±0.5 K, ten times finer than the signal columns. What structure remains is a slight under-warming over the Adriatic and eastern land points, shared by all three: an inherited property of the common predictor set rather than a model-specific defect.*
 
 #### 7.2.4 Time series of the signal — `plot_var_series` with a baseline
 
@@ -841,9 +854,11 @@ for var, index, units in [("tasmax", "mean", "K"), ("pr", "rx1day", "mm day$^{-1
 
 The historical years then scatter around zero by construction and the mid-century segment is the projected change, so the lines can be compared regardless of how biased each model is in absolute terms. Output lands as `series_<var>_<index>_anom_<season>.png` — the `_anom` suffix keeps it apart from the absolute version of §7.1.5.
 
-![RX1day anomalies from each source's own 1981-2000 mean](figures/series_pr_rx1day_anom_annual.png)
+![tasmax mean anomalies from each source's own 1981-2000 mean](figures/series_tasmax_mean_anom_annual.png)
 
-*The same RX1day series as §7.1.5, now as anomalies from each source's own historical mean. The ~8 mm/day offset that separated the U-Nets from the truth there is gone — referenced to itself, every emulator tracks the RCM's year-to-year swings closely in the historical window. In the mid-century segment the models still follow the phase but fall short of the largest positive excursions (2050, 2056), which is the same shortfall the maps above localise. Read the two figures together: §7.1.5 says the U-Nets are too dry in absolute terms, this one says their *change* is nearly right in phase but slightly weak in amplitude.*
+*Mean `tasmax` as an anomaly from each source's own 1981-2000 climate. The emulator lines are indistinguishable from the RCM's in both windows: they reproduce not just the ~+1.9 K shift between the periods but every year-to-year excursion, including the 2050 spike and the 2044 dip. Referenced this way a systematic warm or cold bias would cancel, so what is left is purely the projected change — and on this variable, under perfect predictors, the emulators simply have it right. Contrast §7.2.2, where precipitation extremes separate the models sharply.*
+
+______________________________________________________________________
 
 ## 8. Summary
 
