@@ -6,7 +6,7 @@ The emulators scored here (UNET-MULTI, UNET-SINGLE, RESDIFF, CPMGEM) are trained
 
 > **Where the predictions come from.** This tutorial starts from NetCDF predictions that already exist on disk. To (re)produce them yourself, follow the deep4production tutorials on the same Alps case:
 >
-> - **UNET-MULTI / UNET-SINGLE** — the deterministic SongUNet regressor (`trainer_song_unet_det`): [ResDiff tutorial, section 6.1](https://github.com/SantanderMetGroup/deep4production/blob/master/notebooks/Deep4Production%20Tutorial%3A%20CORDEX-BENCH%20Alps%20Case%20Study%20with%20ResDiff.md#61-step-1--train-the-deterministic-songunet-regressor).
+> - **UNET-SINGLE / UNET-MULTI** — a deterministic SongUNet trained in regression mode (`trainer_song_unet_det`). deep4production has no standalone tutorial for it; the recipe is [step 6.1 of the ResDiff tutorial](https://github.com/SantanderMetGroup/deep4production/blob/master/notebooks/Deep4Production%20Tutorial%3A%20CORDEX-BENCH%20Alps%20Case%20Study%20with%20ResDiff.md#61-step-1--train-the-deterministic-songunet-regressor), where the same network is trained as ResDiff's first stage. Used on its own it is an emulator in its own right: that YAML, run as-is, gives UNET-SINGLE for one predictand; listing every predictand in `data.predictands.variables` (and matching `in_channels`) gives UNET-MULTI.
 > - **RESDIFF** — the two-stage CorrDiff-style residual diffusion emulator: [ResDiff tutorial](https://github.com/SantanderMetGroup/deep4production/blob/master/notebooks/Deep4Production%20Tutorial%3A%20CORDEX-BENCH%20Alps%20Case%20Study%20with%20ResDiff.md).
 > - **CPMGEM** — the single-stage (direct) diffusion emulator: [CPMGEM tutorial](https://github.com/SantanderMetGroup/deep4production/blob/master/notebooks/Deep4Production%20Tutorial%3A%20CORDEX-BENCH%20Alps%20Case%20Study%20with%20CPMGEM.md).
 > - The framework itself (project structure, `d4p-create`, `d4p-inspect`, `d4p-train`, `d4p-downscale`): [DeepESD tutorial](https://github.com/SantanderMetGroup/deep4production/blob/master/notebooks/Deep4Production%20Tutorial%3A%20CORDEX-BENCH%20Alps%20Case%20Study%20with%20DeepESD.md).
@@ -20,7 +20,9 @@ ______________________________________________________________________
 - **Indices** describe *one* simulation `x` — its climatological mean, a percentile, wet-day frequency, an annual maximum, a lag-1 autocorrelation.
 - **Diagnostics** compare *two* simulations: the reference `x0` (ground truth — the target RCM) against the prediction `x1` (the emulator output) — e.g. mean bias, RMSE, RALSD, Wasserstein distance.
 
-`ml-evaluation` implements the indices and diagnostics recommended by [CORDEX-ML-Bench](https://github.com/WCRP-CORDEX/ml-benchmark) and extends them with the additional evaluation areas defined in the C3S2_384 deliverable D384.3.1.1 (climate-change signal, multivariate consistency, probabilistic skill).
+`ml-evaluation` builds on the indices and diagnostics available in [CORDEX-BENCH](https://github.com/WCRP-CORDEX/ml-benchmark) and extends them. They are grouped in seven categories:
+
+**accuracy** · **distribution** · **extremes** · **temporal coherence** · **spatial coherence** · **multivariate coherence** · **probabilistic skill**
 
 ### Installation
 
@@ -60,12 +62,14 @@ The same simplified CORDEX-BENCH configuration used by the deep4production tutor
 
 Four emulators are scored, all trained on the same data:
 
-| Label | What it is | deep4production recipe |
+| Label | What it is | deep4production tutorial |
 |---|---|---|
-| `UNET-SINGLE` | deterministic SongUNet, **one network per predictand** | `trainer_song_unet_det`, one run per variable |
-| `UNET-MULTI` | deterministic SongUNet, **one network for all predictands** | `trainer_song_unet_det`, multi-channel output |
-| `RESDIFF` | two-stage residual diffusion (regressor + EDM residual) | `trainer_resdiff` |
-| `CPMGEM` | single-stage (direct) diffusion | `trainer_cpmgem` |
+| `UNET-SINGLE` | deterministic SongUNet, **one network per predictand** | [ResDiff tutorial, §6.1](https://github.com/SantanderMetGroup/deep4production/blob/master/notebooks/Deep4Production%20Tutorial%3A%20CORDEX-BENCH%20Alps%20Case%20Study%20with%20ResDiff.md#61-step-1--train-the-deterministic-songunet-regressor) |
+| `UNET-MULTI` | deterministic SongUNet, **one network for all predictands** | [ResDiff tutorial, §6.1](https://github.com/SantanderMetGroup/deep4production/blob/master/notebooks/Deep4Production%20Tutorial%3A%20CORDEX-BENCH%20Alps%20Case%20Study%20with%20ResDiff.md#61-step-1--train-the-deterministic-songunet-regressor) |
+| `RESDIFF` | two-stage residual diffusion (regressor + EDM residual) | [ResDiff tutorial](https://github.com/SantanderMetGroup/deep4production/blob/master/notebooks/Deep4Production%20Tutorial%3A%20CORDEX-BENCH%20Alps%20Case%20Study%20with%20ResDiff.md) |
+| `CPMGEM` | single-stage (direct) diffusion | [CPMGEM tutorial](https://github.com/SantanderMetGroup/deep4production/blob/master/notebooks/Deep4Production%20Tutorial%3A%20CORDEX-BENCH%20Alps%20Case%20Study%20with%20CPMGEM.md) |
+
+The two U-Nets share one tutorial section: they are the same deterministic SongUNet recipe, differing only in whether the predictands are trained one network per variable or jointly in a multi-channel output. That section appears inside the ResDiff tutorial because ResDiff reuses the same network as its first stage — but trained and run on its own, it is a standalone emulator.
 
 `UNET-SINGLE` is the **baseline** the skill scorecards are referenced against; the `RCM` itself is published as a fifth "simulation" and is the reference row of the climate-change-signal scorecards.
 
@@ -474,6 +478,10 @@ print(plot_multivar_skill_scorecard(
 ))
 ```
 
+![Multivariate skill scorecard for the Alps case: models (rows) x variables (columns), each cell a six-wedge hexagon coloured by % error improvement over UNET-SINGLE](figures/multivar_skill_scorecard_annual.png)
+
+*The mid-century (2041-2060) perfect-framework case. UNET-SINGLE is the reference, so its row is blank. RESDIFF improves on the baseline nearly everywhere, most strongly on RALSD and the lag-1 autocorrelation — the spatial- and temporal-coherence wedges a diffusion residual is designed to restore. UNET-MULTI is worse than the single-variable baseline for `pr` on every wedge (deep red on the wet-day frequency and SDII), the capacity-sharing cost of training all predictands in one network, while for `tasmax` it is close to neutral and gains on RALSD. Grey = no metrics on disk.*
+
 The wedges, clockwise from the top, are `Bias lag-1 corr`, `RALSD`, `Bias P99`, `Bias mean`, `Bias P01`, `RMSE` — and for `pr` the three distribution wedges become `Bias Rx1day`, `Bias SDII`, `Bias R01`, because a zero-bounded, intermittent variable is not well described by its mean and its extreme quantiles. `hexagon_axes(var)` / `scorecard_axes(var)` return the exact wedge list for a variable.
 
 Useful knobs: `clip` (colour saturation, default ± 100 %), `cmap`, `title`, `filename`. Order the `paths` mapping to control row order; the `reference` is always moved to the top.
@@ -503,6 +511,10 @@ print(plot_var_skill_scorecard(
     season=SEASON,
 ))
 ```
+
+![Precipitation performance scorecard for the Alps case: models (rows) x metrics (columns), cell colour is the per-column normalised score, the numbers are the raw value and its spatial CV](figures/var_skill_scorecard_pr_annual.png)
+
+*The same case, one variable. RESDIFF is best on nine of the ten columns — decisively so on RALSD (0.039 against 22.8 and 35.5, i.e. it is the only model reproducing the fine-scale spectrum) and on every distribution and extreme column. Its one loss is RMSE (5.3 vs 3.71 for UNET-SINGLE): a stochastic realisation is penalised for putting the right small-scale structure in the wrong place, exactly the double-penalty a per-pixel error metric imposes on a sharp field. Note the CV line making the opposite point about the mean bias: RESDIFF's is smaller (0.104 vs 0.483) but has CV ≈ 1, so it is a field of compensating errors rather than a uniformly small bias. Grey = no metrics on disk.*
 
 Passing `metrics=None` falls back to a sensible per-variable default (7 precipitation columns, 6 otherwise). The full menu is in `METRIC_LABELS`; besides the fast-track keys used above it exposes the **slow-track** columns `wd`, `wdh`, `fcss`, `lhd`, `bias_annstd`, `bias_p90` — available as soon as §6's `ml-eval slow` has run into the same directory. Only error-type diagnostics are exposed: `pss`, `pcorr` and `scorr` are higher-is-better and would score inverted in a scorecard that treats every column as an error. To rename a header, pass a `(metric_key, label)` pair instead of a bare key.
 
@@ -564,6 +576,10 @@ print(plot_multivar_signal_scorecard(
 from ml_evaluation.viz.plot_series import plot_series   # see series_indices(var) for the index keys
 ```
 
+![Domain-mean annual RX1day for the Alps case, historical and mid-century, one line per source](figures/series_pr_rx1day_annual.png)
+
+*Annual RX1day, domain mean, for the RCM truth and three emulators over both test windows (the gap is the un-simulated 2001-2040). It shows what a scorecard scalar cannot: RESDIFF tracks both the level and the year-to-year phase of the truth, while both U-Nets sit ~8 mm/day low throughout — a systematic underestimation of the wettest day of the year that persists into the future period, even though their interannual variability is in phase.*
+
 ______________________________________________________________________
 
 ## 11. Summary
@@ -588,4 +604,3 @@ ______________________________________________________________________
 - [CORDEX-BENCH Alps data (Zenodo)](https://zenodo.org/records/17957264)
 - Rampal, N., González-Abad, J., Addison, H., et al., 2026: *CORDEX-ML-Bench: A benchmark for data-driven regional climate downscaling — Experiment design and overview*, submitted to JAMES.
 - Kendon, E. J., et al., 2025: *Potential for machine learning emulators to augment regional climate simulations in provision of local climate change information*. Bull. Amer. Meteor. Soc., 106, E1175–E1203.
-- C3S2_384 deliverable D384.3.1.1 — *Description of the evaluation methodology and minimum quality requirements for the ML-generated datasets* (full metric definitions).
