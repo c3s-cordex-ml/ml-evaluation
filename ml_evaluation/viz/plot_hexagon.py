@@ -35,9 +35,12 @@ normalize_paths(paths)
     Normalise a model->directory spec into an ordered ``{label: path}`` dict.
 metrics_dir(path, var)
     The directory holding one variable's stores: ``<path>/<var>``.
-read_hexagon_metrics(metrics_dir, var)
+read_hexagon_metrics(metrics_dir, var, *, member_dim, member_num)
     The hexagon-axis scalars for one ``ml-eval fast --output`` directory. Depends
     only on ml-eval's output format -- layout-agnostic, reusable by any project.
+select_member(da, member_dim, member_num)
+    Pick one realisation (or the mean over them) from a stored metric. Shared by
+    every reader in this package.
 plot_hexagon(per_model, var, out_dir, *, models=None, reference=None, season)
     Render one variable's hexagon from precomputed {label: {metric: value}}.
 plot_hexagons(paths, out, variables, *, reference, season)
@@ -140,16 +143,55 @@ def scorecard_axes(var):
     return SCORECARD_PR if var == "pr" else SCORECARD_TEMP
 
 
-def _read_metric(metrics_dir: str, metric_key: str) -> float:
-    """Domain scalar for one metric: select the diagnostic from its zarr bundle
-    and reduce over any remaining dims (mean of |field| for biases)."""
+def select_member(da, member_dim="member", member_num=0):
+    """Reduce the ensemble dimension of a stored metric to one field.
+
+    ml-eval scores every realisation separately, so a generative model's metrics
+    carry a ``member`` dimension (length 1 for a deterministic one). Averaging it
+    away is *not* the same quantity as the metric of one member, so every reader
+    in ``ml_evaluation.viz`` selects explicitly instead of collapsing silently.
+
+    Parameters
+    ----------
+    da : xr.DataArray
+        A stored diagnostic, possibly carrying ``member_dim``.
+    member_dim : str or None
+        Name of the ensemble dimension. None (or a dimension the data does not
+        have) leaves ``da`` untouched.
+    member_num : int
+        ``>= 0`` selects that member; ``< 0`` averages over the members (the
+        mean *of the metric*, which is still not the metric of the ensemble
+        mean field -- for that, score the ensemble mean with
+        ``ml-eval ... --member-num -1``).
+
+    Returns
+    -------
+    xr.DataArray
+        ``da`` reduced along ``member_dim``, or unchanged.
+    """
+    if member_dim is None or member_dim not in getattr(da, "dims", ()):
+        return da
+    if member_num < 0:
+        return da.mean(dim=member_dim)
+    if member_num in np.asarray(da[member_dim].values):
+        return da.sel({member_dim: member_num}, drop=True)
+    print(f"Warning: member_num {member_num} doesn't exist so use first member.")
+    return da.isel({member_dim: 0}, drop=True)
+
+
+def _read_metric(
+    metrics_dir: str, metric_key: str, *, member_dim="member", member_num=0
+) -> float:
+    """Domain scalar for one metric: select the diagnostic from its zarr bundle,
+    pick the member, and reduce over any remaining dims (mean of |field| for
+    biases)."""
     store, diag, use_abs = METRIC_SRC[metric_key]
     path = os.path.join(metrics_dir, store)
     if not os.path.isdir(path):
         return np.nan
     try:
         with xr.open_zarr(path) as ds:
-            da = ds["value"].sel(diagnostic=diag)
+            da = select_member(ds["value"].sel(diagnostic=diag), member_dim, member_num)
     except (KeyError, FileNotFoundError, OSError):
         return np.nan
     if use_abs:
@@ -157,14 +199,21 @@ def _read_metric(metrics_dir: str, metric_key: str) -> float:
     return float(da.mean().values)  # mean over lat/lon (fields) or no-op (floats)
 
 
-def read_hexagon_metrics(metrics_dir: str, var: str) -> dict[str, float]:
+def read_hexagon_metrics(
+    metrics_dir: str, var: str, *, member_dim="member", member_num=0
+) -> dict[str, float]:
     """Hexagon-axis scalars for `var` from one ``ml-eval fast --output`` dir.
 
     `metrics_dir` holds the metrics_fast_*.zarr stores written by a single
     ``ml-eval fast`` call. Returns ``{metric_key: scalar}`` for the axes of
-    ``var``; a metric whose store/diagnostic is missing comes back as NaN. This
-    depends only on ml-eval's output format -- no directory-layout assumptions."""
-    return {k: _read_metric(metrics_dir, k) for k, _ in hexagon_axes(var)}
+    ``var``; a metric whose store/diagnostic is missing comes back as NaN.
+    ``member_num`` picks the realisation to score (see :func:`select_member`).
+    This depends only on ml-eval's output format -- no directory-layout
+    assumptions."""
+    return {
+        k: _read_metric(metrics_dir, k, member_dim=member_dim, member_num=member_num)
+        for k, _ in hexagon_axes(var)
+    }
 
 
 def normalize_paths(paths):
@@ -373,7 +422,16 @@ def plot_hexagon(
     return out
 
 
-def plot_hexagons(paths, out, variables, *, reference=None, season="annual"):
+def plot_hexagons(
+    paths,
+    out,
+    variables,
+    *,
+    reference=None,
+    season="annual",
+    member_dim="member",
+    member_num=0,
+):
     """Plot one hexagon per variable for an explicit set of model paths.
 
     Convenience wrapper over ``read_hexagon_metrics`` + ``plot_hexagon``. The
@@ -417,7 +475,9 @@ def plot_hexagons(paths, out, variables, *, reference=None, season="annual"):
         for label, base in by_label.items():
             sdir = metrics_dir(base, var)
             if os.path.isdir(sdir):
-                per_model[label] = read_hexagon_metrics(sdir, var)
+                per_model[label] = read_hexagon_metrics(
+                    sdir, var, member_dim=member_dim, member_num=member_num
+                )
         if reference and reference not in per_model:
             print(
                 f"[hexagon] {var}: reference '{reference}' has no data under "
@@ -462,6 +522,8 @@ def plot_multivar_skill_scorecard(
     clip=100.0,
     cmap="RdBu",
     filename=None,
+    member_dim="member",
+    member_num=0,
 ):
     """Model x variable scorecard of six-wedge hexagons.
 
@@ -492,6 +554,11 @@ def plot_multivar_skill_scorecard(
         Label only -- title and output file name.
     title, clip, cmap, filename
         Figure title, colour saturation (%), diverging colormap, output name.
+    member_dim : str or None
+        Name of the ensemble dimension in the stored metrics.
+    member_num : int
+        Realisation to score: ``>= 0`` that member, ``< 0`` the mean over
+        members. Default 0 -- the only member of a deterministic model.
 
     Returns
     -------
@@ -518,7 +585,12 @@ def plot_multivar_skill_scorecard(
             d = metrics_dir(by_label[m], var)
             if os.path.isdir(d):
                 keys = [k for k, _ in scorecard_axes(var)]
-                metrics[m][var] = {k: _read_metric(d, k) for k in keys}
+                metrics[m][var] = {
+                    k: _read_metric(
+                        d, k, member_dim=member_dim, member_num=member_num
+                    )
+                    for k in keys
+                }
 
     ncols, nrows = len(variables), len(rows)
     norm = Normalize(-clip, clip)

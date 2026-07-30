@@ -21,6 +21,9 @@ holding, per index, the absolute ``delta`` and the relative ``reldelta``:
 
     field  (diagnostic, lat, lon) : delta / reldelta maps per index
     series (diagnostic, year)     : raw annual spatial-mean of each index,
+                                     plus ``<index>_series_{min,max,std}`` across
+                                     the ensemble when the source has >1 member
+                                     and no single member was selected,
                                      hist+fut on one year axis
     month  (diagnostic, month)    : the seasonally-resolved (12-month) signal --
                                      delta / reldelta per index, each a
@@ -281,6 +284,20 @@ def _annual_reduce(
     return out
 
 
+def member_dims(da: xr.DataArray) -> tuple[str, ...]:
+    """Dimensions of an annual field that are neither the year nor spatial.
+
+    In practice that is the ensemble axis, whatever it is called.
+    """
+    known = ("year", *spatial_dims_present(da))
+    return tuple(d for d in da.dims if d not in known)
+
+
+def _series_keep(da: xr.DataArray) -> tuple[str, ...]:
+    """Dims ``_annual_series`` preserves: the year, the grid, and the members."""
+    return ("year", *spatial_dims_present(da), *member_dims(da))
+
+
 def _annual_series(
     dh: xr.Dataset,
     df: xr.Dataset,
@@ -289,11 +306,15 @@ def _annual_series(
     season: str | None,
     wet: float,
 ) -> xr.DataArray:
-    """Raw annual spatial-mean series over hist+fut on one ``year`` axis."""
+    """Raw annual spatial-mean series over hist+fut on one ``year`` axis.
+
+    Any ensemble axis is *kept*: the caller reduces it, so that an ensemble-mean
+    run can also store the spread across members (see :func:`compute_signal`).
+    """
     ah = _annual_reduce(dh, var, spec, season, wet)
     af = _annual_reduce(df, var, spec, season, wet)
-    sh = _spatial_mean(_drop_extra(ah, keep=("year", *spatial_dims_present(ah))))
-    sf = _spatial_mean(_drop_extra(af, keep=("year", *spatial_dims_present(af))))
+    sh = _spatial_mean(_drop_extra(ah, keep=_series_keep(ah)))
+    sf = _spatial_mean(_drop_extra(af, keep=_series_keep(af)))
     return xr.concat([sh, sf], dim="year")
 
 
@@ -370,7 +391,16 @@ def compute_signal(
         flt[f"delta_{key}_float"] = _spatial_mean(delta)
         flt[f"reldelta_{key}_float"] = _spatial_mean(reldelta)
 
-        series[f"{key}_series"] = _annual_series(hist, fut, var, spec, season, wet)
+        raw = _annual_series(hist, fut, var, spec, season, wet)
+        ens = [d for d in raw.dims if d != "year"]
+        series[f"{key}_series"] = raw.mean(ens) if ens else raw
+        # An ensemble-mean run also records how far the members spread, so a
+        # spread band needs no extra runs: one signal call per member would
+        # otherwise mean one zarr store per member.
+        if ens and int(np.prod([raw.sizes[d] for d in ens])) > 1:
+            series[f"{key}_series_min"] = raw.min(ens)
+            series[f"{key}_series_max"] = raw.max(ens)
+            series[f"{key}_series_std"] = raw.std(ens)
 
         # Seasonally-resolved signal: difference the monthly climatologies so the
         # month store mirrors the field store (delta/reldelta) on a 12-month axis

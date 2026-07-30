@@ -5,7 +5,7 @@ import pathlib
 import numpy as np
 import pytest
 
-import ml_evaluation.viz.plot_series as ps
+import ml_evaluation.viz.plot_var_series as ps
 
 # The two periods one signal run stores on a single year axis.
 HIST = np.arange(1981, 2001)
@@ -96,12 +96,12 @@ def test_plot_series_values_and_signal(
     monkeypatch.setattr(ps, "read_series", fake_reader)
     spec = {k: str(v) for k, v in rows.items()}
 
-    raw = ps.plot_series(spec, str(tmp_path / "fig"), "tasmax", "mean",
+    raw = ps.plot_var_series(spec, str(tmp_path / "fig"), "tasmax", "mean",
                          reference="RCM truth", driver="GCM", units="K")
     assert pathlib.Path(raw).is_file()
     assert pathlib.Path(raw).name == "series_tasmax_mean_annual.png"
 
-    anom = ps.plot_series(spec, str(tmp_path / "fig"), "tasmax", "mean",
+    anom = ps.plot_var_series(spec, str(tmp_path / "fig"), "tasmax", "mean",
                           reference="RCM truth", driver="GCM",
                           baseline=(1981, 2000), units="K")
     assert pathlib.Path(anom).name == "series_tasmax_mean_anom_annual.png"
@@ -129,7 +129,7 @@ def test_plot_series_baseline_from_other_path(
     spec = {"UNet-single": str(fut_dir)}
     out = str(tmp_path / "fig")
 
-    assert ps.plot_series(spec, out, "tasmax", "mean", baseline=(1981, 2000)) is None
+    assert ps.plot_var_series(spec, out, "tasmax", "mean", baseline=(1981, 2000)) is None
 
     captured: dict = {}
 
@@ -139,7 +139,7 @@ def test_plot_series_baseline_from_other_path(
         return "fake.png"
 
     monkeypatch.setattr(ps, "render_series", spy)
-    assert ps.plot_series(spec, out, "tasmax", "mean", baseline=(1981, 2000),
+    assert ps.plot_var_series(spec, out, "tasmax", "mean", baseline=(1981, 2000),
                           baseline_paths={"UNet-single": str(hist_dir)}) == "fake.png"
 
     years, values = captured["per_source"]["UNet-single"]
@@ -170,7 +170,7 @@ def test_plot_series_scale_and_missing_source(
         return "fake.png"
 
     monkeypatch.setattr(ps, "render_series", spy)
-    ps.plot_series(
+    ps.plot_var_series(
         {"good": str(good), "absent": str(tmp_path / "absent")},
         str(tmp_path / "fig"), "pr", "rx1day", scale=86400.0,
     )
@@ -181,10 +181,10 @@ def test_plot_series_scale_and_missing_source(
 def test_plot_series_unknown_reference(tmp_path: pathlib.Path) -> None:
     """A reference that is neither a label nor a path is an error."""
     with pytest.raises(KeyError, match="reference 'RCM'"):
-        ps.plot_series({"UNet": str(tmp_path)}, str(tmp_path), "tasmax", "mean",
+        ps.plot_var_series({"UNet": str(tmp_path)}, str(tmp_path), "tasmax", "mean",
                        reference="RCM")
     with pytest.raises(ValueError, match="reference_path= given without"):
-        ps.plot_series({"UNet": str(tmp_path)}, str(tmp_path), "tasmax", "mean",
+        ps.plot_var_series({"UNet": str(tmp_path)}, str(tmp_path), "tasmax", "mean",
                        reference_path=str(tmp_path))
 
 
@@ -193,3 +193,162 @@ def test_render_series_colour_budget(tmp_path: pathlib.Path) -> None:
     per_source = {f"m{i}": _series(HIST) for i in range(len(ps.SERIES_COLORS) + 1)}
     with pytest.raises(ValueError, match="categorical colours"):
         ps.render_series(per_source, "tasmax", "mean", str(tmp_path / "fig"))
+
+
+# ------------------------------------------------------------ ensemble spread --
+
+
+def test_member_spread_minmax_and_std() -> None:
+    """Mean line plus a band, from several members' series."""
+    years = np.array([2041, 2042])
+    members = [
+        (years, np.array([1.0, 2.0])),
+        (years, np.array([3.0, 4.0])),
+        (years, np.array([2.0, 3.0])),
+    ]
+    y, mean, lo, hi = ps.member_spread(members, "minmax")
+    assert list(y) == [2041, 2042]
+    assert list(mean) == [2.0, 3.0]
+    assert list(lo) == [1.0, 2.0] and list(hi) == [3.0, 4.0]
+
+    _, mean, lo, hi = ps.member_spread(members, "std")
+    sd = np.std([1.0, 3.0, 2.0])
+    assert lo[0] == pytest.approx(2.0 - sd) and hi[0] == pytest.approx(2.0 + sd)
+
+
+def test_member_spread_aligns_ragged_members() -> None:
+    """Members covering different years are unioned, not truncated."""
+    a = (np.array([2041, 2042]), np.array([1.0, 2.0]))
+    b = (np.array([2042, 2043]), np.array([4.0, 6.0]))
+    y, mean, lo, hi = ps.member_spread([a, b], "minmax")
+    assert list(y) == [2041, 2042, 2043]
+    assert mean[0] == 1.0 and mean[1] == 3.0 and mean[2] == 6.0
+    assert lo[1] == 2.0 and hi[1] == 4.0
+
+
+def test_member_spread_edge_cases() -> None:
+    """One member collapses the band; nothing readable gives empty arrays."""
+    years = np.array([2041, 2042])
+    y, mean, lo, hi = ps.member_spread([(years, np.array([1.0, 2.0]))])
+    assert list(lo) == list(hi) == list(mean)
+    y, mean, lo, hi = ps.member_spread([])
+    assert y.size == mean.size == lo.size == hi.size == 0
+    with pytest.raises(ValueError, match="spread must be one of"):
+        ps.member_spread([(years, np.array([1.0, 2.0]))], "iqr")
+
+
+def test_plot_var_series_draws_a_member_band(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A label given several paths becomes a mean line with a shaded band."""
+    years = np.arange(1981, 1985)
+    monkeypatch.setattr(
+        ps, "read_series",
+        lambda d, index: (years, np.full(years.size, float(d[-1]))),
+    )
+    monkeypatch.setattr(ps.os.path, "isdir", lambda p: True)
+    monkeypatch.setattr(ps, "metrics_dir", lambda base, var: str(base))
+
+    seen = {}
+    monkeypatch.setattr(
+        ps, "render_series",
+        lambda per_source, *a, **kw: seen.update(per_source=per_source,
+                                                bands=kw.get("bands")) or "fig.png",
+    )
+    ps.plot_var_series(
+        {"RESDIFF": ["m1", "m3"], "RCM": "r2"},
+        str(tmp_path), "pr", "rx1day", reference="RCM", spread="minmax",
+    )
+
+    # the line is the member mean, the band their envelope
+    assert list(seen["per_source"]["RESDIFF"][1]) == [2.0] * 4
+    lo, hi = seen["bands"]["RESDIFF"][1], seen["bands"]["RESDIFF"][2]
+    assert list(lo) == [1.0] * 4 and list(hi) == [3.0] * 4
+    # a single-path label carries no band
+    assert "RCM" not in seen["bands"]
+
+
+def test_member_band_follows_the_anomaly_baseline(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With a baseline the band is shifted by the same offset as the line."""
+    years = np.arange(1981, 1985)
+    monkeypatch.setattr(
+        ps, "read_series",
+        lambda d, index: (years, np.arange(4, dtype=float) + float(d[-1])),
+    )
+    monkeypatch.setattr(ps.os.path, "isdir", lambda p: True)
+    monkeypatch.setattr(ps, "metrics_dir", lambda base, var: str(base))
+
+    seen = {}
+    monkeypatch.setattr(
+        ps, "render_series",
+        lambda per_source, *a, **kw: seen.update(per_source=per_source,
+                                                bands=kw.get("bands")) or "fig.png",
+    )
+    ps.plot_var_series(
+        {"RESDIFF": ["m0", "m2"]}, str(tmp_path), "pr", "rx1day",
+        baseline=(1981, 1984), spread="minmax",
+    )
+
+    line = seen["per_source"]["RESDIFF"][1]
+    lo, hi = seen["bands"]["RESDIFF"][1], seen["bands"]["RESDIFF"][2]
+    assert line.mean() == pytest.approx(0.0)          # anomalies about its own mean
+    assert list(hi - lo) == pytest.approx([2.0] * 4)  # the band width is preserved
+
+
+def test_read_series_spread_from_the_store(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An ensemble-mean signal run stores its own band: no per-member runs."""
+    years = np.array([2041, 2042])
+    stored = {
+        "rx1day_series": np.array([2.0, 3.0]),
+        "rx1day_series_min": np.array([1.0, 2.0]),
+        "rx1day_series_max": np.array([3.0, 4.0]),
+        "rx1day_series_std": np.array([0.5, 0.5]),
+    }
+    monkeypatch.setattr(
+        ps, "read_diagnostic",
+        lambda d, diag: (years, stored[diag]) if diag in stored
+        else (np.array([], dtype=int), np.array([], dtype=float)),
+    )
+
+    y, lo, hi = ps.read_series_spread("d", "rx1day", "minmax")
+    assert list(lo) == [1.0, 2.0] and list(hi) == [3.0, 4.0]
+
+    y, lo, hi = ps.read_series_spread("d", "rx1day", "std")
+    assert list(lo) == [1.5, 2.5] and list(hi) == [2.5, 3.5]
+
+    # a single-member run stored no spread: empty, not an error
+    monkeypatch.setattr(
+        ps, "read_diagnostic",
+        lambda d, diag: (years, stored["rx1day_series"]) if diag == "rx1day_series"
+        else (np.array([], dtype=int), np.array([], dtype=float)),
+    )
+    y, lo, hi = ps.read_series_spread("d", "rx1day", "minmax")
+    assert y.size == lo.size == hi.size == 0
+
+
+def test_plot_var_series_uses_the_stored_spread(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One path + spread= reads the band from that run, no member list needed."""
+    years = np.arange(2041, 2045)
+    monkeypatch.setattr(ps, "read_series", lambda d, i: (years, np.ones(4)))
+    monkeypatch.setattr(
+        ps, "read_series_spread",
+        lambda d, i, sp: (years, np.zeros(4), np.full(4, 2.0)),
+    )
+    monkeypatch.setattr(ps.os.path, "isdir", lambda p: True)
+    monkeypatch.setattr(ps, "metrics_dir", lambda base, var: str(base))
+    seen = {}
+    monkeypatch.setattr(
+        ps, "render_series",
+        lambda per_source, *a, **kw: seen.update(bands=kw.get("bands")) or "fig.png",
+    )
+
+    ps.plot_var_series({"RESDIFF": "run"}, str(tmp_path), "pr", "rx1day",
+                       spread="minmax")
+    assert list(seen["bands"]["RESDIFF"][1]) == [0.0] * 4
+    assert list(seen["bands"]["RESDIFF"][2]) == [2.0] * 4

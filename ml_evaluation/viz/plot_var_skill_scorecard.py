@@ -43,7 +43,7 @@ Public API
 ----------
 var_skill_columns(var, metrics=None)
     The (metric_key, column_label) list for one variable.
-read_var_skill_metrics(metrics_dir, var, metrics=None)
+read_var_skill_metrics(metrics_dir, var, metrics=None, *, member_dim, member_num)
     ``{metric_key: (value, cv)}`` for one ``ml-eval fast --output`` directory.
     Depends only on ml-eval's output format -- layout-agnostic.
 render_var_skill_scorecard(per_model, var, out_dir, *, models, metrics, season)
@@ -78,7 +78,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from ml_evaluation.viz.plot_hexagon import metrics_dir, normalize_paths
+from ml_evaluation.viz.plot_hexagon import metrics_dir, normalize_paths, select_member
 
 EPS = 1e-12
 
@@ -201,22 +201,25 @@ def var_skill_columns(var: str, metrics=None) -> list[tuple[str, str]]:
     return columns
 
 
-def _open_diag(metrics_dir: str, store: str, diag: str):
-    """The DataArray for one diagnostic, loaded into memory, or None if absent."""
+def _open_diag(metrics_dir: str, store: str, diag: str, member_dim="member",
+               member_num=0):
+    """The DataArray for one diagnostic and one member, loaded into memory, or
+    None if absent."""
     path = os.path.join(metrics_dir, store)
     if not os.path.isdir(path):
         return None
     try:
         with xr.open_zarr(path) as ds:
-            return ds["value"].sel(diagnostic=diag).load()
+            da = ds["value"].sel(diagnostic=diag).load()
     except (KeyError, ValueError, FileNotFoundError, OSError):
         return None
+    return select_member(da, member_dim, member_num)
 
 
-def _read_value(metrics_dir: str, key: str) -> float:
+def _read_value(metrics_dir: str, key: str, member_dim="member", member_num=0) -> float:
     """Domain scalar for one metric (mean of |field| for biases), NaN if missing."""
     store, diag, use_abs = VALUE_SRC[key]
-    da = _open_diag(metrics_dir, store, diag)
+    da = _open_diag(metrics_dir, store, diag, member_dim, member_num)
     if da is None:
         return np.nan
     if use_abs:
@@ -224,7 +227,7 @@ def _read_value(metrics_dir: str, key: str) -> float:
     return float(da.mean().values)
 
 
-def _read_cv(metrics_dir: str, key: str) -> float:
+def _read_cv(metrics_dir: str, key: str, member_dim="member", member_num=0) -> float:
     """Spatial coefficient of variation ``std(field) / mean(|field|)`` of a metric.
 
     NaN when the metric has no field counterpart (RALSD), the store is missing,
@@ -234,7 +237,7 @@ def _read_cv(metrics_dir: str, key: str) -> float:
     src = CV_SRC.get(key)
     if src is None:
         return np.nan
-    da = _open_diag(metrics_dir, *src)
+    da = _open_diag(metrics_dir, *src, member_dim=member_dim, member_num=member_num)
     if da is None or da.size <= 1:
         return np.nan
     v = np.asarray(da.values, dtype=float).ravel()
@@ -248,18 +251,22 @@ def _read_cv(metrics_dir: str, key: str) -> float:
 
 
 def read_var_skill_metrics(
-    path: str, var: str, metrics=None
+    path: str, var: str, metrics=None, *, member_dim="member", member_num=0
 ) -> dict[str, tuple[float, float]]:
     """Scorecard-column scalars for ``var`` from one ``ml-eval fast --output`` dir.
 
     ``path`` holds the metrics_fast_*.zarr stores written by a single
     ``ml-eval fast`` call. Returns ``{metric_key: (value, cv)}`` for the columns
     selected by ``metrics`` (default: the ``var`` column set); a metric whose
-    store/diagnostic is missing comes back as ``(nan, nan)``. Depends only on
-    ml-eval's output format -- no directory-layout assumptions.
+    store/diagnostic is missing comes back as ``(nan, nan)``. ``member_num``
+    picks the realisation to score (see ``plot_hexagon.select_member``). Depends
+    only on ml-eval's output format -- no directory-layout assumptions.
     """
     return {
-        k: (_read_value(path, k), _read_cv(path, k))
+        k: (
+            _read_value(path, k, member_dim, member_num),
+            _read_cv(path, k, member_dim, member_num),
+        )
         for k, _ in var_skill_columns(var, metrics)
     }
 
@@ -420,6 +427,8 @@ def plot_var_skill_scorecard(
     *,
     metrics=None,
     season="annual",
+    member_dim="member",
+    member_num=0,
     **kwargs,
 ):
     """Plot one performance scorecard per variable for an explicit set of paths.
@@ -442,6 +451,11 @@ def plot_var_skill_scorecard(
         ``(metric_key, column_label)`` pairs. Default: the per-variable set.
     season : str
         Label only -- title and output file name.
+    member_dim : str or None
+        Name of the ensemble dimension in the stored metrics.
+    member_num : int
+        Realisation to score: ``>= 0`` that member, ``< 0`` the mean over
+        members. Default 0 -- the only member of a deterministic model.
     **kwargs
         Forwarded to :func:`render_var_skill_scorecard` (``title``, ``filename``,
         ``cmap``, ``annotate``, ``text_color``).
@@ -459,7 +473,9 @@ def plot_var_skill_scorecard(
         for label, base in by_label.items():
             d = metrics_dir(base, var)
             if os.path.isdir(d):
-                per_model[label] = read_var_skill_metrics(d, var, metrics)
+                per_model[label] = read_var_skill_metrics(
+                    d, var, metrics, member_dim=member_dim, member_num=member_num
+                )
         avail = [m for m in by_label if m in per_model]
         path = render_var_skill_scorecard(
             per_model, var, out, models=avail, metrics=metrics, season=season, **kwargs

@@ -41,13 +41,13 @@ read_series(metrics_dir, index)
     only on ml-eval's output format -- layout-agnostic.
 render_series(per_source, var, index, out_dir, *, models, reference, driver, ...)
     Render the panel from precomputed ``{label: (years, values)}``.
-plot_series(paths, out, var, index, *, reference, driver, baseline, ...)
+plot_var_series(paths, out, var, index, *, reference, driver, baseline, ...)
     Read + render: one PNG for one (variable, index).
 
 Example
 -------
-    from ml_evaluation.viz.plot_series import plot_series
-    plot_series(
+    from ml_evaluation.viz.plot_var_series import plot_var_series
+    plot_var_series(
         {
             "RCM truth":   "/.../rcm/CNRM-ALADIN63_CNRM-CM5_2041-2060/annual",
             "UNet-single": "/.../UNET-SINGLE_..._2041-2060/annual",
@@ -133,19 +133,114 @@ def read_series(metrics_dir: str, index: str) -> tuple[np.ndarray, np.ndarray]:
     diagnostic is missing. Depends only on ml-eval's output format -- no
     directory-layout assumptions.
     """
+    return read_diagnostic(metrics_dir, f"{index}_series")
+
+
+def read_diagnostic(metrics_dir: str, diagnostic: str):
+    """One diagnostic of ``metrics_signal_series.zarr``, by its exact name.
+
+    ``(years, values)`` sorted by year, both empty when the store or the
+    diagnostic is missing. :func:`read_series` is the by-index wrapper; the
+    ensemble-spread diagnostics are read through this one.
+    """
     empty = (np.array([], dtype=int), np.array([], dtype=float))
     path = os.path.join(metrics_dir, SERIES_STORE)
     if not os.path.isdir(path):
         return empty
     try:
         with xr.open_zarr(path) as ds:
-            da = ds["value"].sel(diagnostic=f"{index}_series")
+            da = ds["value"].sel(diagnostic=diagnostic)
             years = np.asarray(ds["year"].values, dtype=int)
             values = np.asarray(da.values, dtype=float)
     except (KeyError, ValueError, FileNotFoundError, OSError):
         return empty
     order = np.argsort(years)
     return years[order], values[order]
+
+
+SPREADS = ("minmax", "std")
+
+
+def member_spread(series, spread="minmax"):
+    """Ensemble mean and spread band from several members' series.
+
+    ``ml-eval signal`` collapses the ensemble when it computes a signal, so a
+    per-member view needs one run per member (``ml-eval signal --member-num k``,
+    each with its own ``--output``). Give this function those runs' series and it
+    returns the line to draw and the band around it, aligned on the union of
+    their year axes.
+
+    Parameters
+    ----------
+    series : sequence of (years, values)
+        One entry per member, as returned by :func:`read_series`.
+    spread : {"minmax", "std"}
+        ``"minmax"`` bands the full envelope of the members, ``"std"`` the mean
+        +/- one standard deviation across them.
+
+    Returns
+    -------
+    (years, mean, lo, hi)
+        Empty arrays when nothing was readable. With a single member the band
+        collapses onto the line.
+    """
+    if spread not in SPREADS:
+        raise ValueError(f"spread must be one of {SPREADS}, got {spread!r}.")
+    series = [(y, v) for y, v in series if y.size]
+    if not series:
+        empty = np.array([], dtype=int)
+        return empty, empty.astype(float), empty.astype(float), empty.astype(float)
+
+    years = np.unique(np.concatenate([y for y, _ in series]))
+    stack = np.full((len(series), years.size), np.nan)
+    for i, (y, v) in enumerate(series):
+        stack[i, np.searchsorted(years, y)] = v
+
+    with np.errstate(invalid="ignore"):
+        mean = np.nanmean(stack, axis=0)
+        if spread == "minmax":
+            lo, hi = np.nanmin(stack, axis=0), np.nanmax(stack, axis=0)
+        else:
+            sd = np.nanstd(stack, axis=0)
+            lo, hi = mean - sd, mean + sd
+    return years, mean, lo, hi
+
+
+def read_series_spread(metrics_dir, index, spread="minmax"):
+    """The stored ensemble spread of one index, or empty when there is none.
+
+    ``ml-eval signal`` records ``<index>_series_{min,max,std}`` alongside the
+    mean series whenever the source had more than one member and no single
+    member was selected -- so a spread band costs no extra runs and no extra
+    stores. Returns ``(years, lo, hi)``, empty when the run was single-member
+    (or predates that output).
+
+    Parameters
+    ----------
+    metrics_dir : str
+        Directory holding ``metrics_signal_series.zarr``.
+    index : str
+        Index key, as in :func:`read_series`.
+    spread : {"minmax", "std"}
+        ``"minmax"`` reads the stored envelope; ``"std"`` builds the band as the
+        mean +/- one stored standard deviation.
+    """
+    if spread not in SPREADS:
+        raise ValueError(f"spread must be one of {SPREADS}, got {spread!r}.")
+    empty = (np.array([], dtype=int), np.array([], dtype=float), np.array([], dtype=float))
+
+    if spread == "minmax":
+        ylo, lo = read_diagnostic(metrics_dir, f"{index}_series_min")
+        yhi, hi = read_diagnostic(metrics_dir, f"{index}_series_max")
+        if not ylo.size or not np.array_equal(ylo, yhi):
+            return empty
+        return ylo, lo, hi
+
+    ym, mean = read_diagnostic(metrics_dir, f"{index}_series")
+    ys, sd = read_diagnostic(metrics_dir, f"{index}_series_std")
+    if not ys.size or not np.array_equal(ym, ys):
+        return empty
+    return ym, mean - sd, mean + sd
 
 
 def _merge_series(primary, extra):
@@ -218,6 +313,7 @@ def render_series(
     out_dir,
     *,
     models=None,
+    bands=None,
     reference=None,
     driver=None,
     years=None,
@@ -245,6 +341,10 @@ def render_series(
         Directory for the PNG (created if needed).
     models : list of str, optional
         Subset/order of the lines (default: every key of ``per_source``).
+    bands : mapping, optional
+        ``{label: (years, lo, hi)}`` -- an ensemble spread drawn as a shaded band
+        under that label's line, in the line's own colour. Labels without an
+        entry are drawn as a plain line.
     reference : str, optional
         Label drawn as the truth line (thick black) and listed first in the
         legend -- typically the RCM.
@@ -253,6 +353,10 @@ def render_series(
     years : tuple or iterable, optional
         Closed ``(y0, y1)`` window (a tuple) or the explicit years to display
         (any other iterable).
+    spread : {"minmax", "std"}, optional
+        Shade the ensemble spread of the labels given as several paths:
+        ``"minmax"`` the full envelope, ``"std"`` the mean +/- one standard
+        deviation. None draws the mean line alone.
     units : str, optional
         Unit label for the y axis.
     is_anomaly : bool, default False
@@ -301,6 +405,19 @@ def render_series(
             style = dict(MODEL_STYLE, color=colors[slot])
             slot += 1
         py, pv = _break_gaps(y, v)
+        band = (bands or {}).get(label)
+        if band is not None:
+            by, blo = _break_gaps(*_select_years(band[0], band[1], years))
+            _, bhi = _break_gaps(*_select_years(band[0], band[2], years))
+            ax.fill_between(
+                by,
+                blo,
+                bhi,
+                color=style.get("color", "0.4"),
+                alpha=0.20,
+                lw=0,
+                zorder=1,
+            )
         ax.plot(py, pv, label=label, **style)
 
     if is_anomaly:
@@ -349,7 +466,7 @@ def render_series(
     return path
 
 
-def plot_series(
+def plot_var_series(
     paths,
     out,
     var,
@@ -364,6 +481,7 @@ def plot_series(
     years=None,
     scale=1.0,
     units=None,
+    spread=None,
     season="annual",
     **kwargs,
 ):
@@ -378,6 +496,12 @@ def plot_series(
         base directory of that source's ``ml-eval signal`` run and the variable's
         store is read from ``<path>/<var>/``. One entry = one line, in the given
         order.
+
+        A label's value may instead be a **sequence of paths**, one per ensemble
+        member: the line is then their mean and, with ``spread`` set, a shaded
+        band shows their spread. ``ml-eval signal`` collapses the ensemble, so
+        those per-member runs come from ``ml-eval signal --member-num k``, each
+        written to its own ``--output``.
     out : str
         Output directory for the PNG.
     var : str
@@ -414,6 +538,10 @@ def plot_series(
     scale : float, default 1.0
         Multiplies the values -- e.g. 86400 to show precip stored in
         kg m-2 s-1 as mm/day. Applied before the baseline is removed.
+    spread : {"minmax", "std"}, optional
+        Shade the ensemble spread of the labels given as several paths:
+        ``"minmax"`` the full envelope, ``"std"`` the mean +/- one standard
+        deviation. None draws the mean line alone.
     units : str, optional
         Unit label for the y axis.
     season : str, default "annual"
@@ -427,7 +555,22 @@ def plot_series(
     str or None
         Path of the PNG written, or None if no source had data.
     """
+    # A label may carry several member runs. normalize_paths stringifies its
+    # values, so those are pulled out first and put back after normalisation.
+    entries = paths.items() if isinstance(paths, dict) else None
+    members = {}
+    if entries is not None:
+        flat = {}
+        for label, spec in entries:
+            if isinstance(spec, (list, tuple, set)):
+                members[str(label)] = [str(p) for p in spec]
+                flat[label] = next(iter(spec))  # a representative, for validation
+            else:
+                flat[label] = spec
+        paths = flat
+
     by_label = normalize_paths(paths)
+    by_label.update(members)
     index = _check_index(var, index)
 
     for name, label, override in (
@@ -448,12 +591,31 @@ def plot_series(
     if base_by_label and baseline is None:
         print("[series] baseline_paths given without baseline= — ignored.")
 
-    per_source: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-    for label, base in by_label.items():
+    def _one(base):
+        """One run's series, or empty when it is not on disk."""
         d = metrics_dir(base, var)
-        years_v, values = read_series(d, index) if os.path.isdir(d) else (
-            np.array([], dtype=int), np.array([], dtype=float)
-        )
+        if not os.path.isdir(d):
+            return np.array([], dtype=int), np.array([], dtype=float)
+        return read_series(d, index)
+
+    per_source: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    bands: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+    for label, base in by_label.items():
+        if isinstance(base, (list, tuple, set)):
+            # several member runs: the line is their mean, the band their spread
+            members = [_one(b) for b in base]
+            years_v, values, lo, hi = member_spread(members, spread or "minmax")
+            if spread is not None and years_v.size:
+                bands[label] = (years_v, lo, hi)
+            d = ", ".join(str(b) for b in base)
+        else:
+            d = metrics_dir(base, var)
+            years_v, values = _one(base)
+            if spread is not None and os.path.isdir(d):
+                # an ensemble-mean signal run stores its own spread
+                by, blo, bhi = read_series_spread(d, index, spread)
+                if by.size:
+                    bands[label] = (by, blo, bhi)
         if baseline is not None and label in base_by_label:
             bd = metrics_dir(base_by_label[label], var)
             if os.path.isdir(bd):
@@ -464,6 +626,9 @@ def plot_series(
             print(f"[series] skip {label}: no {index} series under {d}")
             continue
         values = values * scale
+        if label in bands:
+            by, blo, bhi = bands[label]
+            bands[label] = (by, blo * scale, bhi * scale)
         if baseline is not None:
             base_mean = _baseline_mean(years_v, values, baseline)
             if not np.isfinite(base_mean):
@@ -471,11 +636,15 @@ def plot_series(
                       f"{baseline[0]}-{baseline[1]}")
                 continue
             values = values - base_mean
+            if label in bands:
+                by, blo, bhi = bands[label]
+                bands[label] = (by, blo - base_mean, bhi - base_mean)
         per_source[label] = (years_v, values)
 
     path = render_series(
         per_source, var, index, out,
         models=[m for m in by_label if m in per_source],
+        bands=bands or None,
         reference=reference, driver=driver, years=years, units=units,
         is_anomaly=baseline is not None, baseline=baseline, season=season,
         **kwargs,
