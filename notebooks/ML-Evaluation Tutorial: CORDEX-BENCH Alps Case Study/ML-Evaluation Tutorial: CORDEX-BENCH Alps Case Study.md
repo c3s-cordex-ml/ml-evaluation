@@ -771,7 +771,7 @@ plot_var_series(
 )
 ```
 
-It is opt-in: `variant_of` defaults to None and a single-framework figure is unchanged. Variants also cost no colour, so pairing doubles how many lines fit the palette. In the project scripts this is the `CASE2` parameter — empty for the usual figure, `"imperfect"` to overlay.
+It is opt-in: `variant_of` defaults to None and a single-framework figure is unchanged. Variants also cost no colour, so pairing doubles how many lines fit the palette. In the project scripts this is the `CASE2` parameter — empty for the usual figure, `"imperfect"` to overlay. **The panels below are drawn with the overlay on**, so each emulator appears twice: solid under perfect predictors, dashed in the same colour under imperfect ones.
 
 **Ensembles.** This figure has no `member_num`: the member choice is made at the CLI (`ml-eval signal --member-num`), because the signal is computed once per source. But an **ensemble-mean run records its own spread** — when the source has more than one member and no single member was selected, `ml-eval signal` writes `<index>_series_{min,max,std}` next to the mean series. So a spread band needs no extra runs and no extra stores:
 
@@ -792,11 +792,15 @@ For a run that predates that output — or to combine separate per-member runs �
 
 ![Domain-mean annual mean tasmax, historical and mid-century, one line per source](figures/series_tasmax_mean_annual.png)
 
-*Annual mean `tasmax`, domain mean. All four emulators sit on top of the RCM truth in both windows — they reproduce not just the ~1.3 K warming between the periods but the year-to-year variability, including the 1985 cold year and the 2050 spike. For a perfect-predictor experiment this is the expected result, and it is the baseline against which the precipitation panel should be read.*
+*Annual mean `tasmax`, domain mean; solid = perfect predictors, dashed = imperfect. Under perfect predictors all four emulators sit on top of the RCM truth in both windows — they reproduce not just the ~1.3 K warming between the periods but the year-to-year variability, including the 1985 cold year and the 2050 spike. For a perfect-predictor experiment this is the expected result, and it is the baseline against which the precipitation panel should be read.*
+
+*The dashed lines are the same emulators driven by the raw GCM. They stay **in phase** with the truth — the driving GCM is the same run that drove the RCM, so the two share a chronology and a cold year in the RCM is a cold year in the GCM too — but sit ~0.4 K warm throughout the historical window. That offset is the GCM's own bias passing through the downscaling untouched, not an emulator error: the same networks, fed upscaled RCM fields instead, land on the truth. Which is the whole point of running both frameworks, and the reason §7.2 references every source to its own baseline.*
 
 ![Domain-mean annual RX1day, historical and mid-century, one line per source](figures/series_pr_rx1day_annual.png)
 
-*Annual RX1day (the wettest day of each year), domain mean, same sources and periods. Here the models separate into two groups: RESDIFF and CPMGEM track both the level and the phase of the truth, while both U-Nets sit ~8-12 mm/day low in every single year of both windows. The offset is systematic rather than a drift — their interannual variability is in phase, they simply cannot reach the extreme. §7.1.4 maps the same deficit and shows it is domain-wide.*
+*Annual RX1day (the wettest day of each year), domain mean, same sources and periods. Under perfect predictors (solid) the models separate into two groups: RESDIFF and CPMGEM track both the level and the phase of the truth, while both U-Nets sit ~8-12 mm/day low in every single year of both windows. The offset is systematic rather than a drift — their interannual variability is in phase, they simply cannot reach the extreme. §7.1.4 maps the same deficit and shows it is domain-wide.*
+
+*Every emulator loses further ground under imperfect predictors (dashed), by ~2-4 mm/day, and the gap widens in the future window. Note what does **not** change: the ranking. The two groups stay ordered the same way in both frameworks, so the deficit the U-Nets show is a property of those models rather than of the boundary data they were given.*
 
 Reading the two together is the point: a model can be indistinguishable from the truth on a smooth variable and still miss an extreme by 15 %, which is exactly what the scorecards in §7.1.2 and §7.1.3 summarise into single cells.
 
@@ -990,7 +994,9 @@ The historical years then scatter around zero by construction and the mid-centur
 
 ![tasmax mean anomalies from each source's own 1981-2000 mean](figures/series_tasmax_mean_anom_annual.png)
 
-*Mean `tasmax` as an anomaly from each source's own 1981-2000 climate. The emulator lines are indistinguishable from the RCM's in both windows: they reproduce not just the ~+1.9 K shift between the periods but every year-to-year excursion, including the 2050 spike and the 2044 dip. Referenced this way a systematic warm or cold bias would cancel, so what is left is purely the projected change — and on this variable, under perfect predictors, the emulators simply have it right. Contrast §7.2.2, where precipitation extremes separate the models sharply.*
+*Mean `tasmax` as an anomaly from each source's own 1981-2000 climate; solid = perfect predictors, dashed = imperfect. The perfect-framework lines are indistinguishable from the RCM's in both windows: they reproduce not just the ~+1.9 K shift between the periods but every year-to-year excursion, including the 2050 spike and the 2044 dip. Referenced this way a systematic warm or cold bias would cancel — the ~0.4 K offset of §7.1.5 is gone from the dashed lines here — so what is left is purely the projected change.*
+
+*And that change differs by framework. The imperfect lines track the same excursions but reach only ~+1.6 K where the perfect ones reach ~+2.1 K: under raw GCM boundaries these emulators project distinctly less warming. That is the same contrast the scorecard in §7.2.1 compresses into two rows per model (+1.81/+1.82 K perfect against +1.53/+1.57 K imperfect), shown here year by year. Contrast §7.2.2, where precipitation extremes separate the models sharply.*
 
 ______________________________________________________________________
 
@@ -1001,8 +1007,9 @@ You have now run the full evaluation workflow on CORDEX-BENCH Alps:
 - **`ml-eval fast`** — the cheap, generally applicable metrics that feed the scorecards (RMSE, biases of mean / percentiles / extremes / autocorrelation, RALSD).
 - **`ml-eval slow`** — the extended distributional and spectral diagnostics, plus the variable-specific threshold indices.
 - **`ml-eval signal`** — each source's own climate-change signal, so model signals are compared free of any bias inherited from the driving GCM.
+- **`ml-eval multivar`** — the correlation between a *pair* of predicted variables, which catches a model that is right on each variable separately while getting their relationship wrong.
 - **`ml-eval prob`** — CRPS, Brier score and spread–error ratio for ensemble (generative) predictions.
-- **`ml_evaluation.viz`** — `plot_multivar_skill_scorecard` for the models × variables overview and `plot_var_skill_scorecard` for the per-variable detail, both reading the Zarr stores back without recomputing anything; `plot_var_skill_maps` / `plot_multivar_skill_maps` for the spatial field behind those scalars, `plot_multivar_event_maps` / `plot_var_event_maps` for the single-day check that comes *before* trusting any of them, and `plot_var_series` for the year-by-year view.
+- **`ml_evaluation.viz`** — functions that read those CLI outputs back and display them as scorecards, maps and time series, without recomputing anything.
 
 Two habits make the rest easy: write every track of one (prediction, variable, season) into **one leaf directory**, and name that directory after the prediction file's stem. Everything downstream — scorecards, time series, spatial maps — then locates its inputs from the model name alone.
 
