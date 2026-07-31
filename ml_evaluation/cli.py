@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import click
+import xarray as xr
 from ml_evaluation.evaluation.diagnostics import (
     bias_index,
     rmse_index,
@@ -1468,7 +1469,7 @@ def multivar(
         )
     )
 
-    # Compute Pearson Correlation of daily data between variables (over time): field
+    # Compute Spearman's rank correlation between variables (over time): field
     click.echo(
         "Computing Spearman's Correlation of daily data between variables (over time): field..."
     )
@@ -1489,9 +1490,9 @@ def multivar(
         "targ_mv_pcorr_field": targ_mv_pcorrf_ds,
         "pred_mv_pcorr_field": pred_mv_pcorrf_ds,
         "bias_mv_pcorr_field": bias_mv_pcorrf_ds,
-        "targ_mv_scorr_field": targ_mv_pcorrf_ds,
-        "pred_mv_scorr_field": pred_mv_pcorrf_ds,
-        "bias_mv_scorr_field": bias_mv_pcorrf_ds,
+        "targ_mv_scorr_field": targ_mv_scorrf_ds,
+        "pred_mv_scorr_field": pred_mv_scorrf_ds,
+        "bias_mv_scorr_field": bias_mv_scorrf_ds,
     }
     metrics_path = _get_output_path(output, "metrics_mv_field.zarr")
     write_zarr(metrics, metrics_path, mode="w", var=var + var2)
@@ -1501,127 +1502,75 @@ def multivar(
     click.echo("Multi-variate evaluation complete.")
 
 
-@main.command()
-@click.option(
-    "--x0",
-    required=True,
-    type=click.Path(exists=True),
-    help="Path to ground-truth NetCDF file.",
-)
-@click.option(
-    "--x1",
-    required=True,
-    type=click.Path(exists=True),
-    help="Path to predictions NetCDF file.",
-)
-@click.option("--var", required=True, type=str, help="Variable name to evaluate.")
-@click.option(
-    "--output",
-    required=True,
-    type=str,
-    help="Directory or file path for the output Zarr results.",
-)
-@click.option(
-    "--season",
-    type=str,
-    default=None,
-    help="Optional season/month to filter (e.g., DJF, MAM, JJA, SON, JAN).",
-)
-@click.option(
-    "--align-leap-days",
-    type=str,
-    default=None,
-    help="Option to align datasets to standard calendar by filling missing leap days.",
-)
-@click.option(
-    "--force-load",
-    type=bool,
-    default=False,
-    help="Option to load data into memory for quick testing of small datasets.",
-)
-@click.option(
-    "--use-dask",
-    type=bool,
-    default=False,
-    help="Option to use Dask for parallel processing.",
-)
-def prob(
-    x0: str,
-    x1: str,
-    var: str,
-    output: str,
-    season: str | None,
-    align_leap_days: str | None,
-    force_load: bool,
-    use_dask: bool,
-) -> None:
-    """
-    Run probabilistic evaluation workflow.
+def _parse_n_members(spec: str | None) -> list[int] | None:
+    """Parse the ``--n-members`` spec into an ordered list of sub-ensemble sizes.
 
-    Computes CRPS, Brier Score and Spread-Error ratio between x0 and x1
-    for the specified variable and optionally filters by season.
+    ``None`` (the option omitted) means "score the ensemble as it comes" and is
+    returned as None, which keeps the output identical to a run of this command
+    from before the option existed. Otherwise the spec is a comma-separated list
+    of positive sizes, e.g. ``"2,4,6,8,10"``; a single ``"4"`` is just a
+    one-element sweep.
 
     Parameters
     ----------
-    x0 : str
-        Path to ground-truth NetCDF file.
-    x1 : str
-        Path to predictions NetCDF file.
-    var : str
-        Variable name to evaluate.
-    output : str
-        Directory, file prefix, or final Zarr store path.
-    season : str | None
-        Optional season or month standard name.
-    align_leap_days : str | None
-        Options to align datasets to standard calendar by filling missing leap days.
-    force_load : bool
-        Option to load data into memory for quick testing of small datasets.
-    use_dask : bool
-        Option to use Dask for parallel processing.
+    spec : str | None
+        The raw option value.
 
     Returns
     -------
-    None
+    list[int] | None
+        Sizes in the given order, duplicates removed, or None.
+
+    Raises
+    ------
+    click.BadParameter
+        If an entry is not a positive integer.
     """
-    if use_dask:
-        from dask.distributed import Client
+    if spec is None:
+        return None
+    sizes: list[int] = []
+    for token in spec.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            n = int(token)
+        except ValueError:
+            raise click.BadParameter(f"{token!r} is not an integer", param_hint="--n-members")
+        if n < 1:
+            raise click.BadParameter(f"{n} is not a positive size", param_hint="--n-members")
+        if n not in sizes:
+            sizes.append(n)
+    if not sizes:
+        raise click.BadParameter("no sizes given", param_hint="--n-members")
+    return sizes
 
-        _client = Client(**dask_default_params)
-        click.echo("Using dask")
 
-    click.echo(f"Running probabilistic evaluation for variable '{var}'...")
-    click.echo(f"Loading reference: {x0}")
-    x0_ds = load_dataset(
-        x0, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
-    )
-    click.echo(f"Loading prediction: {x1}")
-    x1_ds = load_dataset(
-        x1, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
-    )
+def _prob_metrics(x0_ds, x1_ds, var: str, season: str | None, sdims, nmem: int):
+    """The probabilistic diagnostics of ONE (sub-)ensemble.
 
-    x0_ds = x0_ds[[var]]
-    x1_ds = x1_ds[[var]]
+    Factored out of :func:`prob` so the command can score several ensemble sizes
+    from a single load of the prediction file.
 
-    # Check for different pr units in target vs prediction
-    if var == "pr":
-        if x1_ds["pr"].max() > 1 and x0_ds["pr"].max() < 1:
-            click.echo("WARNING: pr converted from mm/day to kg/m2/s")
-            x1_ds["pr"] = x1_ds["pr"] / 86400.0
+    Parameters
+    ----------
+    x0_ds, x1_ds : xr.Dataset
+        Reference and (possibly member-subset) prediction, already aligned.
+    var : str
+        Variable being scored.
+    season : str | None
+        Optional season/month filter.
+    sdims : tuple[str, ...]
+        Spatial dimensions to average over for the domain scalars.
+    nmem : int
+        Number of members in ``x1_ds``. Below 2 the spread-error statistics are
+        undefined and simply absent from the returned bundles.
 
-    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=None)
-    sdims = spatial_dims(x1_ds, var)
-
-    nmem = x1_ds.sizes[member_dim]
-
-    # Force loading when testing on smaller datasets so quick to run
-    # Works well on 6 years 3 members
-    if force_load:
-        x0_ds.load()
-        x1_ds.load()
-
-    scale, shift = convert_threshold_units(x0_ds, var)
-
+    Returns
+    -------
+    tuple[dict, dict]
+        The ``(field, float)`` diagnostic bundles, keyed as they are stored.
+    """
     # -------------------
     # CRPS
     # -------------------
@@ -1663,6 +1612,9 @@ def prob(
     click.echo("Computing mean brier score wrt p50 (over time, lat, lon): float...")
     bs50p_ds = bs50pf_ds.mean(dim=sdims)
 
+    metrics_field = {"crps_mean_field": crpsf_ds, "bs50p_field": bs50pf_ds}
+    metrics_float = {"crps_mean_float": crps_ds, "bs50p_float": bs50p_ds}
+
     # -------------------
     # Spread-Error statistics
     # -------------------
@@ -1670,7 +1622,7 @@ def prob(
     if nmem > 1:
         # Compute spread-error ratio (over time): field
         click.echo("Computing spread-error ratio (over time): field...")
-        ssratf_ds = mean_spread_skill_ratio(
+        metrics_field["se_ssrat_field"] = mean_spread_skill_ratio(
             x0_ds,
             x1_ds,
             var=var,
@@ -1679,7 +1631,7 @@ def prob(
         )
         # Compute spread-error ratio (over time, lat, lon): float
         click.echo("Computing spread-error ratio (over time, lat, lon): float...")
-        ssrat_ds = mean_spread_skill_ratio(
+        metrics_float["se_ssrat_float"] = mean_spread_skill_ratio(
             x0_ds,
             x1_ds,
             var=var,
@@ -1694,30 +1646,225 @@ def prob(
             "(indicator) loss."
         )
 
+    return metrics_field, metrics_float
+
+
+def _stack_over_n_members(bundles: list[dict], sizes: list[int]) -> dict:
+    """Stack per-ensemble-size diagnostic bundles along an ``n_members`` dim.
+
+    ``bundles[i]`` holds the diagnostics scored on ``sizes[i]`` members. The
+    result keys the same diagnostics, each concatenated along a new
+    ``n_members`` dimension whose coordinate is the ensemble size -- so one
+    store carries the whole sweep and a reader selects the size it wants.
+
+    A diagnostic missing from any single bundle (the spread-error statistics on
+    a 1-member sub-ensemble) is dropped with a warning, so the stacked
+    diagnostics stay rectangular.
+
+    Parameters
+    ----------
+    bundles : list[dict]
+        One diagnostic bundle per ensemble size, in the order of ``sizes``.
+    sizes : list[int]
+        The ensemble sizes actually scored.
+
+    Returns
+    -------
+    dict
+        The stacked bundle, ready for :func:`write_zarr`.
+    """
+    common = [k for k in bundles[0] if all(k in b for b in bundles)]
+    for key in bundles[0]:
+        if key not in common:
+            click.echo(f"WARNING: {key} not available for every size; dropped")
+    stacked = {}
+    for key in common:
+        da = xr.concat([b[key] for b in bundles], dim="n_members")
+        stacked[key] = da.assign_coords(n_members=sizes)
+    return stacked
+
+
+@main.command()
+@click.option(
+    "--x0",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to ground-truth NetCDF file.",
+)
+@click.option(
+    "--x1",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to predictions NetCDF file.",
+)
+@click.option("--var", required=True, type=str, help="Variable name to evaluate.")
+@click.option(
+    "--output",
+    required=True,
+    type=str,
+    help="Directory or file path for the output Zarr results.",
+)
+@click.option(
+    "--season",
+    type=str,
+    default=None,
+    help="Optional season/month to filter (e.g., DJF, MAM, JJA, SON, JAN).",
+)
+@click.option(
+    "--align-leap-days",
+    type=str,
+    default=None,
+    help="Option to align datasets to standard calendar by filling missing leap days.",
+)
+@click.option(
+    "--n-members",
+    type=str,
+    default=None,
+    help="Comma-separated sub-ensemble sizes to score (e.g. '2,4,6,8,10'); the "
+    "results are stacked along an 'n_members' dimension. Default: the whole "
+    "ensemble, with no such dimension.",
+)
+@click.option(
+    "--force-load",
+    type=bool,
+    default=False,
+    help="Option to load data into memory for quick testing of small datasets.",
+)
+@click.option(
+    "--use-dask",
+    type=bool,
+    default=False,
+    help="Option to use Dask for parallel processing.",
+)
+def prob(
+    x0: str,
+    x1: str,
+    var: str,
+    output: str,
+    season: str | None,
+    align_leap_days: str | None,
+    n_members: str | None,
+    force_load: bool,
+    use_dask: bool,
+) -> None:
+    """
+    Run probabilistic evaluation workflow.
+
+    Computes CRPS, Brier Score and Spread-Error ratio between x0 and x1
+    for the specified variable and optionally filters by season.
+
+    Parameters
+    ----------
+    x0 : str
+        Path to ground-truth NetCDF file.
+    x1 : str
+        Path to predictions NetCDF file.
+    var : str
+        Variable name to evaluate.
+    output : str
+        Directory, file prefix, or final Zarr store path.
+    season : str | None
+        Optional season or month standard name.
+    align_leap_days : str | None
+        Options to align datasets to standard calendar by filling missing leap days.
+    n_members : str | None
+        Option to score sub-ensembles: a comma-separated list of sizes (e.g.
+        "2,4,6,8,10"), each scored on the first N members of x1 by position, so
+        the diagnostics can be read as a function of ensemble size. The bundles
+        are stacked along an ``n_members`` dimension coordinated by the size, so
+        the sweep lands in the SAME two stores (and the same output directory)
+        as a plain run. Sizes larger than the ensemble are clipped to it (with a
+        warning) and de-duplicated. None (default) scores the whole ensemble and
+        writes no ``n_members`` dimension at all -- byte-identical to a run from
+        before this option existed. Ignored (with a warning) if x1 has no member
+        dimension.
+    force_load : bool
+        Option to load data into memory for quick testing of small datasets.
+    use_dask : bool
+        Option to use Dask for parallel processing.
+
+    Returns
+    -------
+    None
+    """
+    if use_dask:
+        from dask.distributed import Client
+
+        _client = Client(**dask_default_params)
+        click.echo("Using dask")
+
+    click.echo(f"Running probabilistic evaluation for variable '{var}'...")
+    click.echo(f"Loading reference: {x0}")
+    x0_ds = load_dataset(
+        x0, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )
+    click.echo(f"Loading prediction: {x1}")
+    x1_ds = load_dataset(
+        x1, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )
+
+    x0_ds = x0_ds[[var]]
+    x1_ds = x1_ds[[var]]
+
+    # Check for different pr units in target vs prediction
+    if var == "pr":
+        if x1_ds["pr"].max() > 1 and x0_ds["pr"].max() < 1:
+            click.echo("WARNING: pr converted from mm/day to kg/m2/s")
+            x1_ds["pr"] = x1_ds["pr"] / 86400.0
+
+    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=None)
+    sdims = spatial_dims(x1_ds, var)
+
+    # The sub-ensemble sweep: which member counts to score. None = the ensemble
+    # as it comes, which is the single-bundle behaviour of a plain run.
+    sizes = _parse_n_members(n_members)
+    if sizes is not None and member_dim is None:
+        click.echo("WARNING: --n-members ignored (no member dimension in data)")
+        sizes = None
+
+    # Force loading when testing on smaller datasets so quick to run
+    # Works well on 6 years 3 members
+    if force_load:
+        x0_ds.load()
+        x1_ds.load()
+
+    scale, shift = convert_threshold_units(x0_ds, var)
+
+    if sizes is None:
+        nmem = x1_ds.sizes[member_dim]
+        metrics_field, metrics_float = _prob_metrics(
+            x0_ds, x1_ds, var, season, sdims, nmem
+        )
+    else:
+        # One pass per size, off the SINGLE load of x1 above: clip to what the
+        # ensemble actually has, then drop the duplicates that clipping can
+        # create (e.g. "8,10" on a 6-member ensemble is one 6-member score).
+        available = x1_ds.sizes[member_dim]
+        scored: list[int] = []
+        for n in sizes:
+            if n > available:
+                click.echo(
+                    f"WARNING: --n-members {n} > {available} available; "
+                    f"using all {available}"
+                )
+                n = available
+            if n not in scored:
+                scored.append(n)
+
+        field_bundles, float_bundles = [], []
+        for n in scored:
+            click.echo(f"--- scoring the first {n} member(s) of x1 ---")
+            sub = x1_ds.isel({member_dim: slice(0, n)})
+            f_bundle, s_bundle = _prob_metrics(x0_ds, sub, var, season, sdims, n)
+            field_bundles.append(f_bundle)
+            float_bundles.append(s_bundle)
+
+        click.echo(f"Stacking {len(scored)} ensemble size(s) along 'n_members'...")
+        metrics_field = _stack_over_n_members(field_bundles, scored)
+        metrics_float = _stack_over_n_members(float_bundles, scored)
+
     # Save all fast-track metrics
     click.echo("Combining and saving metrics...")
-
-    if nmem > 1:
-        metrics_field = {
-            "crps_mean_field": crpsf_ds,
-            "bs50p_field": bs50pf_ds,
-            "se_ssrat_field": ssratf_ds,
-        }
-        metrics_float = {
-            "crps_mean_float": crps_ds,
-            "bs50p_float": bs50p_ds,
-            "se_ssrat_float": ssrat_ds,
-        }
-
-    else:
-        metrics_field = {
-            "crps_mean_field": crpsf_ds,
-            "bs50p_field": bs50pf_ds,
-        }
-        metrics_float = {
-            "crps_mean_float": crps_ds,
-            "bs50p_float": bs50p_ds,
-        }
 
     metrics_path_field = _get_output_path(output, "metrics_prob_field.zarr")
     write_zarr(metrics_field, metrics_path_field, mode="w", var=var)

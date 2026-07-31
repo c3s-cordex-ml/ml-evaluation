@@ -50,6 +50,17 @@ in the figure.
   the mean series, so `spread="minmax"` / `"std"` draws a band with no extra runs.
   A label may also be given a **list of paths** (one per-member run each), which
   the figure reduces itself — the fallback for older runs.
+- `variant_of={variant: base}` (series only, optional) draws a label in another
+  label's colour, dashed — the way to overlay the same emulators under a second
+  experiment (perfect vs imperfect boundaries) without doubling the palette.
+  Defaults to None, so single-experiment figures are unaffected.
+- `row_sel={label: {"n_members": N}}` (probskill only, optional) picks one
+  configuration out of a store that holds several: `ml-eval prob --n-members
+  "2,4,6,8,10"` stacks an ensemble-size sweep along an `n_members` dimension
+  rather than splitting it across directories, so several rows can share one
+  path and differ only by the size read out of it. Without it a swept store
+  falls back to its largest size (the full ensemble) and says so — it is never
+  averaged across sizes, which would describe no ensemble at all.
 - `member_num` picks the realisation: `>= 0` that member, `< 0` the mean over
   members. Default `0` — the only member of a deterministic model. ml-eval
   scores every realisation separately, so averaging is a choice, never a silent
@@ -73,7 +84,7 @@ ______________________________________________________________________
 | `plot_multivar_skill_maps` | `plot_diagnostic_maps` | **one** figure: variables (columns) × models (rows), truth on top | any `*_field` store the metric lives in | `metric`, `kind`, `show_truth`, `reference`, `season`, `member_num` |
 | `plot_var_skill_maps` | `plot_diagnostic_maps` | one per variable: truth at (1,1), models down column 2, error in column 3 | ″ | `metric`, `kind`, `show_truth`, `reference`, `season`, `member_num` |
 | `plot_domain` | `plot_domain` | one map: the outline of each experiment grid over coastlines (documentation, not evaluation) | the grids' own **NetCDF** | `title`, `resolutions`, `margin`, `colors` |
-| `plot_multivar_probskill_scorecard` | `plot_multivar_probskill_scorecard` | **one** figure: models × variables, each cell a triangle of CRPS / BS / SERAT for ensemble predictions | `metrics_prob_float` | `metrics` (wedges), `season`, `cmap`, `annotate` |
+| `plot_multivar_probskill_scorecard` | `plot_multivar_probskill_scorecard` | **one** figure: models × variables, each cell a triangle of CRPS / BS / SERAT for ensemble predictions | `metrics_prob_float` | `metrics` (wedges), `season`, `row_sel`, `cmap`, `annotate` |
 | `plot_var_signal_maps` | `plot_diagnostic_maps` | one per variable: the RCM's own signal at (1,1), each model's signal down column 2, its signal error in column 3 | `metrics_signal_field` | `index`, `quantity` (`delta` / `reldelta`), `kind`, `reference_path` |
 | `plot_multivar_signal_maps` | `plot_diagnostic_maps` | **one** figure: variables × sources, the RCM's signal on top | ″ | ″ |
 | `plot_multivar_event_maps` | `plot_diagnostic_maps` | `plot_multivar_skill_maps` for a **single date** | prediction / target **NetCDF** | `date`, `kind`, `show_truth`, `reference_path`, `member_num` |

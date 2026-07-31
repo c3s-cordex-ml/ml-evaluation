@@ -36,16 +36,23 @@ As in ``plot_hexagon``: ``{label: path}`` where ``path`` is one run's base
 directory, and one variable's store is read from ``<path>/<var>/``. Nothing is
 searched. ``season`` is a label for the title and the file name only.
 
+One store can hold several scored configurations, because ``ml-eval prob
+--n-members "2,4,..."`` stacks an ensemble-size sweep along an ``n_members``
+dimension rather than splitting it across directories. Rows then differ by
+``row_sel`` -- ``{label: {"n_members": N}}`` -- instead of by path, which is how
+"the same emulator at 2, 4, 6, 8, 10 members" becomes five rows of one figure.
+
 Public API
 ----------
 prob_columns(metrics=None)
     The ``(metric_key, wedge_label)`` list, in wedge order.
-read_prob_metrics(metrics_dir, metrics=None)
-    ``{metric_key: value}`` for one ``ml-eval prob --output`` directory. Depends
-    only on ml-eval's output format -- layout-agnostic.
+read_prob_metrics(metrics_dir, metrics=None, *, sel=None)
+    ``{metric_key: value}`` for one ``ml-eval prob --output`` directory, ``sel``
+    picking one configuration out of a swept store. Depends only on ml-eval's
+    output format -- layout-agnostic.
 render_multivar_probskill_scorecard(per_model, out_dir, *, variables, models, season)
     Render from precomputed ``{label: {var: {metric: value}}}``.
-plot_multivar_probskill_scorecard(paths, out, variables, *, season)
+plot_multivar_probskill_scorecard(paths, out, variables, *, season, row_sel=None)
     Read + render: one figure, models x variables.
 
 Example
@@ -92,6 +99,15 @@ TRIANGLE_WEDGES = ["crps", "bs", "serat"]
 # SERAT is not an error: it is best at 1, so it is folded before normalising.
 BEST_AT_ONE = {"serat"}
 
+# Dimensions a store may carry because ONE ``ml-eval prob`` call scored several
+# configurations into it (``--n-members "2,4,..."``). A reader must select along
+# these, never average: see :func:`_select_sweep`.
+SWEEP_DIMS = ("n_members",)
+
+
+class SweepSelectionError(Exception):
+    """A requested sweep coordinate (e.g. ``n_members=7``) is not in the store."""
+
 
 def prob_columns(metrics=None) -> list[tuple[str, str]]:
     """The ``(metric_key, wedge_label)`` list, in wedge order.
@@ -123,8 +139,66 @@ def prob_columns(metrics=None) -> list[tuple[str, str]]:
     return columns
 
 
+def _select_sweep(da, sel, label=""):
+    """Reduce the sweep dimensions of a stored diagnostic to a single value.
+
+    ``ml-eval prob --n-members "2,4,..."`` stacks one bundle per sub-ensemble
+    size along an ``n_members`` dimension, so a store can hold several scored
+    configurations at the same path. ``sel`` picks one of them -- ``{"n_members":
+    4}`` reads the 4-member score.
+
+    Selecting is not optional when such a dimension is present: averaging over
+    it would silently return the mean of a diagnostic ACROSS ensemble sizes,
+    which is not a diagnostic of anything. So a leftover sweep dimension with no
+    ``sel`` falls back to its LARGEST coordinate -- the full ensemble, which is
+    what a figure means by the model's score -- and says so.
+
+    Parameters
+    ----------
+    da : xr.DataArray
+        A stored diagnostic, already reduced to one ``diagnostic`` value.
+    sel : dict | None
+        Coordinate selection, e.g. ``{"n_members": 4}``. Entries naming a
+        dimension the store does not have are ignored.
+    label : str
+        Caller's label, used only in the fallback message.
+
+    Returns
+    -------
+    xr.DataArray
+        The diagnostic with every sweep dimension resolved.
+
+    Raises
+    ------
+    SweepSelectionError
+        If a requested coordinate value is not in the store. Deliberately NOT a
+        KeyError: :func:`read_prob_metrics` turns those into NaN (a missing
+        metric is normal), which would render a typo'd size as an innocent blank
+        wedge instead of an error.
+    """
+    if sel:
+        wanted = {k: v for k, v in sel.items() if k in da.dims}
+        for dim, value in wanted.items():
+            if value not in da[dim].values:
+                raise SweepSelectionError(
+                    f"{label or 'store'}: {dim}={value} not scored; available: "
+                    f"{list(da[dim].values)}"
+                )
+        if wanted:
+            da = da.sel(wanted)
+    for dim in SWEEP_DIMS:
+        if dim in da.dims:
+            largest = da[dim].max().item()
+            print(
+                f"[probskill] {label}: {dim} not selected; using the largest "
+                f"({dim}={largest})"
+            )
+            da = da.sel({dim: largest})
+    return da
+
+
 def read_prob_metrics(
-    metrics_dir: str, metrics=None, *, member_dim: str = "member"
+    metrics_dir: str, metrics=None, *, member_dim: str = "member", sel=None, label=""
 ) -> dict[str, float]:
     """Probabilistic scalars for one ``ml-eval prob --output`` directory.
 
@@ -134,6 +208,21 @@ def read_prob_metrics(
     for ``serat`` on a single-member prediction, since ``ml-eval prob`` omits it
     rather than writing a meaningless number. Depends only on ml-eval's output
     format -- no directory-layout assumptions.
+
+    Parameters
+    ----------
+    metrics_dir : str
+        Directory holding the store.
+    metrics : iterable, optional
+        Wedge selection (see :func:`prob_columns`).
+    member_dim : str
+        Ensemble dimension name in the stored metrics, if any.
+    sel : dict, optional
+        Selection along a sweep dimension of the store, e.g. ``{"n_members":
+        4}`` to read the 4-member score of an ensemble-size sweep. See
+        :func:`_select_sweep` for what happens without it.
+    label : str
+        Caller's label, used only in messages.
     """
     out = {}
     for key, _ in prob_columns(metrics):
@@ -145,6 +234,7 @@ def read_prob_metrics(
         try:
             with xr.open_zarr(path) as ds:
                 da = select_member(ds["value"].sel(diagnostic=diag), member_dim, 0)
+                da = _select_sweep(da, sel, label=f"{label}/{key}".strip("/"))
         except (KeyError, ValueError, FileNotFoundError, OSError):
             out[key] = np.nan
             continue
@@ -351,6 +441,7 @@ def plot_multivar_probskill_scorecard(
     metrics=None,
     season="annual",
     member_dim="member",
+    row_sel=None,
     **kwargs,
 ):
     """Plot the probabilistic triangle scorecard for an explicit set of paths.
@@ -375,6 +466,17 @@ def plot_multivar_probskill_scorecard(
     member_dim : str
         Ensemble dimension name in the stored metrics, if any. The probabilistic
         diagnostics already reduce the ensemble, so this is only a safety net.
+    row_sel : mapping, optional
+        ``{label: {"n_members": N}}`` -- per-row selection along a sweep
+        dimension of the store (see :func:`_select_sweep`). This is what lets
+        several rows share ONE path and differ only by the configuration read
+        out of it, e.g. one row per ensemble size of the same emulator::
+
+            NS = [2, 4, 6, 8, 10]
+            paths   = {f"RESDIFF (n={n})": run_dir for n in NS}
+            row_sel = {f"RESDIFF (n={n})": {"n_members": n} for n in NS}
+
+        Labels absent from the mapping are read with no selection.
     **kwargs
         Forwarded to :func:`render_multivar_probskill_scorecard` (``title``,
         ``filename``, ``cmap``, ``annotate``).
@@ -394,7 +496,13 @@ def plot_multivar_probskill_scorecard(
             if not os.path.isdir(d):
                 print(f"[probskill] skip {label} / {var}: {d} not found")
                 continue
-            values = read_prob_metrics(d, metrics, member_dim=member_dim)
+            values = read_prob_metrics(
+                d,
+                metrics,
+                member_dim=member_dim,
+                sel=(row_sel or {}).get(label),
+                label=f"{label} / {var}",
+            )
             if all(not np.isfinite(v) for v in values.values()):
                 print(f"[probskill] skip {label} / {var}: no prob store in {d}")
                 continue

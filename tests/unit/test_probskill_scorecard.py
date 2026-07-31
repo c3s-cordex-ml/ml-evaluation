@@ -138,7 +138,7 @@ def test_plot_skips_sources_without_prob_output(
     for model in ("RESDIFF", "UNET-MULTI"):
         (tmp_path / model / "pr").mkdir(parents=True)
 
-    def fake_read(d, metrics=None, *, member_dim="member"):
+    def fake_read(d, metrics=None, *, member_dim="member", sel=None, label=""):
         if "UNET-MULTI" in d:
             return {"crps": np.nan, "bs": np.nan, "serat": np.nan}
         return {"crps": 1.0, "bs": 0.1, "serat": 1.1}
@@ -157,6 +157,86 @@ def test_plot_skips_sources_without_prob_output(
     )
     assert out == "fig.png"
     assert list(seen) == ["RESDIFF"]
+
+
+@pytest.fixture
+def swept_cell(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """A metrics dir whose store holds an ensemble-size sweep.
+
+    What `ml-eval prob --n-members "2,4,10"` writes: the same diagnostics, each
+    stacked along ``n_members``. SERAT climbs toward 1 with the ensemble size
+    (a small sub-ensemble is under-dispersive); CRPS is deliberately flat.
+    """
+    sizes = [2, 4, 10]
+    values = np.array(
+        [
+            [2.0, 2.0, 2.0],                    # crps
+            [0.20, 0.20, 0.20],                 # bs
+            [1 - 1 / n for n in sizes],         # serat
+        ]
+    )
+    d = tmp_path / "pr"
+    (d / pp.PROB_STORE).mkdir(parents=True, exist_ok=True)
+
+    def fake_open_zarr(path, *a, **k):
+        return xr.Dataset(
+            {"value": (("diagnostic", "n_members"), values)},
+            coords={"diagnostic": list(STORE), "n_members": sizes},
+        )
+
+    monkeypatch.setattr(pp.xr, "open_zarr", fake_open_zarr)
+    return str(d)
+
+
+def test_sweep_selection_picks_one_ensemble_size(swept_cell: str) -> None:
+    """`sel` reads one size out of a store that holds several."""
+    assert pp.read_prob_metrics(swept_cell, sel={"n_members": 2})["serat"] == 0.5
+    assert pp.read_prob_metrics(swept_cell, sel={"n_members": 4})["serat"] == 0.75
+
+
+def test_sweep_without_selection_takes_the_full_ensemble(swept_cell: str, capsys) -> None:
+    """No `sel` -> the largest size, said out loud -- never the mean across sizes.
+
+    Averaging a diagnostic over ensemble sizes would be a number that describes
+    no ensemble at all, so the fallback has to be a deliberate selection.
+    """
+    assert pp.read_prob_metrics(swept_cell)["serat"] == 1 - 1 / 10
+    assert "using the largest (n_members=10)" in capsys.readouterr().out
+
+
+def test_unscored_size_is_an_error_not_a_blank_wedge(swept_cell: str) -> None:
+    """A size that was never scored must not degrade into a NaN cell."""
+    with pytest.raises(pp.SweepSelectionError, match=r"available: \[2, 4, 10\]"):
+        pp.read_prob_metrics(swept_cell, sel={"n_members": 7})
+
+
+def test_row_sel_makes_one_store_several_rows(
+    swept_cell: str, tmp_path: pathlib.Path, captured: list[dict]
+) -> None:
+    """The ensemble-size figure: rows share a path and differ only by `sel`."""
+    base = str(tmp_path)
+    sizes = [2, 4, 10]
+    paths = {f"RESDIFF (n={n})": base for n in sizes}
+    row_sel = {f"RESDIFF (n={n})": {"n_members": n} for n in sizes}
+
+    seen: dict = {}
+    render = pp.render_multivar_probskill_scorecard
+
+    def spy(per_model, out, **kwargs):
+        seen.update(per_model)
+        return render(per_model, out, **kwargs)
+
+    pp.render_multivar_probskill_scorecard = spy
+    try:
+        pp.plot_multivar_probskill_scorecard(
+            paths, str(tmp_path / "fig"), ["pr"], row_sel=row_sel
+        )
+    finally:
+        pp.render_multivar_probskill_scorecard = render
+
+    assert list(seen) == [f"RESDIFF (n={n})" for n in sizes]
+    serats = [seen[f"RESDIFF (n={n})"]["pr"]["serat"] for n in sizes]
+    assert serats == [0.5, 0.75, 0.9]
 
 
 def test_plot_returns_none_when_nothing_ran(tmp_path: pathlib.Path) -> None:

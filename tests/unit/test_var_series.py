@@ -352,3 +352,73 @@ def test_plot_var_series_uses_the_stored_spread(
                        spread="minmax")
     assert list(seen["bands"]["RESDIFF"][1]) == [0.0] * 4
     assert list(seen["bands"]["RESDIFF"][2]) == [2.0] * 4
+
+
+# ------------------------------------------------------------------ variants --
+
+
+def test_variant_shares_its_base_colour_and_is_dashed(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A (perfect, imperfect) pair is one colour, solid then dashed."""
+    years = np.arange(2041, 2045)
+    drawn = []
+    real_plot = ps.plt.Axes.plot
+
+    def spy(self, *args, **kw):
+        if "label" in kw:
+            drawn.append((kw["label"], kw.get("color"), kw.get("ls")))
+        return real_plot(self, *args, **kw)
+
+    monkeypatch.setattr(ps.plt.Axes, "plot", spy)
+    per = {lab: (years, np.arange(4.0)) for lab in
+           ("RCM", "A (perfect)", "A (imperfect)", "B (perfect)", "B (imperfect)")}
+
+    ps.render_series(
+        per, "tasmax", "mean", str(tmp_path), reference="RCM",
+        variant_of={"A (imperfect)": "A (perfect)", "B (imperfect)": "B (perfect)"},
+    )
+
+    style = {lab: (c, ls) for lab, c, ls in drawn}
+    assert style["A (perfect)"][0] == style["A (imperfect)"][0]   # same colour
+    assert style["A (perfect)"][1] == "-" and style["A (imperfect)"][1] == "--"
+    assert style["B (perfect)"][0] != style["A (perfect)"][0]     # different models differ
+    assert style["RCM"][0] == "black"
+
+
+def test_variants_do_not_consume_the_colour_budget(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pairing lets twice as many lines fit the categorical palette."""
+    years = np.arange(2041, 2043)
+    n = len(ps.SERIES_COLORS)
+    per = {f"M{i} (perfect)": (years, np.ones(2)) for i in range(n)}
+    per.update({f"M{i} (imperfect)": (years, np.ones(2)) for i in range(n)})
+    variant_of = {f"M{i} (imperfect)": f"M{i} (perfect)" for i in range(n)}
+
+    # 2n lines, n colours: fine when paired ...
+    assert ps.render_series(per, "tasmax", "mean", str(tmp_path),
+                            variant_of=variant_of, filename="paired.png")
+    # ... and rejected when not
+    with pytest.raises(ValueError, match="colour-carrying sources exceed"):
+        ps.render_series(per, "tasmax", "mean", str(tmp_path), filename="unpaired.png")
+
+
+def test_variant_without_its_base_gets_its_own_colour(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the base run is missing, the variant is still drawn distinctly."""
+    years = np.arange(2041, 2043)
+    drawn = []
+    real_plot = ps.plt.Axes.plot
+    monkeypatch.setattr(
+        ps.plt.Axes, "plot",
+        lambda self, *a, **kw: (drawn.append((kw.get("label"), kw.get("color")))
+                                or real_plot(self, *a, **kw)),
+    )
+    per = {"A (imperfect)": (years, np.ones(2)), "B (perfect)": (years, np.ones(2))}
+    ps.render_series(per, "tasmax", "mean", str(tmp_path),
+                     variant_of={"A (imperfect)": "A (perfect)"})
+    colors = {lab: c for lab, c in drawn if lab}
+    assert colors["A (imperfect)"] is not None
+    assert colors["A (imperfect)"] != colors["B (perfect)"]

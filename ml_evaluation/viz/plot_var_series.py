@@ -97,6 +97,10 @@ SERIES_COLORS = (
 REFERENCE_STYLE = {"color": "black", "lw": 2.4, "ls": "-", "zorder": 5}
 DRIVER_STYLE = {"color": "0.45", "lw": 1.8, "ls": "--", "zorder": 4}
 MODEL_STYLE = {"lw": 1.6, "ls": "-", "zorder": 3}
+# A *variant* of a plotted source -- the same emulator under the other boundary
+# framework, say -- reuses its base's colour and is dashed, so the pair reads as
+# one model in two experiments rather than as two unrelated models.
+VARIANT_STYLE = {"ls": "--", "lw": 1.4}
 
 
 def series_indices(var: str) -> list[str]:
@@ -314,6 +318,7 @@ def render_series(
     *,
     models=None,
     bands=None,
+    variant_of=None,
     reference=None,
     driver=None,
     years=None,
@@ -345,6 +350,12 @@ def render_series(
         ``{label: (years, lo, hi)}`` -- an ensemble spread drawn as a shaded band
         under that label's line, in the line's own colour. Labels without an
         entry are drawn as a plain line.
+    variant_of : mapping, optional
+        ``{variant_label: base_label}``. A variant is drawn in its base's colour
+        and dashed (``VARIANT_STYLE``), and consumes no categorical colour of its
+        own -- the way to overlay the same emulators under a second experiment
+        (e.g. imperfect boundaries) without doubling the palette. A variant whose
+        base is not plotted falls back to a colour of its own.
     reference : str, optional
         Label drawn as the truth line (thick black) and listed first in the
         legend -- typically the RCM.
@@ -385,14 +396,37 @@ def render_series(
     models = [m for m in models if per_source[m][0].size]
     if not models:
         return None
-    if len(models) - (reference in models) - (driver in models) > len(colors):
+    n_colored = len(
+        [m for m in models
+         if m not in (reference, driver) and m not in (variant_of or {})]
+    )
+    if n_colored > len(colors):
         raise ValueError(
-            f"{len(models)} sources exceeds the {len(colors)} categorical colours; "
-            "plot fewer models or pass a longer colors= sequence."
+            f"{n_colored} colour-carrying sources exceed the {len(colors)} "
+            "categorical colours; "
+            "plot fewer models, pair them with variant_of=, or pass a longer "
+            "colors= sequence."
         )
 
     fig, ax = plt.subplots(figsize=figsize or (9.0, 4.6))
-    slot = 0
+    # Colours are handed to base labels only; a variant reuses its base's.
+    variant_of = dict(variant_of or {})
+    color_of, slot = {}, 0
+    for label in models:
+        if label in (reference, driver) or label in variant_of:
+            continue
+        color_of[label] = colors[slot % len(colors)]
+        slot += 1
+    for label in models:
+        base = variant_of.get(label)
+        if base is None:
+            continue
+        if base in color_of:
+            color_of[label] = color_of[base]
+        else:  # the base was not plotted: the variant stands on its own
+            color_of[label] = colors[slot % len(colors)]
+            slot += 1
+
     for label in models:
         y, v = _select_years(*per_source[label], years)
         if not y.size:
@@ -402,8 +436,9 @@ def render_series(
         elif label == driver:
             style = dict(DRIVER_STYLE)
         else:
-            style = dict(MODEL_STYLE, color=colors[slot])
-            slot += 1
+            style = dict(MODEL_STYLE, color=color_of[label])
+            if label in variant_of:
+                style.update(VARIANT_STYLE)
         py, pv = _break_gaps(y, v)
         band = (bands or {}).get(label)
         if band is not None:
@@ -548,7 +583,7 @@ def plot_var_series(
         Label only -- title and output file name.
     **kwargs
         Forwarded to :func:`render_series` (``title``, ``filename``, ``colors``,
-        ``figsize``, ``legend_ncol``).
+        ``figsize``, ``legend_ncol``, ``variant_of``).
 
     Returns
     -------
