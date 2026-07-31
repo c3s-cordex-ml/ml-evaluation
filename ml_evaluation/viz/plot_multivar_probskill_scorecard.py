@@ -80,6 +80,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.colors import to_rgb
 
 from ml_evaluation.viz.plot_hexagon import metrics_dir, normalize_paths, select_member
 
@@ -274,16 +275,97 @@ def _normalise(values: np.ndarray, key: str) -> np.ndarray:
     return v / top
 
 
-def _fmt(v: float) -> str:
+def _fmt(v: float, decimals: int = 2) -> str:
     """Compact label for a raw diagnostic value."""
     if not np.isfinite(v):
         return ""
     a = abs(v)
     if a >= 100:
         return f"{v:.0f}"
-    if a >= 0.005 or a == 0:
-        return f"{v:.2f}"
+    if a >= 0.5 * 10.0**-decimals or a == 0:
+        return f"{v:.{decimals}f}"
     return f"{v:.1e}"   # a genuinely tiny, non-zero value
+
+
+def _fmt_column(
+    values, scores=None, *, colour_tol: float = 0.01, max_decimals: int = 3
+) -> list[str]:
+    """Labels for one column, at just enough precision to tell its cells apart.
+
+    The colour of a wedge is computed from the full-precision value, so two cells
+    that differ only in the fourth decimal can still get visibly different
+    colours. A label rounded to a fixed two decimals would then read as an error
+    in the figure -- same number, different colour. So the precision is chosen
+    per column: the fewest decimals (from 2 up to ``max_decimals``) at which
+    cells the *colour* separates get labels that separate them too.
+
+    The converse is deliberately allowed. Cells sharing a shade may print
+    different numbers -- a colour bar cannot resolve a 0.1 % difference and does
+    not pretend to. What must never happen is the reverse, since that is the
+    combination a reader takes for a bug.
+
+    Parameters
+    ----------
+    values : array-like
+        One column's raw values, in row order. NaNs are labelled "".
+    scores : array-like, optional
+        The same column's normalised values -- what the colour is drawn from.
+        Only differences the COLOUR resolves force extra decimals: a column whose
+        cells are all the same shade keeps the compact form however much its raw
+        values wobble in the fifth digit, since printing that wobble would only
+        crowd the wedge with noise. Without it every raw difference counts.
+    colour_tol : float
+        How far apart two normalised values must be to count as different
+        shades. 0.01 is one percent of the colour bar -- finer than the eye
+        separates on a small wedge.
+    max_decimals : int
+        Where to stop widening. Legibility wins at this point: a wedge is small,
+        and a column of five-decimal numbers is unreadable whatever it resolves.
+        Cells that the colour separates but three decimals cannot will therefore
+        share a label -- the rare case, and the lesser evil.
+
+    Returns
+    -------
+    list[str]
+        One label per value.
+    """
+    v = np.asarray(values, dtype=float)
+    s = None if scores is None else np.asarray(scores, dtype=float)
+
+    def _same_cell(i: int, j: int) -> bool:
+        """Are these two cells indistinguishable in the figure?"""
+        if s is not None and np.isfinite(s[i]) and np.isfinite(s[j]):
+            return abs(s[i] - s[j]) <= colour_tol
+        return bool(np.isclose(v[i], v[j]))
+
+    labels = [_fmt(x) for x in v]
+    for decimals in range(2, max_decimals + 1):
+        labels = [_fmt(x, decimals) for x in v]
+        seen: dict[str, int] = {}
+        collision = False
+        for i, label in enumerate(labels):
+            if not np.isfinite(v[i]):
+                continue
+            if label in seen and not _same_cell(seen[label], i):
+                collision = True
+                break
+            seen[label] = i
+        if not collision:
+            break
+    return labels
+
+
+def _text_on(facecolor) -> str:
+    """Black or white, whichever stays legible on ``facecolor``.
+
+    Keyed to the colour actually drawn rather than to the score behind it: the
+    colour bar starts at the data's own minimum, so the darkest wedge of a
+    figure may carry a high score, and a rule written in score units puts black
+    text on near-black there. Works for any colormap the caller passes.
+    """
+    r, g, b = to_rgb(facecolor)
+    luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return "white" if luminance < 0.5 else "black"
 
 
 def _wedge(ax, cx, cy, i, radius, facecolor, edgecolor="white", lw=0.6):
@@ -363,14 +445,16 @@ def render_multivar_probskill_scorecard(
     if not models or not variables:
         raise ValueError("nothing to plot: need at least one model and one variable.")
 
-    # normalise per (variable, metric) column, across the plotted models
-    scores = {}
+    # normalise per (variable, metric) column, across the plotted models, and
+    # label each column at the precision its own values need (see _fmt_column)
+    scores, labels = {}, {}
     for var in variables:
         for key, _ in columns:
             raw = np.array(
                 [per_model[m].get(var, {}).get(key, np.nan) for m in models], dtype=float
             )
             scores[(var, key)] = _normalise(raw, key)
+            labels[(var, key)] = _fmt_column(raw, scores[(var, key)])
 
     allv = np.concatenate([v for v in scores.values()])
     finite = allv[np.isfinite(allv)]
@@ -393,12 +477,11 @@ def render_multivar_probskill_scorecard(
                     ax.text(
                         tx,
                         ty,
-                        _fmt(value),
+                        labels[(var, key)][r],
                         ha="center",
                         va="center",
                         fontsize=6,
-                        # viridis is dark at the good end: light text there only
-                        color="white" if np.isfinite(score) and score < 0.5 else "black",
+                        color=_text_on(fc),
                     )
 
     ax.set_xlim(-0.7, ncols - 0.3)
@@ -412,16 +495,27 @@ def render_multivar_probskill_scorecard(
     for s in ax.spines.values():
         s.set_visible(False)
 
+    # The colour bar carries NO numbers, deliberately. Its axis is the
+    # within-column standing (SERAT folded to |log10|, then divided by the
+    # column's worst), which is a different quantity from the raw value printed
+    # in the wedge -- and one that happens to land in a similar numeric range.
+    # Ticking it invites reading a wedge's printed 0.91 against a 0.8 on the bar,
+    # a comparison that is meaningless however carefully the label is worded. So
+    # the ends say which way is better and nothing else does.
     sm = ScalarMappable(norm=norm, cmap=cmap_o)
     sm.set_array([])
     cb = fig.colorbar(sm, ax=ax, fraction=0.025, pad=0.02)
-    cb.set_label("normalised metric wrt max  (lower = better)")
+    cb.set_ticks([norm.vmin, 1.0])
+    cb.set_ticklabels(["best\nin column", "worst\nin column"])
+    cb.ax.tick_params(length=0, labelsize=8)
+    cb.set_label("standing within each column — not the printed value", fontsize=9)
 
     order = ", ".join(f"{i}:{lab}" for i, (_, lab) in enumerate(columns))
     ax.set_title(
         f"{title or f'Probabilistic scorecard — {season}'}\n"
         f"wedges (from top, counter-clockwise) — {order}\n"
-        "numbers are raw values; colour is |log10| for SERAT, then / column max",
+        "numbers are raw values; colour ranks each column separately "
+        "(dark = best, SERAT scored by distance from 1)",
         fontsize=10,
     )
 

@@ -159,6 +159,66 @@ def test_plot_skips_sources_without_prob_output(
     assert list(seen) == ["RESDIFF"]
 
 
+def test_labels_are_precise_enough_to_match_their_colour() -> None:
+    """Cells the colour separates must not print the same number.
+
+    The wedge colour comes from the full-precision value, so a column rounded to
+    a fixed 2 dp could show three visibly different greens all labelled "0.89" --
+    which reads as a broken figure. The label precision follows the column.
+    """
+    vals = [0.91, 0.90, 0.894, 0.891, 0.8905]
+    close = pp._fmt_column(vals, pp._normalise(np.array(vals), "serat"))
+    assert len(set(close)) == 5, close
+    assert close[0] == "0.910"
+
+    # a column that needs nothing extra keeps the compact 2-decimal form
+    assert pp._fmt_column([0.56, 0.52, 0.51, 0.50]) == ["0.56", "0.52", "0.51", "0.50"]
+    # genuinely equal values are not spread apart, and NaN stays blank
+    assert pp._fmt_column([0.6, 0.6, 0.6]) == ["0.60"] * 3
+    assert pp._fmt_column([1.0, np.nan])[1] == ""
+
+
+def test_labels_ignore_wobble_the_colour_cannot_show() -> None:
+    """A column that is one flat shade stays compact, however noisy its digits.
+
+    The real CRPS column of an ensemble-size sweep varies in the fifth decimal
+    (sampling noise), which the colour bar cannot resolve and no reader needs:
+    printing "0.59539" five times would crowd the figure to no purpose. Extra
+    decimals are spent only where the colour actually separates the cells.
+    """
+    crps = [0.59539, 0.59532, 0.59543, 0.59531, 0.59533]
+    scores = pp._normalise(np.array(crps), "crps")
+    assert scores.max() - scores.min() < 0.01          # one flat shade
+    assert pp._fmt_column(crps, scores) == ["0.60"] * 5
+
+    # Where the colour DOES separate cells, the digits follow -- but only as far
+    # as the cap allows. Legibility wins: three decimals is the most a wedge
+    # carries, so cells that differ in the fifth still share a label rather than
+    # turning the figure into a table of 0.59539s.
+    serat = [0.912, 0.898, 0.893, 0.890, 0.888]
+    widened = pp._fmt_column(serat, pp._normalise(np.array(serat), "serat"))
+    assert widened == ["0.912", "0.898", "0.893", "0.890", "0.888"]
+    capped = pp._fmt_column(crps, np.linspace(0.2, 1.0, 5))
+    assert all(len(lab.split(".")[1]) <= 3 for lab in capped), capped
+
+
+def test_equal_labels_imply_equal_colours(captured: list[dict], tmp_path: pathlib.Path) -> None:
+    """The figure-level invariant: same printed number => same wedge colour."""
+    vals = [0.91, 0.894, 0.891]
+    per_model = {
+        f"m{i}": {"pr": {"crps": 1.0, "bs": 0.1, "serat": v}} for i, v in enumerate(vals)
+    }
+    labels = pp._fmt_column(vals)
+    scores = pp._normalise(np.array(vals, dtype=float), "serat")
+    by_label: dict[str, set[float]] = {}
+    for label, score in zip(labels, scores):
+        by_label.setdefault(label, set()).add(round(float(score), 6))
+    assert all(len(s) == 1 for s in by_label.values()), by_label
+    assert pp.render_multivar_probskill_scorecard(
+        per_model, str(tmp_path), variables=["pr"], models=list(per_model)
+    )
+
+
 @pytest.fixture
 def swept_cell(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> str:
     """A metrics dir whose store holds an ensemble-size sweep.
