@@ -54,12 +54,14 @@ from ml_evaluation.viz.plot_diagnostic_maps import (
     resolve_styles,
 )
 from ml_evaluation.viz.plot_hexagon import (
+    daily_sigma,
     hexagon_axes,
     metrics_dir,
     normalize_paths,
     plot_hexagons,
     plot_multivar_skill_scorecard,
     read_hexagon_metrics,
+    variability_scale,
 )
 from ml_evaluation.viz.plot_multivar_probskill_scorecard import (
     prob_columns,
@@ -85,6 +87,7 @@ from ml_evaluation.viz.plot_var_skill_scorecard import (
 )
 
 __all__ = [
+    "daily_sigma",
     "default_indices",
     "hexagon_axes",
     "metrics_dir",
@@ -119,4 +122,5 @@ __all__ = [
     "skill_map_indices",
     "var_signal_columns",
     "var_skill_columns",
+    "variability_scale",
 ]

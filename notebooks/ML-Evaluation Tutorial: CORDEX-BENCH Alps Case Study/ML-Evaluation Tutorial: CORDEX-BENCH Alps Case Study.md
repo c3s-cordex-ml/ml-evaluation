@@ -188,12 +188,16 @@ Add `--season JJA` for a summer-only version of every metric in the call (the fl
 
 | Store | `value` dims | `diagnostic` entries |
 |---|---|---|
-| `metrics_fast_field.zarr` | (diagnostic, member, y, x) | `rmse_field`, `bias_mean_field`, `bias_p99_field`, `bias_p1_field`, `bias_acorr_field`, `bias_max1day_field`, `bias_min1day_field`, plus the underlying `targ_*_field` / `pred_*_field` indices |
+| `metrics_fast_field.zarr` | (diagnostic, member, y, x) | `rmse_field`, `bias_mean_field`, `bias_p99_field`, `bias_p1_field`, `bias_acorr_field`, `bias_std_field`, `bias_max1day_field`, `bias_min1day_field`, plus the underlying `targ_*_field` / `pred_*_field` indices |
 | `metrics_fast_float.zarr` | (diagnostic, member) | `rmse_float`, `ralsd_float` |
 | `metrics_fast_psd.zarr` | (diagnostic, wavenumber, member) | `psd_x0`, `psd_x1` |
 | `metrics_fast_pr_field.zarr` | (diagnostic, member, y, x) | `bias_p98wet_field`, `bias_r1_field`, `bias_sdii_field`, `relbias_p98wet_field`, `relbias_sdii_field`, `relbias_rx1day_field`, plus `targ_*` / `pred_*` |
 
 The `member` dimension is always present (length 1 for a deterministic emulator, unless `--member-num` collapsed it), so a metric of a generative emulator keeps one value per realisation. Storing the target and prediction indices next to the bias (`targ_mean_field`, `pred_mean_field`, …) means the maps behind a score can be plotted without recomputing anything.
+
+One of those indices is not just there for plotting. `targ_std_field` is the **observed daily standard deviation** of the truth at each grid point — the spread of the daily values themselves, not of the annual means, which is what the `slow` track's `targ_annstd_field` holds. Its domain mean is the physical scale the multivariate skill scorecard divides its wedges by (§7.1.2), so it is read from the *reference* model's stores and is identical for every row. `bias_std_field` / `pred_std_field` come from the same computation and give the daily-variability bias in its own right: a generative emulator that over-sharpens shows up here before it shows up in RALSD.
+
+> `targ_std_field` is written by `ml-eval fast` from August 2026 on. Metric stores computed before that carry no daily σ, and the skill scorecard leaves the affected wedges blank rather than guessing a scale — re-run `ml-eval fast` for at least the reference model to colour them.
 
 #### Reading the results back
 
@@ -495,7 +499,7 @@ The two averages are not the same quantity, which is why neither is silent: `mem
 
 | Function | Figure | Reads | Key args |
 |---|---|---|---|
-| `plot_multivar_skill_scorecard` | **one** figure: models × variables, each cell a six-wedge hexagon coloured by % error improvement over a baseline | `metrics_fast_*` | `reference` (**required**), `season`, `clip`, `member_num` |
+| `plot_multivar_skill_scorecard` | **one** figure: models × variables, each cell a six-wedge hexagon coloured by how much lower the model's error is than the baseline's, as a % of the observed daily variability | `metrics_fast_*` (incl. `targ_std_field`) | `reference` (**required**), `season`, `scale`, `clip`, `member_num` |
 | `plot_var_skill_scorecard` | one per variable: models × metrics heatmap, colour = per-column score, text = value + spatial CV | `metrics_fast_*`, `metrics_slow_field` | `metrics` (columns), `season`, `member_num` |
 | `plot_hexagons` | one per variable: radar hexagon, one trace per model | `metrics_fast_*` | `reference` (None → min–max mode), `season` |
 | `plot_multivar_signal_scorecard` | **one** figure: models × variables, three index sectors per cell, coloured by the climate-change signal | `metrics_signal_float` | `reference`, `reference_path`, `units`, `annotate` |
@@ -606,19 +610,23 @@ print(plot_multivar_event_maps(
 
 ![Single-day maps for 2058-01-05: pr and tasmax columns, RCM truth on top and two emulators below](figures/multivar_event_2058-01-05_raw.png)
 
-*One winter day, mid-century, perfect predictors. Columns are variables, rows are the truth and the four emulators; each column shares one colour scale, and the panel mean is printed top-right. All four place the Alpine precipitation band and the Adriatic maximum correctly, but they disagree on how much falls: UNET-MULTI wets the whole French side of the domain (4.28 vs 3.23 mm/day) while CPMGEM dries the day as a whole (2.70) — spatial errors that the domain-mean bias in a scorecard cannot localise. The temperature fields are visually indistinguishable at this scale, which is itself the useful result.*
+*One winter day, mid-century, perfect predictors. Columns are variables, rows are the truth and the four emulators; each column shares one colour scale, and the panel mean is printed top-right. All four place the Alpine precipitation band and the Adriatic maximum correctly, but they disagree on how much falls: every one wets the day relative to the truth's 3.23 mm/day, mildly for UNET-MULTI (3.43) and by a third for CPMGEM (4.24), whose field is also visibly the grainiest — the fine-scale structure a diffusion model puts back, placed where it chooses rather than where the truth put it. The temperature fields are visually indistinguishable at this scale and their panel means span only 0.4 K (284.41 to 284.82 against 284.39), which is itself the useful result.*
 
 Note the `vminmax` override: the built-in event ranges (`pr` 0-250 mm/day, `tasmax` 290-305 K) are tuned for a tropical domain and would wash the Alps out, so `"auto"` derives them from the plotted data instead.
 
 #### 7.1.2 Multivariate skill scorecard — `plot_multivar_skill_scorecard`
 
-One figure: **rows are models, columns are variables**, and each cell is a hexagon whose six wedges are the six `fast`-track metrics. Each wedge is coloured by the percentage improvement over a reference model,
+One figure: **rows are models, columns are variables**, and each cell is a hexagon whose six wedges are the six `fast`-track metrics. Each wedge is coloured by how much lower the model's error is than the reference's, measured **as a percentage of the observed daily variability**,
 
 ```
-100 × (err_reference − err_model) / err_reference
+100 × (err_reference − err_model) / σ        σ = mean over the domain of targ_std_field
 ```
 
 so blue = better than the baseline, red = worse, white = equal — and the reference row is blank by construction. This is the "at a glance" view: which model wins, on which variable, and on which aspect of performance.
+
+The denominator is the point. Dividing by the reference model's *own* error — `100 × (err_ref − err_model) / err_ref`, still available as `scale="relative"` — makes the colour scale-free, and a scale-free colour cannot distinguish two errors that are both physically negligible from two that are not: a 0.10 K versus 0.23 K bias in the cold tail and a 2.3 K versus 5.0 K one are both a factor 2.2, and both saturate. Dividing instead by σ, the same number for every row, answers the question a reader actually has — *is this difference large compared with how much the variable itself varies?* — and leaves negligible differences pale however many times the reference error they are.
+
+Three wedges have no σ-compatible scale: lag-1 correlation bias is dimensionless, wet-day frequency bias is a day count, and RALSD is a ratio of spectra spanning orders of magnitude between variables. Those keep the relative denominator, remapped so a ±100 % relative change fills the colour bar. The figure title states which wedges are on which rule.
 
 ```python
 from ml_evaluation.viz.plot_hexagon import plot_multivar_skill_scorecard
@@ -632,13 +640,17 @@ print(plot_multivar_skill_scorecard(
 ))
 ```
 
-![Multivariate skill scorecard for the Alps case: models (rows) x variables (columns), each cell a six-wedge hexagon coloured by % error improvement over UNET-SINGLE](figures/multivar_skill_scorecard_annual.png)
+![Multivariate skill scorecard for the Alps case: models (rows) x variables (columns), each cell a six-wedge hexagon coloured by how far each model's error is below UNET-SINGLE's](figures/multivar_skill_scorecard_annual.png)
 
-*The mid-century (2041-2060) perfect-framework case. UNET-SINGLE is the reference, so its row is blank. Both diffusion emulators improve on the baseline nearly everywhere, most strongly on RALSD — the spatial-coherence wedge a diffusion model is designed to restore, and the one where a deterministic network is structurally weakest. Their losses are the RMSE wedge for `pr` (upper left, red), the double penalty a per-pixel metric imposes on a sharp stochastic field, and for CPMGEM the `tasmax` lag-1 autocorrelation. UNET-MULTI is worse than the single-variable baseline for `pr` on every wedge (deep red on the wet-day frequency and SDII), the capacity-sharing cost of training all predictands in one network, while for `tasmax` it is close to neutral and gains on RALSD. Grey = no metrics on disk.*
+*The mid-century (2041-2060) perfect-framework case. UNET-SINGLE is the reference, so its row is blank. Both diffusion emulators improve on the baseline across the whole `pr` hexagon, most strongly on RALSD and RX1day — the spatial-coherence and extreme wedges a diffusion model is designed to restore, and the ones where a deterministic network is structurally weakest. Their one clear `pr` loss is the RMSE wedge (upper left, orange), the double penalty a per-pixel metric imposes on a sharp stochastic field, and on `tasmax` both give up lag-1 autocorrelation (top wedge, deep red for CPMGEM). UNET-MULTI is worse than the single-variable baseline for `pr` on RALSD and the wet-day frequency — the capacity-sharing cost of training all predictands in one network — while for `tasmax` it is close to neutral and gains on RALSD.*
+
+*This is where the σ denominator earns its keep: apart from the two wedges that have no σ scale, the whole `tasmax` hexagon is pale, because the differences between these models in the temperature mean and tails are small compared with how much daily `tasmax` varies — physically negligible, however many times the reference error they may be. The `pr` hexagon, scaled by the same rule, saturates. Grey = no metrics on disk, or a store predating `targ_std_field`.*
 
 The wedges, clockwise from the top, are `Bias lag-1 corr`, `RALSD`, `Bias P99`, `Bias mean`, `Bias P01`, `RMSE` — and for `pr` the three distribution wedges become `Bias Rx1day`, `Bias SDII`, `Bias R01`, because a zero-bounded, intermittent variable is not well described by its mean and its extreme quantiles. `hexagon_axes(var)` / `scorecard_axes(var)` return the exact wedge list for a variable.
 
-Useful knobs: `clip` (colour saturation, default ± 100 %), `cmap`, `title`, `filename`, and `member_num` — `0` (default) scores the first member of each prediction, `-1` the mean of the metric over members, `k` member *k*. It is a no-op for the deterministic emulators here, whose predictions carry a single member. Order the `paths` mapping to control row order; the `reference` is always moved to the top.
+Useful knobs: `scale` (`"variability"`, the default described above, or `"relative"` for the older % change in error), `clip` (colour saturation, defaulting per mode — ± 25 % of σ, or ± 100 % relative), `cmap`, `title`, `filename`, and `member_num` — `0` (default) scores the first member of each prediction, `-1` the mean of the metric over members, `k` member *k*. It is a no-op for the deterministic emulators here, whose predictions carry a single member. Order the `paths` mapping to control row order; the `reference` is always moved to the top.
+
+Grey wedges mean one of two things: no metrics on disk for that model and variable, or a metric store written before `ml-eval fast` computed `targ_std_field`, in which case the run prints which variables need re-evaluating.
 
 > A related entry point, `plot_hexagons(paths, out, variables, reference=..., season=...)`, draws one radar hexagon **per variable** instead of the grid — the same metrics, plotted as overlaid model traces. With `reference=None` each axis is min-max normalised across the plotted models (centre = best in set) instead of showing % improvement.
 
@@ -668,7 +680,7 @@ print(plot_var_skill_scorecard(
 
 ![Precipitation performance scorecard for the Alps case: models (rows) x metrics (columns), cell colour is the per-column normalised score, the numbers are the raw value and its spatial CV](figures/var_skill_scorecard_pr_annual.png)
 
-*The same case, one variable. The two diffusion emulators take nine of the ten columns between them — RESDIFF the mean bias, wet-day frequency, SDII and lag-1 correlation, CPMGEM the P99, RX1day, P98wet and RALSD, with the P01 bias a tie. The RALSD gap is the categorical one: 0.024 and 0.039 against 22.8 and 35.5, i.e. only the diffusion models reproduce the fine-scale spectrum at all. Their one shared loss is RMSE (5.3 and 5.24 vs 3.71 for UNET-SINGLE): a stochastic realisation is penalised for putting the right small-scale structure in the wrong place, exactly the double penalty a per-pixel error metric imposes on a sharp field. Note the CV line making the opposite point about the mean bias: RESDIFF's is smaller (0.104 vs 0.483) but has CV ≈ 1, so it is a field of compensating errors rather than a uniformly small bias. Grey = no metrics on disk.*
+*The same case, one variable. The two diffusion emulators take nine of the ten columns between them — CPMGEM eight of those (mean bias, P99, RX1day, wet-day frequency, SDII, P98wet, RALSD and lag-1 correlation) and RESDIFF the P01 bias, most of them by a factor of three or more over either U-Net. The RALSD gap is the categorical one: 0.019 and 0.045 against 16.2 and 21.3, i.e. only the diffusion models reproduce the fine-scale spectrum at all. Their one shared loss is the tenth column, RMSE (4.24 and 4.43 vs 3.70 for UNET-MULTI): a stochastic realisation is penalised for putting the right small-scale structure in the wrong place, exactly the double penalty a per-pixel error metric imposes on a sharp field. Note the CV line making the opposite point about the mean bias: CPMGEM's is far smaller (0.0791 vs 0.419) but has CV ≈ 1, so it is a field of compensating errors rather than a uniformly small bias. Grey = no metrics on disk.*
 
 `member_num` applies here too, and to the CV line underneath each value — both are read from the same realisation, so a cell never mixes members. Passing `metrics=None` falls back to a sensible per-variable default (7 precipitation columns, 6 otherwise). The full menu is in `METRIC_LABELS`; besides the fast-track keys used above it exposes the **slow-track** columns `wd`, `wdh`, `fcss`, `lhd`, `bias_annstd`, `bias_p90` — available as soon as §4.2's `ml-eval slow` has run into the same directory. Only error-type diagnostics are exposed: `pss`, `pcorr` and `scorr` are higher-is-better and would score inverted in a scorecard that treats every column as an error. To rename a header, pass a `(metric_key, label)` pair instead of a bare key.
 
@@ -728,7 +740,7 @@ print(plot_var_skill_maps(
 
 ![RX1day maps for pr: truth, then each model's field and its bias against the truth](figures/var_maps_pr_max1day_bias_annual.png)
 
-*RX1day (`max1day`) over the mid-century period. The truth averages 55.6 mm/day; UNET-SINGLE and UNET-MULTI reach only 44.1 and 42.2, and their bias columns are uniformly brown — the wettest day of the year is underestimated almost everywhere, not just on average. The diffusion emulators land essentially on top of the truth (RESDIFF 54.6, bias −0.97; CPMGEM 55.7, bias +0.10) with bias fields that are nearly white throughout. This is the spatial counterpart of the RX1day time series in §7.1.5: the series showed the two U-Nets sitting ~8-12 mm/day low every single year, the map shows that the deficit is domain-wide rather than concentrated in the Alpine ridge.*
+*RX1day (`max1day`) over the mid-century period. The truth averages 55.6 mm/day; UNET-SINGLE and UNET-MULTI reach only 42.9 and 42.5, and their bias columns are uniformly brown (−12.7 and −13.1) — the wettest day of the year is underestimated almost everywhere, not just on average. The diffusion emulators land close to the truth (RESDIFF 52.8, bias −2.76; CPMGEM 53.3, bias −2.27) with bias fields that are nearly white throughout, retaining only a faint domain-wide dryness. This is the spatial counterpart of the RX1day time series in §7.1.5: the series showed the two U-Nets sitting ~10-13 mm/day low every single year, the map shows that the deficit is domain-wide rather than concentrated in the Alpine ridge.*
 
 `member_num` selects the realisation mapped (`-1` averages the metric over members) — worth setting explicitly for a diffusion emulator, since member 0 of a stochastic ensemble is one draw among many, not a summary. `metric="max1day"` is the fast-track name for RX1day — the `signal` store calls the same index `rx1day`, which is why the time series in §7.1.5 uses that spelling. Swap `metric=` for `sdii`, `mean`, `p99`, `acorr`, … to map any other index the run wrote, and use `plot_multivar_skill_maps` to put several variables in one figure instead (columns = variables, rows = models).
 
@@ -792,17 +804,17 @@ For a run that predates that output — or to combine separate per-member runs �
 
 ![Domain-mean annual mean tasmax, historical and mid-century, one line per source](figures/series_tasmax_mean_annual.png)
 
-*Annual mean `tasmax`, domain mean; solid = perfect predictors, dashed = imperfect. Under perfect predictors all four emulators sit on top of the RCM truth in both windows — they reproduce not just the ~1.3 K warming between the periods but the year-to-year variability, including the 1985 cold year and the 2050 spike. For a perfect-predictor experiment this is the expected result, and it is the baseline against which the precipitation panel should be read.*
+*Annual mean `tasmax`, domain mean; solid = perfect predictors, dashed = imperfect. Under perfect predictors all four emulators sit on top of the RCM truth in both windows — they reproduce not just the ~1.9 K warming between the periods but the year-to-year variability, including the 1985 cold year and the 2050 spike. For a perfect-predictor experiment this is the expected result, and it is the baseline against which the precipitation panel should be read.*
 
-*The dashed lines are the same emulators driven by the raw GCM. They stay **in phase** with the truth — the driving GCM is the same run that drove the RCM, so the two share a chronology and a cold year in the RCM is a cold year in the GCM too — but sit ~0.4 K warm throughout the historical window. That offset is the GCM's own bias passing through the downscaling untouched, not an emulator error: the same networks, fed upscaled RCM fields instead, land on the truth. Which is the whole point of running both frameworks, and the reason §7.2 references every source to its own baseline.*
+*The dashed lines are the same emulators driven by the raw GCM. They stay **in phase** with the truth — the driving GCM is the same run that drove the RCM, so the two share a chronology and a cold year in the RCM is a cold year in the GCM too — but sit ~0.8-1 K warm throughout the historical window. That offset is the GCM's own bias passing through the downscaling untouched, not an emulator error: the same networks, fed upscaled RCM fields instead, land on the truth. Which is the whole point of running both frameworks, and the reason §7.2 references every source to its own baseline.*
 
 ![Domain-mean annual RX1day, historical and mid-century, one line per source](figures/series_pr_rx1day_annual.png)
 
-*Annual RX1day (the wettest day of each year), domain mean, same sources and periods. Under perfect predictors (solid) the models separate into two groups: RESDIFF and CPMGEM track both the level and the phase of the truth, while both U-Nets sit ~8-12 mm/day low in every single year of both windows. The offset is systematic rather than a drift — their interannual variability is in phase, they simply cannot reach the extreme. §7.1.4 maps the same deficit and shows it is domain-wide.*
+*Annual RX1day (the wettest day of each year), domain mean, same sources and periods. Under perfect predictors (solid) the models separate into two groups: RESDIFF and CPMGEM track the phase of the truth and stay within a few mm/day of its level, falling short only in the wettest years of the mid-century window, while both U-Nets sit ~10-13 mm/day low in every single year of both windows. The offset is systematic rather than a drift — their interannual variability is in phase, they simply cannot reach the extreme. §7.1.4 maps the same deficit and shows it is domain-wide.*
 
-*Every emulator loses further ground under imperfect predictors (dashed), by ~2-4 mm/day, and the gap widens in the future window. Note what does **not** change: the ranking. The two groups stay ordered the same way in both frameworks, so the deficit the U-Nets show is a property of those models rather than of the boundary data they were given.*
+*Every emulator loses further ground under imperfect predictors (dashed) — by ~2-4 mm/day for the U-Nets and CPMGEM, and by ~5-8 for RESDIFF, whose dashed line drops clear of the other diffusion runs — and the gap widens in the future window. Note what does **not** change: the ranking. The two groups stay ordered the same way in both frameworks, so the deficit the U-Nets show is a property of those models rather than of the boundary data they were given.*
 
-Reading the two together is the point: a model can be indistinguishable from the truth on a smooth variable and still miss an extreme by 15 %, which is exactly what the scorecards in §7.1.2 and §7.1.3 summarise into single cells.
+Reading the two together is the point: a model can be indistinguishable from the truth on a smooth variable and still miss an extreme by more than 20 %, which is exactly what the scorecards in §7.1.2 and §7.1.3 summarise into single cells.
 
 ______________________________________________________________________
 
@@ -830,9 +842,11 @@ The colour scales are pinned by hand here, which is worth doing for this figure:
 
 ![Spearman correlation between pr and tasmax: truth, then each model's field and its error against the truth](figures/var_maps_pr_tasmax_mv_scorr_bias_annual.png)
 
-*Rank correlation between daily `pr` and `tasmax` over the mid-century period, perfect predictors. The truth is anti-correlated across the whole domain (−0.20 on average): wet days are cool days, most strongly over the Mediterranean and the Adriatic coast, weakly over the Alpine ridge itself. Every emulator keeps the sign and the broad pattern, but three of the four **weaken** the link — UNET-MULTI most (−0.12, a +0.09 error), then CPMGEM (−0.15) and RESDIFF (−0.17), with the magenta bias fields showing the loss concentrated over land. UNET-SINGLE is the closest to the truth (−0.21, error −0.01), which is the counter-intuitive result worth pausing on: it trains an independent network per variable, so its entire joint structure is inherited from the shared predictors — and on this pair that turns out to be enough.*
+*Rank correlation between daily `pr` and `tasmax` over the mid-century period, perfect predictors. The truth is anti-correlated across the whole domain (−0.20 on average): wet days are cool days, most strongly over the Mediterranean and the Adriatic coast, weakly over the Alpine ridge itself. Every emulator keeps the sign and the broad pattern, and on the **domain mean** none of them is more than 0.02 away: RESDIFF lands exactly on the truth (−0.20), UNET-MULTI at −0.21, UNET-SINGLE slightly over-couples the pair (−0.22) and CPMGEM slightly under-couples it (−0.19).*
 
-Read it next to §7.1.2: UNET-SINGLE is the *weakest* model on almost every univariate wedge and the *best* on this one. The two figures are not in conflict — they ask different questions, which is exactly why the multivariate track exists.
+*The bias columns are the reason to plot the field rather than trust the number. Every one of those near-zero domain means is a cancellation: UNET-SINGLE is up to 0.06 too anti-correlated over the western Mediterranean (deep green) and as much too weakly coupled over the Alps and the Balkans (magenta), and UNET-MULTI's −0.00 hides the largest, noisiest error field of the four. RESDIFF and CPMGEM keep the same dipole but at visibly lower amplitude over the sea.*
+
+Read it next to §7.1.2: the univariate wedges rank these models clearly and this one barely separates them at all, at least in the mean. The two figures are not in conflict — they ask different questions, which is exactly why the multivariate track exists, and why its map matters more than its domain scalar.
 
 ______________________________________________________________________
 
@@ -919,7 +933,7 @@ The `units` mapping picks the quantity per variable: temperature changes are rea
 
 ![Climate-change-signal scorecard: sources as rows, variables as columns, three index sectors per cell](figures/signal_scorecard_annual.png)
 
-*The RCM's own change leads the rows, and each emulator appears twice — once per boundary framework. The colour is the signal relative to the RCM's, so a cell matching the truth is the same shade as the top row. Under **perfect** predictors every emulator reproduces the RCM's +1.90 K mean warming to within 0.1 K (top wedge: +1.81 to +1.82) and its +7 % RX1day intensification to within 1-2 points. Under **imperfect** predictors all four warm markedly less (+1.53 to +1.57 K) and wet less — the signal each one carries from the driving GCM, not a failure of the downscaling. That contrast is the whole reason each source is referenced to its own baseline.*
+*The RCM's own change leads the rows, and each emulator appears twice — once per boundary framework. The colour is the signal relative to the RCM's, so a cell matching the truth is the same shade as the top row. Under **perfect** predictors every emulator reproduces the RCM's +1.90 K mean warming to within 0.15 K (top wedge: +1.77 to +1.82) and its +7 % RX1day intensification to within 1-3 points. Under **imperfect** predictors all four warm markedly less (+1.53 to +1.57 K) and wet less — the signal each one carries from the driving GCM, not a failure of the downscaling. That contrast is the whole reason each source is referenced to its own baseline.*
 
 #### 7.2.2 Univariate signal scorecard — `plot_var_signal_scorecard`
 
@@ -941,7 +955,7 @@ print(plot_var_signal_scorecard(
 
 ![Per-variable signal scorecard for precipitation: sources as rows, indices as columns](figures/var_signal_scorecard_pr_annual.png)
 
-*Precipitation alone, with each index shown as both a raw change and a percentage. It resolves what the multivariable cell compresses: the RCM's wet-day frequency *falls* (-1.44 days, -1 %) while intensity and extremes rise (SDII +0.43 mm/day, RX1day +3.45 mm/day) — fewer but heavier wet days. RESDIFF under perfect predictors reproduces all three almost exactly (+0.43, −1.47, +3.45); CPMGEM gets the pattern but overshoots the wet-day decline (−2.45) and undershoots the extremes (+2.96); UNET-SINGLE gets the sign right but only half the RX1day intensification; and UNET-MULTI under imperfect predictors even flips the R01 sign (+0.70 days).*
+*Precipitation alone, with each index shown as both a raw change and a percentage. It resolves what the multivariable cell compresses: the RCM's wet-day frequency *falls* (−1.44 days, −1 %) while intensity and extremes rise (SDII +0.43 mm/day, RX1day +3.45 mm/day) — fewer but heavier wet days. Every emulator gets that pattern, and every one of them overshoots the wet-day decline by a factor of 1.4 to 1.6 (−2.05 to −2.37 days). They separate on the extreme: CPMGEM under perfect predictors comes closest (SDII +0.39, RX1day +2.85), RESDIFF follows (+0.34, +2.48), and UNET-SINGLE reaches only ~60 % of the RX1day intensification (+2.13) with UNET-MULTI just behind (+1.81). Under imperfect predictors every row collapses towards a much weaker signal — SDII +0.09 to +0.18, RX1day +0.66 to +2.06 — with the U-Nets losing the most.*
 
 #### 7.2.3 Spatial maps of the signal — `plot_var_signal_maps`
 
@@ -974,7 +988,7 @@ Because a change straddles zero, *every* panel here is diverging and symmetric a
 
 ![tasmax mean-signal maps: the RCM's own warming, each model's warming, and the difference](figures/var_signal_maps_tasmax_mean_delta_bias_annual.png)
 
-*The mid-century change in mean `tasmax` against the 1981-2000 baseline, each source referenced to its own historical climate. The RCM warms by +1.90 K on average, most strongly over the Alpine ridge and the Balkans and least over the sea. All four emulators reproduce that pattern and land within 0.1 K of it (+1.82, +1.81, +1.82, +1.81), so the error columns are nearly white — note their scale is ±0.5 K, ten times finer than the signal columns. What structure remains is a slight under-warming over the Adriatic and eastern land points, shared by all four: an inherited property of the common predictor set rather than a model-specific defect.*
+*The mid-century change in mean `tasmax` against the 1981-2000 baseline, each source referenced to its own historical climate. The RCM warms by +1.90 K on average, most strongly over the Alpine ridge and the Balkans and least over the sea. All four emulators reproduce that pattern and land within 0.15 K of it (+1.82, +1.77, +1.79, +1.81), so the error columns are nearly white — note their scale is ±0.5 K, ten times finer than the signal columns. What structure remains is a slight under-warming over the Adriatic and eastern land points, shared by all four and largest for UNET-MULTI (−0.13 K): an inherited property of the common predictor set rather than a model-specific defect.*
 
 #### 7.2.4 Time series of the signal — `plot_var_series` with a baseline
 
@@ -994,9 +1008,9 @@ The historical years then scatter around zero by construction and the mid-centur
 
 ![tasmax mean anomalies from each source's own 1981-2000 mean](figures/series_tasmax_mean_anom_annual.png)
 
-*Mean `tasmax` as an anomaly from each source's own 1981-2000 climate; solid = perfect predictors, dashed = imperfect. The perfect-framework lines are indistinguishable from the RCM's in both windows: they reproduce not just the ~+1.9 K shift between the periods but every year-to-year excursion, including the 2050 spike and the 2044 dip. Referenced this way a systematic warm or cold bias would cancel — the ~0.4 K offset of §7.1.5 is gone from the dashed lines here — so what is left is purely the projected change.*
+*Mean `tasmax` as an anomaly from each source's own 1981-2000 climate; solid = perfect predictors, dashed = imperfect. The perfect-framework lines are indistinguishable from the RCM's in both windows: they reproduce not just the ~+1.9 K shift between the periods but every year-to-year excursion, including the 2050 spike and the 2044 dip. Referenced this way a systematic warm or cold bias would cancel — the ~1 K offset of §7.1.5 is gone from the dashed lines here — so what is left is purely the projected change.*
 
-*And that change differs by framework. The imperfect lines track the same excursions but reach only ~+1.6 K where the perfect ones reach ~+2.1 K: under raw GCM boundaries these emulators project distinctly less warming. That is the same contrast the scorecard in §7.2.1 compresses into two rows per model (+1.81/+1.82 K perfect against +1.53/+1.57 K imperfect), shown here year by year. Contrast §7.2.2, where precipitation extremes separate the models sharply.*
+*And that change differs by framework. The imperfect lines track the same excursions but sit below the perfect ones through the last decade — ~+1.7 K where the perfect ones reach ~+2.2 K: under raw GCM boundaries these emulators project distinctly less warming. That is the same contrast the scorecard in §7.2.1 compresses into two rows per model (+1.77 to +1.82 K perfect against +1.53 to +1.57 K imperfect), shown here year by year. Contrast §7.2.2, where precipitation extremes separate the models sharply.*
 
 ______________________________________________________________________
 

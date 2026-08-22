@@ -75,7 +75,7 @@ ______________________________________________________________________
 
 | Function | Module | Figure | Reads | Key args |
 |---|---|---|---|---|
-| `plot_multivar_skill_scorecard` | `plot_hexagon` | **one** figure: models × variables, each cell a six-wedge hexagon coloured by % error improvement over a baseline | `metrics_fast_field`, `metrics_fast_float`, `metrics_fast_pr_field` | `reference` (**required**), `season`, `clip`, `cmap`, `member_num` |
+| `plot_multivar_skill_scorecard` | `plot_hexagon` | **one** figure: models × variables, each cell a six-wedge hexagon coloured by how much lower the model's error is than the baseline's, as a % of the observed daily variability (`scale="relative"` for % change in error) | `metrics_fast_field` (incl. `targ_std_field`), `metrics_fast_float`, `metrics_fast_pr_field` | `reference` (**required**), `season`, `scale`, `clip`, `cmap`, `member_num` |
 | `plot_var_skill_scorecard` | `plot_var_skill_scorecard` | one per variable: models × metrics heatmap, colour = per-column normalised score, text = raw value + spatial CV | `metrics_fast_*` + `metrics_slow_field` | `metrics` (columns), `season`, `member_num` |
 | `plot_hexagons` | `plot_hexagon` | one per variable: radar hexagon, one trace per model | `metrics_fast_*` | `reference` (None → min–max mode), `season`, `member_num` |
 | `plot_multivar_signal_scorecard` | `plot_multivar_signal_scorecard` | **one** figure: models × variables, hexagon of three index sectors per cell, coloured by the climate-change signal | `metrics_signal_float` | `reference`, `reference_path`, `units`, `season`, `annotate` |

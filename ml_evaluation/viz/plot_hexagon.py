@@ -45,9 +45,16 @@ plot_hexagon(per_model, var, out_dir, *, models=None, reference=None, season)
     Render one variable's hexagon from precomputed {label: {metric: value}}.
 plot_hexagons(paths, out, variables, *, reference, season)
     Plot one hexagon per variable, one series per entry of ``paths``.
+daily_sigma(metrics_dir, *, member_dim, member_num)
+    Observed daily standard deviation of the truth -- the denominator the
+    scorecard uses to keep physically negligible differences pale.
+variability_scale(metrics_dir, metric_key, *, member_dim, member_num)
+    That sigma for the metrics carrying the variable's units, NaN for the ones
+    that carry none.
 plot_multivar_skill_scorecard(paths, out, variables, *, reference, season, ...)
-    Model x variable grid of six-wedge hexagons, coloured by % error improvement
-    over ``reference``.
+    Model x variable grid of six-wedge hexagons, coloured by how much lower each
+    model's error is than ``reference``'s, as a % of the observed daily
+    variability (``scale="relative"`` for the older % change in error).
 
 Example
 -------
@@ -89,6 +96,37 @@ METRIC_SRC = {
     "bias_r01": ("metrics_fast_pr_field.zarr", "bias_r1_field", True),
     "bias_sdii": ("metrics_fast_pr_field.zarr", "bias_sdii_field", True),
 }
+
+# Denominator of the scorecard wedges in the default ``scale="variability"``
+# mode: the *observed* variability of the truth, taken from the reference run's
+# ``targ_*`` fields and identical for every model, so a wedge answers "how big is
+# this error difference compared with how much the observed quantity itself
+# varies?" instead of "how big is it compared with the reference model's own
+# error?" -- a question whose answer cannot tell a 0.10 K vs 0.23 K P01 bias
+# (both negligible) from a 2.3 K vs 5.0 K one.
+#
+# Every metric carrying the variable's own units is divided by the SAME number,
+# the observed daily standard deviation (see :func:`daily_sigma`). One scale per
+# variable keeps the wedges of a cell comparable with each other.
+SCALE_IS_SIGMA = {
+    "rmse",
+    "bias_mean",
+    "bias_p01",
+    "bias_p99",
+    "bias_rx1day",
+    "bias_sdii",
+}
+
+# The remaining metrics have no sigma-compatible scale -- lag-1 correlation is
+# dimensionless, wet-day frequency is a day count, RALSD is a ratio of spectra
+# spanning orders of magnitude between variables. They keep the reference model's
+# own error as denominator, i.e. the relative formula, remapped by the caller so
+# that a +/-100% relative change fills the bar.
+SCALE_IS_REFERENCE = {"bias_acorr", "bias_r01", "ralsd"}
+
+# Default colour saturation per scale mode. In "variability" units the useful
+# range is a fraction of the observed spread, so +/-100% would wash the plate out.
+DEFAULT_CLIP = {"variability": 25.0, "relative": 100.0}
 
 # hexagon axes (metric key, axis label) per variable type
 HEX_TEMP = [
@@ -197,6 +235,73 @@ def _read_metric(
     if use_abs:
         da = np.abs(da)
     return float(da.mean().values)  # mean over lat/lon (fields) or no-op (floats)
+
+
+def daily_sigma(metrics_dir: str, *, member_dim="member", member_num=0) -> float:
+    """Observed daily variability of the variable, in its own units.
+
+    The domain mean of the truth's local temporal standard deviation,
+    ``targ_std_field``, which ``ml-eval fast`` writes into
+    ``metrics_fast_field.zarr``. It is the denominator every unit-carrying
+    scorecard wedge is divided by.
+
+    Returns
+    -------
+    float
+        The scale, or NaN when the store predates ``targ_std_field`` -- there is
+        deliberately no approximation from other stored diagnostics, so a stale
+        store shows as a blank wedge rather than as a plausible wrong colour.
+    """
+    std = _read_target(
+        metrics_dir,
+        "metrics_fast_field.zarr",
+        "targ_std_field",
+        member_dim=member_dim,
+        member_num=member_num,
+    )
+    return np.nan if std is None else float(std.mean().values)
+
+
+def _read_target(
+    metrics_dir: str, store: str, diag: str, *, member_dim="member", member_num=0
+):
+    """The stored truth field ``diag`` of ``store``, or None if unavailable."""
+    path = os.path.join(metrics_dir, store)
+    if not os.path.isdir(path):
+        return None
+    try:
+        with xr.open_zarr(path) as ds:
+            return select_member(
+                ds["value"].sel(diagnostic=diag), member_dim, member_num
+            ).load()
+    except (KeyError, FileNotFoundError, OSError):
+        return None
+
+
+def variability_scale(
+    metrics_dir: str, metric_key: str, *, member_dim="member", member_num=0
+) -> float:
+    """Observed variability to divide ``metric_key`` by, in the metric's units.
+
+    Read from the truth fields of one run -- the reference model's, so every row
+    of a scorecard is divided by the same number.
+
+    * a metric in the variable's own units (RMSE and the biases of the mean, of a
+      percentile, of Rx1day, of SDII) -- the observed daily standard deviation,
+      :func:`daily_sigma`.
+    * anything else (``bias_acorr``, ``bias_r01``, ``ralsd``) -- NaN: no
+      sigma-compatible scale exists, and the caller falls back to the reference
+      model's own error.
+
+    Returns
+    -------
+    float
+        The scale, or NaN when it is unavailable or degenerate.
+    """
+    if metric_key not in SCALE_IS_SIGMA:
+        return np.nan
+    scale = daily_sigma(metrics_dir, member_dim=member_dim, member_num=member_num)
+    return scale if np.isfinite(scale) and scale > EPS else np.nan
 
 
 def read_hexagon_metrics(
@@ -519,7 +624,8 @@ def plot_multivar_skill_scorecard(
     reference,
     season="annual",
     title=None,
-    clip=100.0,
+    scale="variability",
+    clip=None,
     cmap="RdBu",
     filename=None,
     member_dim="member",
@@ -529,11 +635,33 @@ def plot_multivar_skill_scorecard(
 
     One figure: rows are the labels of ``paths`` (the ``reference`` first),
     columns are ``variables``. Each cell is a hexagon whose six wedges (from the
-    top, counter-clockwise; see ``scorecard_axes``) are coloured by the %
-    improvement of that model over the reference on each metric,
-    ``100 * (err_ref - err_model) / err_ref`` -- blue = better (lower error),
-    red = worse, white = equal to the reference (so the reference row is blank).
-    Values are clipped to +/- ``clip`` for colour.
+    top, counter-clockwise; see ``scorecard_axes``) are coloured by how much lower
+    that model's error is than the reference's -- blue = better, red = worse,
+    white = equal to the reference (so the reference row is blank). Values are
+    clipped to +/- ``clip`` for colour.
+
+    Two ways to scale the difference, chosen with ``scale``:
+
+    * ``"variability"`` (default) -- ``100 * (err_ref - err_model) / sigma``,
+      where ``sigma`` is the observed daily standard deviation of the truth (see
+      :func:`daily_sigma`). A wedge reads as "% of the observed daily
+      variability", so a difference that is negligible against the physical
+      spread of the variable stays pale however many times larger than the
+      reference error it is. Metrics not in the variable's units keep the
+      relative form (below).
+    * ``"relative"`` -- ``100 * (err_ref - err_model) / err_ref`` for every
+      wedge. Scale-free, which is exactly its weakness: a 0.10 K vs 0.23 K P01
+      bias and a 2.3 K vs 5.0 K one both saturate the colour, though only the
+      second is a real difference in performance.
+
+    Lag-1 correlation bias, wet-day frequency bias and RALSD have no
+    sigma-compatible scale (see ``SCALE_IS_REFERENCE``), so in both modes they
+    use ``err_ref`` as denominator, remapped so that a +/-100% relative change
+    fills the bar rather than saturating it in the first percent.
+
+    ``scale="variability"`` needs ``targ_std_field``, written by ``ml-eval fast``
+    from 2026-08 on. Variables whose stores predate it draw their unit-carrying
+    wedges blank, and the run prints which ones need re-evaluating.
 
     Always plots the six "fast" hexagon metrics; there is no metric selection.
 
@@ -552,8 +680,12 @@ def plot_multivar_skill_scorecard(
         labels.
     season : str
         Label only -- title and output file name.
+    scale : {"variability", "relative"}
+        Denominator of the wedge value (see above). Default "variability".
     title, clip, cmap, filename
         Figure title, colour saturation (%), diverging colormap, output name.
+        ``clip`` defaults per mode (``DEFAULT_CLIP``): 25% of the observed daily
+        variability, or 100% in "relative" mode.
     member_dim : str or None
         Name of the ensemble dimension in the stored metrics.
     member_num : int
@@ -567,6 +699,13 @@ def plot_multivar_skill_scorecard(
     """
     from matplotlib.cm import ScalarMappable
     from matplotlib.colors import Normalize
+
+    if scale not in DEFAULT_CLIP:
+        raise ValueError(
+            f"scale must be one of {', '.join(sorted(DEFAULT_CLIP))}, got {scale!r}."
+        )
+    if clip is None:
+        clip = DEFAULT_CLIP[scale]
 
     by_label = normalize_paths(paths)
     if reference not in by_label:
@@ -592,6 +731,31 @@ def plot_multivar_skill_scorecard(
                     for k in keys
                 }
 
+    # scales[var][metric]: the wedge denominator. NaN means "use the reference
+    # error instead" -- either the metric has no physical scale, or the reference
+    # run predates targ_std_field, which is reported rather than papered over.
+    scales, stale = {}, []
+    for var in variables:
+        d = metrics_dir(by_label[reference], var)
+        scales[var] = {
+            k: (
+                variability_scale(d, k, member_dim=member_dim, member_num=member_num)
+                if scale == "variability"
+                else np.nan
+            )
+            for k, _ in scorecard_axes(var)
+        }
+        if scale == "variability" and not any(
+            np.isfinite(v) for v in scales[var].values()
+        ):
+            stale.append(var)
+    if stale:
+        print(
+            f"[scorecard] no targ_std_field for {', '.join(stale)} -- their "
+            "RMSE and bias wedges are left blank. Re-run `ml-eval fast` for "
+            f"{reference} on those variables to colour them."
+        )
+
     ncols, nrows = len(variables), len(rows)
     norm = Normalize(-clip, clip)
     cmap_o = plt.get_cmap(cmap)
@@ -609,8 +773,17 @@ def plot_multivar_skill_scorecard(
                 val = np.nan
                 if mv is not None and rv is not None:
                     em, er = mv.get(key, np.nan), rv.get(key, np.nan)
-                    if np.isfinite(em) and np.isfinite(er) and er != 0:
-                        val = 100.0 * (er - em) / er
+                    denom, full = scales[var].get(key, np.nan), 100.0
+                    if not np.isfinite(denom) and (
+                        scale == "relative" or key in SCALE_IS_REFERENCE
+                    ):
+                        # no physical scale for this metric: the reference error
+                        # stands in, scaled so that halving or doubling it -- a
+                        # +/-100% relative change -- fills the bar rather than
+                        # saturating it at the first percent
+                        denom, full = er, clip
+                    if np.isfinite(em) and np.isfinite(denom) and denom != 0:
+                        val = full * (er - em) / denom
                 fc = (
                     cmap_o(norm(max(-clip, min(clip, val))))
                     if np.isfinite(val)
@@ -632,17 +805,35 @@ def plot_multivar_skill_scorecard(
     # colour bar
     sm = ScalarMappable(norm=norm, cmap=cmap_o)
     sm.set_array([])
-    cb = fig.colorbar(sm, ax=ax, fraction=0.025, pad=0.02, extend="min")
-    cb.set_label(f"% error improvement vs {reference}  (+ = better, − = worse)")
+    variability = scale == "variability"
+    cb = fig.colorbar(
+        sm, ax=ax, fraction=0.025, pad=0.02, extend="both" if variability else "min"
+    )
+    cb.set_label(
+        (
+            f"error vs {reference}, % of observed daily variability"
+            if variability
+            else f"% error improvement vs {reference}"
+        )
+        + "  (+ = better, − = worse)"
+    )
 
     # title + wedge-order key
     head = title or f"Scorecard — {season}"
+    formula = (
+        r"value = 100 × (E$_{ref}$ − E$_{model}$) / σ   "
+        "[σ = observed daily std of the truth;  Bias lag-1 corr, Bias R01 and "
+        r"RALSD have no σ: relative change, ±100% fills the bar]"
+        if variability
+        else r"value = 100 × (E$_{ref}$ − E$_{model}$) / E$_{ref}$   "
+        "[% change in error vs ref;  +100% = 100% lower error,  −100% = double error]"
+    )
     ax.set_title(
         f"{head}\nreference: {reference}\n"
         "wedges — upper: RMSE, Bias lag-1 corr, RALSD   "
         "lower: Bias P01, Bias mean, Bias P99   (PR lower: Bias R01, Bias SDII, Bias Rx1day)\n"
-        r"value = 100 × (E$_{ref}$ − E$_{model}$) / E$_{ref}$   "
-        "[% change in error vs ref;  +100% = 100% lower error,  −100% = double error]",
+        + formula
+        + f"\ncolour saturates at ±{clip:g}",
         fontsize=10,
     )
 

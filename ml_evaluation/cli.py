@@ -463,6 +463,18 @@ def fast(
             "pred_sdii_field": predf_sdii_ds,
         }
 
+    # Compute Bias of daily std (over time): field
+    # targ_std_field is also the scale the skill scorecard divides its wedges by
+    click.echo("Computing Bias of daily std (over time): field...")
+    biasf_std_ds, targf_std_ds, predf_std_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices.season_std,
+        output_index=True,
+    )
+
     # Save all fast-track metrics
     click.echo("Combining and saving metrics...")
 
@@ -474,6 +486,7 @@ def fast(
         "bias_p99_field": biasf_p99_ds,
         "bias_p1_field": biasf_p1_ds,
         "bias_acorr_field": biasf_acorr_ds,
+        "bias_std_field": biasf_std_ds,
         "bias_max1day_field": biasf_max1day_ds,
         "bias_min1day_field": biasf_min1day_ds,
         "targ_mean_field": targf_mean_ds,
@@ -484,6 +497,8 @@ def fast(
         "pred_p1_field": predf_p1_ds,
         "targ_acorr_field": targf_acorr_ds,
         "pred_acorr_field": predf_acorr_ds,
+        "targ_std_field": targf_std_ds,
+        "pred_std_field": predf_std_ds,
         "targ_max1day_field": targf_max1day_ds,
         "pred_max1day_field": predf_max1day_ds,
         "targ_min1day_field": targf_min1day_ds,

@@ -110,6 +110,32 @@ def season_quantile(
     return result
 
 
+def season_std(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
+    """
+    Compute the standard deviation of a variable along time, per grid point.
+
+    Filters the dataset by season or month if specified, then takes the spread of
+    the values themselves -- the *daily* variability, unlike
+    :func:`interannual_var`, which averages each year away first.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the target variable.
+    var : str
+        Variable name to compute the standard deviation for.
+    season : str | None, optional
+        Season or Month standard name to filter before computing the spread.
+
+    Returns
+    -------
+    xr.Dataset
+        Standard deviation along the time dimension.
+    """
+    x_filtered = filter_by_monthseason(x, season)
+    return x_filtered[[var]].std("time", skipna=True)
+
+
 def calday_quantile(x: xr.Dataset, var: str, q: float, padding: int = 2) -> xr.Dataset:
     da = x[[var]]
     n_members = padding * 2 + 1
