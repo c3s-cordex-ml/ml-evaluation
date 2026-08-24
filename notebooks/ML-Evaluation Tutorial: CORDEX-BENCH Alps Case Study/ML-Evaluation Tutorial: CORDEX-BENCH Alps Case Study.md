@@ -503,6 +503,7 @@ The two averages are not the same quantity, which is why neither is silent: `mem
 | `plot_var_skill_scorecard` | one per variable: models × metrics heatmap, colour = per-column score, text = value + spatial CV | `metrics_fast_*`, `metrics_slow_field` | `metrics` (columns), `season`, `member_num` |
 | `plot_hexagons` | one per variable: radar hexagon, one trace per model | `metrics_fast_*` | `reference` (None → min–max mode), `season` |
 | `plot_multivar_signal_scorecard` | **one** figure: models × variables, three index sectors per cell, coloured by the climate-change signal | `metrics_signal_float` | `reference`, `reference_path`, `units`, `annotate` |
+| `plot_multivar_signal_radar` | **one** figure: models × variables, a three-spoke radar per cell with one polyline per boundary case | `metrics_signal_float` | `reference`, `reference_path`, `cases`, `units`, `rlim` |
 | `plot_var_signal_scorecard` | one per variable: models × signal quantities heatmap | `metrics_signal_float` | `indices`, `kinds` (`delta` / `reldelta`), `reference` |
 | `plot_var_series` | one per (variable, index): interannual line plot, one line per source | `metrics_signal_series` | `index`, `reference` / `driver` / `baseline` (+ `_path`), `years`, `units` |
 | `plot_multivar_skill_maps` | **one** figure: variables (columns) × models (rows), truth on top | any `*_field` store the metric lives in | `metric`, `kind`, `show_truth`, `reference` |
@@ -912,28 +913,44 @@ rcm_path = os.path.join(SIM, "RCM", "outputs", "evaluation", "rcm",
                         f"{RCM}_{TEST_GCM}_{PERIOD}", SEASON)
 ```
 
-#### 7.2.1 Multivariate signal scorecard — `plot_multivar_signal_scorecard`
+#### 7.2.1 Multivariate signal radar — `plot_multivar_signal_radar`
 
-The counterpart of §7.1.2: rows are the sources (the RCM truth first), columns the variables, and each cell carries three index sectors coloured by the size of the change.
+The counterpart of §7.1.2: rows are the models, columns the variables, and each cell is a small radar with one spoke per index — top `mean`/`SDII`, bottom-left `P01`/`R01`, bottom-right `P99`/`RX1day` — and one closed polyline per boundary framework.
+
+The radial coordinate is the signal **divided by the RCM's**, which is dimensionless and so reads the same way in every column whatever the variable's units. The RCM sits at radius 1 on every spoke whichever way its own change goes, and is drawn once as a dashed unit triangle rather than as a row. The scale runs from **no signal at the centre** through the RCM's own change at the dashed triangle to **twice it at the rim**, so the reading is positional: *on* the dashed triangle reproduces the RCM's change, *inside* damps it, *outside* overshoots it. A signal of the **wrong sign** is clamped to the centre and marked `x`, collapsing that spoke.
+
+Each model must appear once per case, labelled `"MODEL (case)"`, so the paths are built over both frameworks rather than the single `CASE` fixed in §7:
 
 ```python
-from ml_evaluation.viz.plot_multivar_signal_scorecard import plot_multivar_signal_scorecard
+from ml_evaluation.viz.plot_multivar_signal_scorecard import plot_multivar_signal_radar
 
-print(plot_multivar_signal_scorecard(
-    paths,
+CASES = ["perfect", "imperfect"]
+
+def case_dir(sim, ckpt, case):
+    dataset = f"UPS-{RCM}-{TEST_GCM}" if case == "perfect" else TEST_GCM
+    stem = f"{ckpt}_{RCM}_{TRAIN_GCM}_{dataset}_{PERIOD}"
+    return os.path.join(SIM, sim, "outputs", "evaluation", ckpt, stem, SEASON)
+
+signal_paths = {f"{label} ({case})": case_dir(sim, ckpt, case)
+                for label, sim, ckpt in MODELS for case in CASES}
+
+print(plot_multivar_signal_radar(
+    signal_paths,
     os.path.join(FIGURES, "scorecard_hexagon_signal"),
     ["tasmax", "pr"],
     reference="RCM", reference_path=rcm_path,
-    season=SEASON,
+    cases=CASES, season=SEASON,
     units={"pr": "%", "tasmax": "K"},   # precip as a relative change, temperature absolute
 ))
 ```
 
 The `units` mapping picks the quantity per variable: temperature changes are read as absolute deltas (K), precipitation as a relative change (%), which is what `ml-eval signal` stores as `delta` and `reldelta` respectively.
 
-![Climate-change-signal scorecard: sources as rows, variables as columns, three index sectors per cell](figures/signal_scorecard_annual.png)
+`plot_multivar_signal_scorecard` renders the same numbers as a filled model × variable plate with the change printed in each sector — the same call, minus `cases`, plus `reference` as an extra row. Use it when the figure has to carry the values themselves; the radar when it has to carry the comparison.
 
-*The RCM's own change leads the rows, and each emulator appears twice — once per boundary framework. The colour is the signal relative to the RCM's, so a cell matching the truth is the same shade as the top row. Under **perfect** predictors every emulator reproduces the RCM's +1.90 K mean warming to within 0.15 K (top wedge: +1.77 to +1.82) and its +7 % RX1day intensification to within 1-3 points. Under **imperfect** predictors all four warm markedly less (+1.53 to +1.57 K) and wet less — the signal each one carries from the driving GCM, not a failure of the downscaling. That contrast is the whole reason each source is referenced to its own baseline.*
+![Climate-change-signal radar: models as rows, variables as columns, a three-spoke triangle per cell with the RCM dashed and one polyline per boundary framework](figures/signal_radar_annual.png)
+
+*The RCM is the dashed unit triangle of every cell, and each emulator is drawn twice — blue under perfect predictors, red under imperfect ones. On `tasmax` the perfect polylines sit almost exactly on the RCM's (0.93 to 0.96 of its +1.90 K mean warming, i.e. +1.77 to +1.82 K) and the imperfect ones pull uniformly inward to 0.81 to 0.83 (+1.53 to +1.57 K) — the weaker signal each one carries from the driving GCM, not a failure of the downscaling. On `pr` the two frameworks separate much further: the RCM's +5.6 % SDII and +7.5 % RX1day are reproduced at 0.80 to 0.92 and 0.71 to 0.87 under perfect predictors but collapse to 0.30 to 0.46 and 0.34 to 0.65 under imperfect ones. The one spoke that points **outward** is `R01`, where every emulator overshoots the RCM's −1.5 % wet-day decline by a factor of 1.4 to 1.7 under perfect predictors — the visible asymmetry of the precipitation cells, and the detail §7.2.2 resolves. That contrast is the whole reason each source is referenced to its own baseline.*
 
 #### 7.2.2 Univariate signal scorecard — `plot_var_signal_scorecard`
 
