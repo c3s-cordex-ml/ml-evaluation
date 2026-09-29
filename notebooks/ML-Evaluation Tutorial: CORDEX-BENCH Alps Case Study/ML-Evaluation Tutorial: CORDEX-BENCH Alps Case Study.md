@@ -163,7 +163,6 @@ Inside every store the metrics are stacked as a single `value` variable indexed 
 
 ______________________________________________________________________
 
-
 All five tracks are covered one by one below. Four score one variable at a time; `multivar` is the exception — it takes a second `--var2` and asks about the *relationship* between two predictands, so it only applies to an emulator that produces both.
 
 ### 4.1 The basic track: `ml-eval fast`
@@ -253,8 +252,8 @@ Write the output to the **same leaf directory** as the `fast` call for that pred
 | `metrics_slow_series.zarr` | (diagnostic, member, time) | `rmse_series`, `pcorr_series`, `scorr_series` — spatial statistics per timestep |
 | `metrics_slow_hist.zarr` | (diagnostic, bins, member) | `targ_hist_series`, `pred_hist_series`, `bins_hist_series` + the domain-wide scores `wdh_float`, `fcss_float`, `pss_float`, `lhd_float` |
 | `metrics_slow_pr_field.zarr` | (diagnostic, member, y, x) | `bias_p90wet_field`, `bias_r10_field`, `bias_cdd_field`, `bias_cwd_field`, `relbias_p90wet_field` (+ `targ_*` / `pred_*`) |
-| `metrics_slow_tasmax_field.zarr` | (diagnostic, member, y, x) | `bias_su_field` (≥ 25 °C), `bias_hot_field` (≥ 35 °C), `bias_ice_field` (< 0 °C) |
-| `metrics_slow_tasmin_field.zarr` | (diagnostic, member, y, x) | `bias_tropnight_field` (≥ 20 °C), `bias_frost_field` (< 0 °C) |
+| `metrics_slow_tasmax_field.zarr` | (diagnostic, member, y, x) | `bias_su_field` (≥ 25 °C), `bias_hot_field` (≥ 35 °C), `bias_ice_field` (\< 0 °C) |
+| `metrics_slow_tasmin_field.zarr` | (diagnostic, member, y, x) | `bias_tropnight_field` (≥ 20 °C), `bias_frost_field` (\< 0 °C) |
 
 The `_hist` store is what you plot to compare *whole distributions* rather than selected quantiles:
 

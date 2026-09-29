@@ -61,6 +61,7 @@ Example
         units="K",
     )
 """
+
 from __future__ import annotations
 
 import os
@@ -231,7 +232,11 @@ def read_series_spread(metrics_dir, index, spread="minmax"):
     """
     if spread not in SPREADS:
         raise ValueError(f"spread must be one of {SPREADS}, got {spread!r}.")
-    empty = (np.array([], dtype=int), np.array([], dtype=float), np.array([], dtype=float))
+    empty = (
+        np.array([], dtype=int),
+        np.array([], dtype=float),
+        np.array([], dtype=float),
+    )
 
     if spread == "minmax":
         ylo, lo = read_diagnostic(metrics_dir, f"{index}_series_min")
@@ -397,8 +402,11 @@ def render_series(
     if not models:
         return None
     n_colored = len(
-        [m for m in models
-         if m not in (reference, driver) and m not in (variant_of or {})]
+        [
+            m
+            for m in models
+            if m not in (reference, driver) and m not in (variant_of or {})
+        ]
     )
     if n_colored > len(colors):
         raise ValueError(
@@ -475,7 +483,8 @@ def render_series(
     if title is None:
         head = (
             f"Climate-change signal — {var} {name} anomaly from the "
-            f"{baseline[0]}-{baseline[1]} mean" if is_anomaly and baseline
+            f"{baseline[0]}-{baseline[1]} mean"
+            if is_anomaly and baseline
             else f"{var} — {name} — {season}"
         )
     else:
@@ -485,9 +494,11 @@ def render_series(
     # A legend is always present for >=2 lines; identity is never colour-alone.
     if len(models) > 1:
         ax.legend(
-            loc="upper center", bbox_to_anchor=(0.5, -0.16),
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.16),
             ncol=legend_ncol or min(len(models), 5),
-            frameon=False, fontsize=9,
+            frameon=False,
+            fontsize=9,
         )
 
     os.makedirs(out_dir, exist_ok=True)
@@ -667,8 +678,10 @@ def plot_var_series(
         if baseline is not None:
             base_mean = _baseline_mean(years_v, values, baseline)
             if not np.isfinite(base_mean):
-                print(f"[series] skip {label}: no data in the baseline window "
-                      f"{baseline[0]}-{baseline[1]}")
+                print(
+                    f"[series] skip {label}: no data in the baseline window "
+                    f"{baseline[0]}-{baseline[1]}"
+                )
                 continue
             values = values - base_mean
             if label in bands:
@@ -677,11 +690,19 @@ def plot_var_series(
         per_source[label] = (years_v, values)
 
     path = render_series(
-        per_source, var, index, out,
+        per_source,
+        var,
+        index,
+        out,
         models=[m for m in by_label if m in per_source],
         bands=bands or None,
-        reference=reference, driver=driver, years=years, units=units,
-        is_anomaly=baseline is not None, baseline=baseline, season=season,
+        reference=reference,
+        driver=driver,
+        years=years,
+        units=units,
+        is_anomaly=baseline is not None,
+        baseline=baseline,
+        season=season,
         **kwargs,
     )
     if path is None:

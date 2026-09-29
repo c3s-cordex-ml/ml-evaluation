@@ -28,8 +28,8 @@ xarray = ">=2025.0.0"
 zarr = ">=3.2.1,<4"
 
 [environments]
-default = {solve-group = "default"}
-dev = {features = ["dev"], solve-group = "default"}
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
 
 [feature.dev.dependencies]
 commitizen = "*"
@@ -43,7 +43,7 @@ pytest-cov = "*"
 bumpversion-major = "cz bump --increment major"
 bumpversion-minor = "cz bump --increment minor"
 bumpversion-patch = "cz bump --increment patch"
-default = {depends-on = ["qa", "unit-tests", "type-check"]}
+default = { depends-on = ["qa", "unit-tests", "type-check"] }
 docker-build = "docker build -t ml-evaluation ."
 docker-run = "docker run --rm -ti -v $(pwd):/srv ml-evaluation"
 docs-build = "cp README.md docs/. && sed -i 's|docs/_static/logo.png|_static/logo.png|g' docs/README.md && cd docs && rm -fr _api && make clean && make html"

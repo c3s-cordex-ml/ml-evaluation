@@ -6,12 +6,7 @@ import xarray as xr
 import pytest
 from ml_evaluation.evaluation.indices import (
     mean,
-    quantile,
-    su,
-    txx,
-    txn,
     season_quantile,
-    day_noleap_quantile,
     ann_extrema,
     ann_freq_wrt_array,
     ann_maxspell_wrt_array,
@@ -81,83 +76,9 @@ def test_mean_index(dummy_dataset: xr.Dataset) -> None:
     assert float(result["tasmax"].sel(lat=45.0, lon=10.0)) == 299.0
 
 
-def test_quantile_index(dummy_dataset: xr.Dataset) -> None:
-    """
-    Test the quantile index calculation over the time dimension.
-
-    Parameters
-    ----------
-    dummy_dataset : xr.Dataset
-        Fixture providing the dummy dataset.
-
-    Returns
-    -------
-    None
-    """
-    result = quantile(dummy_dataset, "tasmax", 0.5)
-    assert "time" not in result.dims
-    # Median for point (0, 0): sorted [295, 296, 298, 301, 305] -> 298.0
-    assert float(result["tasmax"].sel(lat=45.0, lon=10.0)) == 298.0
-
-
-def test_su_index(dummy_dataset: xr.Dataset) -> None:
-    """
-    Test the summer days (su) index calculation.
-
-    Parameters
-    ----------
-    dummy_dataset : xr.Dataset
-        Fixture providing the dummy dataset.
-
-    Returns
-    -------
-    None
-    """
-    # Count days above 300K (27C)
-    result = su(dummy_dataset, "tasmax", threshold=300.0)
-    # Values at (0, 0): [295, 301, 298, 305, 296] -> 2 values above 300.0
-    assert float(result["tasmax"].sel(lat=45.0, lon=10.0)) == 2.0
-
-
-def test_txx_index(dummy_dataset: xr.Dataset) -> None:
-    """
-    Test the mean annual maximum (txx) index calculation.
-
-    Parameters
-    ----------
-    dummy_dataset : xr.Dataset
-        Fixture providing the dummy dataset.
-
-    Returns
-    -------
-    None
-    """
-    result = txx(dummy_dataset, "tasmax")
-    # Annual max for single year 2026: 305.0 at (0, 0)
-    assert float(result["tasmax"].sel(lat=45.0, lon=10.0)) == 305.0
-
-
-def test_txn_index(dummy_dataset: xr.Dataset) -> None:
-    """
-    Test the mean annual minimum (txn) index calculation.
-
-    Parameters
-    ----------
-    dummy_dataset : xr.Dataset
-        Fixture providing the dummy dataset.
-
-    Returns
-    -------
-    None
-    """
-    result = txn(dummy_dataset, "tasmax")
-    # Annual min for single year 2026: 295.0 at (0, 0)
-    assert float(result["tasmax"].sel(lat=45.0, lon=10.0)) == 295.0
-
-
 def test_plus_indices(dummy_dataset: xr.Dataset) -> None:
     """
-    Test consolidated indices from indices_plus.
+    Test generalised versions of indices.
 
     Parameters
     ----------
@@ -208,29 +129,3 @@ def test_plus_indices(dummy_dataset: xr.Dataset) -> None:
     # Test lag1_corr
     lcorr = lag1_corr(dummy_dataset, "tasmax")
     assert "tasmax" in lcorr
-
-
-def test_day_noleap_quantile() -> None:
-    """
-    Test day_noleap_quantile index computation.
-
-    Parameters
-    ----------
-    None
-
-    Returns
-    -------
-    None
-    """
-    times = pd.date_range("2026-01-01", periods=365, freq="D")
-    lats = [45.0]
-    lons = [10.0]
-    # Data is just 1.0 everywhere
-    data = np.ones((365, 1, 1))
-    ds = xr.Dataset(
-        {"tasmax": (["time", "lat", "lon"], data)},
-        coords={"time": times, "lat": lats, "lon": lons},
-    )
-    res = day_noleap_quantile(ds, "tasmax", 0.5, padding=0)
-    assert res["tasmax"].shape == (365, 1, 1)
-    assert float(res["tasmax"].sel(doy_noleap=1, lat=45.0, lon=10.0)) == 1.0

@@ -117,9 +117,15 @@ def _wedge_values(tmp_path, monkeypatch, *, scale, sigma=2.0, errors=None):
     )
     clip = ph.DEFAULT_CLIP[scale]
     axes = [k for k, _ in ph.scorecard_axes("tas")]
-    colour = lambda v: ph.plt.get_cmap("RdBu")(
-        (max(-clip, min(clip, v)) + clip) / (2 * clip)
-    )
+
+    # colour = lambda v: ph.plt.get_cmap("RdBu")(
+    #    (max(-clip, min(clip, v)) + clip) / (2 * clip)
+    # )
+    # Added to address quality check error
+    # E731 Do not assign a `lambda` expression, use a `def`
+    def colour(v):
+        return ph.plt.get_cmap("RdBu")((max(-clip, min(clip, v)) + clip) / (2 * clip))
+
     return dict(zip(axes, drawn[6:])), colour  # drawn[:6] is the reference row
 
 
@@ -159,8 +165,9 @@ def test_stale_store_leaves_sigma_wedges_blank(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
     """Without targ_std_field the unit-carrying wedges are blank, and it is said."""
-    wedges, colour = _wedge_values(tmp_path, monkeypatch, scale="variability",
-                                   sigma=np.nan)
+    wedges, colour = _wedge_values(
+        tmp_path, monkeypatch, scale="variability", sigma=np.nan
+    )
     nan_colour = "0.9"
     for key in ("rmse", "bias_mean", "bias_p01", "bias_p99"):
         assert wedges[key] == nan_colour
