@@ -279,7 +279,7 @@ def test_sweep_without_selection_takes_the_full_ensemble(
 
 def test_unscored_size_is_an_error_not_a_blank_wedge(swept_cell: str) -> None:
     """A size that was never scored must not degrade into a NaN cell."""
-    #with pytest.raises(pp.SweepSelectionError, match=r"available: \[2, 4, 10\]"):
+    # with pytest.raises(pp.SweepSelectionError, match=r"available: \[2, 4, 10\]"):
     with pytest.raises(pp.SweepSelectionError, match=r"available: \[.*2.*4.*10.*\]"):
         pp.read_prob_metrics(swept_cell, sel={"n_members": 7})
 
