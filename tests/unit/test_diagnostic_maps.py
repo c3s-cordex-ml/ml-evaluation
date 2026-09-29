@@ -241,7 +241,9 @@ def test_var_layout_truth_then_models(
     """Truth at (1,1) with column 1 blank below it; models fill column 2."""
     paths = _tree(tmp_path, ["UNET-MULTI", "RESDIFF"], ["pr"])
 
-    written = pdm.plot_var_skill_maps(paths, str(tmp_path / "fig"), ["pr"], metric="mean")
+    written = pdm.plot_var_skill_maps(
+        paths, str(tmp_path / "fig"), ["pr"], metric="mean"
+    )
 
     call = captured[0]
     assert call["ncols"] == 2 and call["nrows"] == 2
@@ -256,7 +258,9 @@ def test_var_bias_adds_a_third_column(
     """kind='bias' keeps the field in column 2 and adds the error in column 3."""
     paths = _tree(tmp_path, ["UNET-MULTI", "RESDIFF"], ["pr"])
 
-    pdm.plot_var_skill_maps(paths, str(tmp_path / "fig"), ["pr"], metric="mean", kind="bias")
+    pdm.plot_var_skill_maps(
+        paths, str(tmp_path / "fig"), ["pr"], metric="mean", kind="bias"
+    )
 
     call = captured[0]
     assert call["ncols"] == 3 and call["nrows"] == 2
@@ -276,7 +280,9 @@ def test_var_relbias_column(
     """kind='relbias' labels its column and carries the % colour bar."""
     paths = _tree(tmp_path, ["RESDIFF"], ["pr"])
 
-    written = pdm.plot_var_skill_maps(paths, str(tmp_path / "fig"), ["pr"], kind="relbias")
+    written = pdm.plot_var_skill_maps(
+        paths, str(tmp_path / "fig"), ["pr"], kind="relbias"
+    )
 
     call = captured[0]
     assert call["title_list"] == ["Truth", "RESDIFF", "relbias: RESDIFF"]
@@ -324,7 +330,9 @@ def test_unknown_kind_is_rejected(tmp_path: pathlib.Path) -> None:
             kind="anomaly",
         )
     with pytest.raises(ValueError, match="unknown kinds"):
-        pdm.plot_multivar_skill_maps(paths, str(tmp_path / "fig"), ["pr"], kind="anomaly")
+        pdm.plot_multivar_skill_maps(
+            paths, str(tmp_path / "fig"), ["pr"], kind="anomaly"
+        )
 
 
 def test_unknown_reference(tmp_path: pathlib.Path, read: None) -> None:
@@ -352,7 +360,9 @@ def test_member_tag_in_filename(
     """A non-default member is recorded in the file name."""
     paths = _tree(tmp_path, ["RESDIFF"], ["pr"])
 
-    written = pdm.plot_var_skill_maps(paths, str(tmp_path / "fig"), ["pr"], member_num=-1)
+    written = pdm.plot_var_skill_maps(
+        paths, str(tmp_path / "fig"), ["pr"], member_num=-1
+    )
 
     assert written[0].endswith("var_maps_pr_mean_raw_em_annual.png")
 
@@ -385,7 +395,9 @@ def _nc(path: pathlib.Path, variables, values, members: int = 1) -> str:
 def event_paths(tmp_path: pathlib.Path) -> dict[str, str]:
     """Truth and two model files, each holding pr and tasmax."""
     return {
-        "RCM": _nc(tmp_path / "truth.nc", ["pr", "tasmax"], {"pr": 10.0, "tasmax": 300.0}),
+        "RCM": _nc(
+            tmp_path / "truth.nc", ["pr", "tasmax"], {"pr": 10.0, "tasmax": 300.0}
+        ),
         "UNET-MULTI": _nc(
             tmp_path / "unet.nc", ["pr", "tasmax"], {"pr": 12.0, "tasmax": 301.0}
         ),
@@ -499,8 +511,12 @@ def test_multivar_scale_is_shared_down_a_column(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, captured: list[dict]
 ) -> None:
     """Every panel of one variable gets one range; columns differ from each other."""
-    values = {("A", "pr"): 1.0, ("B", "pr"): 5.0, ("A", "tasmax"): 280.0,
-              ("B", "tasmax"): 300.0}
+    values = {
+        ("A", "pr"): 1.0,
+        ("B", "pr"): 5.0,
+        ("A", "tasmax"): 280.0,
+        ("B", "tasmax"): 300.0,
+    }
 
     def fake_read(d, var, metric, *, kinds, **k):
         model = pathlib.Path(d).parent.name if pathlib.Path(d).name == var else "A"
@@ -511,8 +527,9 @@ def test_multivar_scale_is_shared_down_a_column(
     monkeypatch.setattr(pdm, "read_skill_map_metrics", fake_read)
     paths = _tree(tmp_path, ["A", "B"], ["pr", "tasmax"])
 
-    pdm.plot_multivar_skill_maps(paths, str(tmp_path / "fig"), ["pr", "tasmax"],
-                           show_truth=False)
+    pdm.plot_multivar_skill_maps(
+        paths, str(tmp_path / "fig"), ["pr", "tasmax"], show_truth=False
+    )
 
     ranges = captured[0]["vminmax"]
     # column 0 (pr) and column 1 (tasmax) each share a range across the rows
@@ -526,12 +543,18 @@ def test_var_maps_override_reaches_the_renderer(
     """vminmax / vminmax_bias passed to plot_* land on the right panels."""
     paths = _tree(tmp_path, ["RESDIFF"], ["pr"])
 
-    pdm.plot_var_skill_maps(paths, str(tmp_path / "fig"), ["pr"], kind="bias",
-                      vminmax=[0, 3], vminmax_bias=[-1, 1])
+    pdm.plot_var_skill_maps(
+        paths,
+        str(tmp_path / "fig"),
+        ["pr"],
+        kind="bias",
+        vminmax=[0, 3],
+        vminmax_bias=[-1, 1],
+    )
 
     ranges = captured[0]["vminmax"]
-    assert ranges[0] == [0, 3]   # truth
-    assert ranges[1] == [0, 3]   # model field, same scale as the truth
+    assert ranges[0] == [0, 3]  # truth
+    assert ranges[1] == [0, 3]  # model field, same scale as the truth
     assert ranges[2] == [-1, 1]  # the error column
 
 
@@ -599,7 +622,7 @@ def test_plot_coords_prefers_2d_latlon_coordinates() -> None:
 
 
 def test_auto_range_skips_the_catalogue() -> None:
-    """"auto" forces the data-derived range even when the catalogue pins one."""
+    """ "auto" forces the data-derived range even when the catalogue pins one."""
     a = _fields(("targ", "raw"), value=280.0)
     b = _fields(("targ", "raw"), value=300.0)  # catalogue says [0, 10]
 
@@ -635,8 +658,12 @@ def _signal_bundle(kinds, value: float = 2.0) -> dict:
     """A read_signal_map_metrics-shaped bundle (diverging, no catalogue range)."""
     info = _fields(kinds, value=value)
     info.update(
-        units="K", title="Mean delta", vminmax=[None, None],
-        cmap="RdBu_r", vminmax_bias=[None, None], cmap_bias="RdBu_r",
+        units="K",
+        title="Mean delta",
+        vminmax=[None, None],
+        cmap="RdBu_r",
+        vminmax_bias=[None, None],
+        cmap_bias="RdBu_r",
     )
     return info
 
@@ -646,7 +673,9 @@ def test_signal_map_indices_match_the_signal_store() -> None:
     assert pdm.signal_map_indices("pr") == ["r01", "sdii", "rx1day"]
     assert pdm.signal_map_indices("tasmax") == ["mean", "p01", "p99"]
     # rx1day here vs max1day in the fast catalogue -- the trap this guards
-    assert "rx1day" in pdm.signal_map_indices() and "rx1day" not in pdm.skill_map_indices()
+    assert (
+        "rx1day" in pdm.signal_map_indices() and "rx1day" not in pdm.skill_map_indices()
+    )
     assert "max1day" in pdm.skill_map_indices()
 
 
@@ -679,16 +708,25 @@ def test_signal_maps_layout_and_derived_error(
     (tmp_path / "RCM" / "tasmax").mkdir(parents=True)
 
     written = pdm.plot_var_signal_maps(
-        paths, str(tmp_path / "fig"), ["tasmax"],
-        index="mean", quantity="delta", kind="bias",
-        reference="RCM", reference_path=str(tmp_path / "RCM"),
+        paths,
+        str(tmp_path / "fig"),
+        ["tasmax"],
+        index="mean",
+        quantity="delta",
+        kind="bias",
+        reference="RCM",
+        reference_path=str(tmp_path / "RCM"),
     )
 
     call = captured[0]
     assert call["ncols"] == 3
     assert call["title_list"] == [
-        "Truth", "UNET-SINGLE", "bias: UNET-SINGLE",
-        None, "RESDIFF", "bias: RESDIFF",
+        "Truth",
+        "UNET-SINGLE",
+        "bias: UNET-SINGLE",
+        None,
+        "RESDIFF",
+        "bias: RESDIFF",
     ]
     assert np.allclose(call["data"][2], -2.0)  # 1.0 - 3.0
     assert np.allclose(call["data"][5], -0.5)  # 2.5 - 3.0
@@ -699,6 +737,7 @@ def test_signal_map_ranges_are_symmetric(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, captured: list[dict]
 ) -> None:
     """A change straddles zero, so even the field panels centre on it."""
+
     def fake_read(d, var, index, *, quantity="delta", key="raw", **k):
         return _signal_bundle((key,), value=4.0)
 
@@ -707,8 +746,12 @@ def test_signal_map_ranges_are_symmetric(
     (tmp_path / "RCM" / "pr").mkdir(parents=True)
 
     pdm.plot_var_signal_maps(
-        paths, str(tmp_path / "fig"), ["pr"], index="rx1day",
-        reference="RCM", reference_path=str(tmp_path / "RCM"),
+        paths,
+        str(tmp_path / "fig"),
+        ["pr"],
+        index="rx1day",
+        reference="RCM",
+        reference_path=str(tmp_path / "RCM"),
     )
 
     assert captured[0]["vminmax"][0] == [-4.0, 4.0]  # not [4.0, 4.0]
@@ -730,14 +773,20 @@ def test_multivar_signal_maps_one_figure(
     (tmp_path / "RCM" / "tasmax").mkdir(parents=True)
 
     out = pdm.plot_multivar_signal_maps(
-        paths, str(tmp_path / "fig"), ["pr", "tasmax"],
+        paths,
+        str(tmp_path / "fig"),
+        ["pr", "tasmax"],
         index={"pr": "rx1day", "tasmax": "mean"},
-        reference="RCM", reference_path=str(tmp_path / "RCM"),
+        reference="RCM",
+        reference_path=str(tmp_path / "RCM"),
     )
 
     assert ("pr", "rx1day") in seen and ("tasmax", "mean") in seen
     assert captured[0]["title_list"] == [
-        "Truth: pr", "Truth: tasmax", "RESDIFF: pr", "RESDIFF: tasmax",
+        "Truth: pr",
+        "Truth: tasmax",
+        "RESDIFF: pr",
+        "RESDIFF: tasmax",
     ]
     assert out.endswith("multivar_signal_maps_rx1day-mean_delta_raw_annual.png")
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 
 import numpy as np
-import pandas as pd
 import xarray as xr
 
 
@@ -55,42 +54,6 @@ def filter_by_monthseason(x: xr.Dataset, season: str | None) -> xr.Dataset:
         return x.where(x["time.month"] == month_num, drop=True)
 
     return x
-
-
-def xr_assign_dayofyear_noleap(x: xr.Dataset) -> xr.Dataset:
-    """
-    Assign new coordinate "doy_noleap" for day of the year.
-
-    Assumes all years have length 365 for simplicity. Removes 29th Feb in leap
-    years.
-
-    Parameters
-    ----------
-    x : xr.Dataset
-        Dataset to assign new coordinate, must contain a 'time' dimension.
-
-    Returns
-    -------
-    xr.Dataset
-        Dataset with new coordinate "doy_noleap" added.
-    """
-    # Make sure 29th Feb in leap years are removed.
-    x_noleap = x.sel(time=~((x.time.dt.month == 2) & (x.time.dt.day == 29)))
-
-    has_doy_noleap = "doy_noleap" in x_noleap.coords
-    if has_doy_noleap:
-        print("doy_noleap coordinate already exists so don't add")
-        return x_noleap
-
-    x_dates = pd.to_datetime(x_noleap["time"].dt.date)
-    x_doy_orig = np.array(x_dates.dayofyear)
-    x_doy_new = np.array(x_dates.dayofyear)
-    # Adjust pandas day of year in leap years to revert to 365 day year
-    adj_index = x_dates.is_leap_year * (x_doy_orig > 60)
-    x_doy_new[adj_index] = x_doy_orig[adj_index] - 1
-    x_noleap = x_noleap.assign_coords(doy_noleap=("time", x_doy_new))
-
-    return x_noleap
 
 
 def radial_average(array_2d: np.ndarray) -> np.ndarray:
@@ -236,37 +199,3 @@ def ann_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArray:
     """
     output: xr.DataArray = condition.resample(time=freq).map(compute_max_spell_per_year)
     return output
-
-
-def resample_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArray:
-    """
-    Aggregate maximum spell length over the resampled period.
-
-    Returns the mean annual spell length.
-
-    Parameters
-    ----------
-    condition : xr.DataArray
-        Boolean array describing the spell condition over time.
-    freq : str, default '1YE'
-        Resampling frequency following pandas offset aliases.
-
-    Returns
-    -------
-    xr.DataArray
-        Resampled maximum spell length.
-    """
-    tdim = "time"
-
-    def _compute(arr: xr.DataArray) -> xr.DataArray:
-        return xr.apply_ufunc(
-            max_spell_length,
-            arr.chunk({tdim: -1}),
-            input_core_dims=[[tdim]],
-            output_core_dims=[[]],
-            vectorize=True,
-            dask="parallelized",
-            output_dtypes=[float],
-        )
-
-    return condition.resample({tdim: freq}).map(_compute).mean(tdim)

@@ -725,9 +725,7 @@ def plot_multivar_skill_scorecard(
             if os.path.isdir(d):
                 keys = [k for k, _ in scorecard_axes(var)]
                 metrics[m][var] = {
-                    k: _read_metric(
-                        d, k, member_dim=member_dim, member_num=member_num
-                    )
+                    k: _read_metric(d, k, member_dim=member_dim, member_num=member_num)
                     for k in keys
                 }
 

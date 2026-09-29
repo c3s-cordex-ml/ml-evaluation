@@ -1551,9 +1551,13 @@ def _parse_n_members(spec: str | None) -> list[int] | None:
         try:
             n = int(token)
         except ValueError:
-            raise click.BadParameter(f"{token!r} is not an integer", param_hint="--n-members")
+            raise click.BadParameter(
+                f"{token!r} is not an integer", param_hint="--n-members"
+            )
         if n < 1:
-            raise click.BadParameter(f"{n} is not a positive size", param_hint="--n-members")
+            raise click.BadParameter(
+                f"{n} is not a positive size", param_hint="--n-members"
+            )
         if n not in sizes:
             sizes.append(n)
     if not sizes:

@@ -284,7 +284,7 @@ def _fmt(v: float, decimals: int = 2) -> str:
         return f"{v:.0f}"
     if a >= 0.5 * 10.0**-decimals or a == 0:
         return f"{v:.{decimals}f}"
-    return f"{v:.1e}"   # a genuinely tiny, non-zero value
+    return f"{v:.1e}"  # a genuinely tiny, non-zero value
 
 
 def _fmt_column(
@@ -441,7 +441,9 @@ def render_multivar_probskill_scorecard(
 
     columns = prob_columns(metrics)
     variables = list(variables)
-    models = [m for m in (models if models is not None else per_model) if m in per_model]
+    models = [
+        m for m in (models if models is not None else per_model) if m in per_model
+    ]
     if not models or not variables:
         raise ValueError("nothing to plot: need at least one model and one variable.")
 
@@ -451,7 +453,8 @@ def render_multivar_probskill_scorecard(
     for var in variables:
         for key, _ in columns:
             raw = np.array(
-                [per_model[m].get(var, {}).get(key, np.nan) for m in models], dtype=float
+                [per_model[m].get(var, {}).get(key, np.nan) for m in models],
+                dtype=float,
             )
             scores[(var, key)] = _normalise(raw, key)
             labels[(var, key)] = _fmt_column(raw, scores[(var, key)])

@@ -134,9 +134,9 @@ def test_scorecard_entry_points_accept_member_num(
     paths = {m: str(tmp_path / m) for m in ("A", "B")}
 
     monkeypatch.setattr(
-        ph, "_read_metric", lambda d, k, *, member_dim, member_num: (
-            seen.append(member_num) or 1.0
-        )
+        ph,
+        "_read_metric",
+        lambda d, k, *, member_dim, member_num: (seen.append(member_num) or 1.0),
     )
     monkeypatch.setattr(ph.plt, "savefig", lambda *a, **k: None)
     plot_multivar_skill_scorecard(
@@ -152,9 +152,7 @@ def test_scorecard_entry_points_accept_member_num(
             seen.append(member_num) or {"rmse": (1.0, 0.1)}
         ),
     )
-    monkeypatch.setattr(
-        pvs, "render_var_skill_scorecard", lambda *a, **k: "fig.png"
-    )
+    monkeypatch.setattr(pvs, "render_var_skill_scorecard", lambda *a, **k: "fig.png")
     pvs.plot_var_skill_scorecard(
         paths, str(tmp_path / "fig"), ["pr"], metrics=["rmse"], member_num=-1
     )

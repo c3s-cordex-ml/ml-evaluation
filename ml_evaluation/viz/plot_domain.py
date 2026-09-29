@@ -204,7 +204,7 @@ def plot_domain(
         if annotate and shape is not None:
             ax.text(
                 float(np.mean(px)),
-                float(np.max(py)) + 0.3 * margin,   # clear of the box edge
+                float(np.max(py)) + 0.3 * margin,  # clear of the box edge
                 f"{shape[0]} x {shape[1]}",
                 color=color,
                 fontsize=12,

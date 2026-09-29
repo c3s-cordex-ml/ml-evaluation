@@ -919,8 +919,6 @@ def _season_suffix(season):
     return "" if season is None else f"_{season}"
 
 
-
-
 # Dimensions that are never horizontal: anything left over after selecting a
 # diagnostic and a member means the field was not reduced to a map.
 NON_SPATIAL_DIMS = frozenset(
@@ -1126,9 +1124,7 @@ def _shared_range(fields, symmetric=False):
     being stretched to its own min/max. ``symmetric`` centres the range on zero,
     which is what an error field needs.
     """
-    vals = [
-        np.asarray(f, dtype=float).ravel() for f in fields if f is not None
-    ]
+    vals = [np.asarray(f, dtype=float).ravel() for f in fields if f is not None]
     vals = np.concatenate(vals) if vals else np.array([])
     vals = vals[np.isfinite(vals)]
     if vals.size == 0:
@@ -1378,7 +1374,9 @@ def render_multivar_maps(
     if kind not in PANEL_KINDS:
         raise ValueError(f"kind must be one of {PANEL_KINDS}, got {kind!r}.")
     variables = list(variables)
-    models = [m for m in (models if models is not None else per_model) if m in per_model]
+    models = [
+        m for m in (models if models is not None else per_model) if m in per_model
+    ]
     if not variables or not models:
         raise ValueError("nothing to plot: need at least one variable and one model.")
 
@@ -1391,9 +1389,7 @@ def render_multivar_maps(
         ),
         None,
     )
-    metric_title = (truth or {}).get(variables[0], any_info or {}).get(
-        "title", metric
-    )
+    metric_title = (truth or {}).get(variables[0], any_info or {}).get("title", metric)
 
     # one style per variable (i.e. per column), shared by every row
     styles = {
@@ -1413,9 +1409,7 @@ def render_multivar_maps(
     panels = []
     if truth is not None:
         for var in variables:
-            panels.append(
-                _panel(truth.get(var), "targ", f"Truth: {var}", styles[var])
-            )
+            panels.append(_panel(truth.get(var), "targ", f"Truth: {var}", styles[var]))
     for i, model in enumerate(models):
         # only the bottom row's colourbar is labelled: with a bar under every
         # panel, a label anywhere else collides with the title below it
@@ -1426,9 +1420,7 @@ def render_multivar_maps(
             panels.append(_panel(info, kind, f"{label}: {var}", styles[var], cbar=last))
 
     name = f"{len(models)} models" if len(models) > 1 else models[0]
-    figtitle = _figure_title(
-        title, name, metric_title, kind, season, experiment_info
-    )
+    figtitle = _figure_title(title, name, metric_title, kind, season, experiment_info)
     if filename is None:
         filename = (
             f"multivar_maps_{metric}_{kind}"
@@ -1500,7 +1492,9 @@ def render_var_maps(
     """
     if kind not in PANEL_KINDS:
         raise ValueError(f"kind must be one of {PANEL_KINDS}, got {kind!r}.")
-    models = [m for m in (models if models is not None else per_model) if m in per_model]
+    models = [
+        m for m in (models if models is not None else per_model) if m in per_model
+    ]
     if not models:
         raise ValueError("per_model holds no models to plot.")
 
@@ -1544,8 +1538,9 @@ def render_var_maps(
     return _draw(panels, out_dir, filename, figtitle, ncols, nrows, panel_size)
 
 
-def _read_sources(by_label, variables, metric, kinds, member_dim, member_num,
-                  latlon_dims):
+def _read_sources(
+    by_label, variables, metric, kinds, member_dim, member_num, latlon_dims
+):
     """``{label: {var: bundle}}`` for every source that has metrics on disk."""
     per_model = {}
     for label, base in by_label.items():
@@ -1934,9 +1929,7 @@ def _read_event_sources(
             if info is None:
                 print(f"[event] skip {label} / {var}: not in {path}")
                 continue
-            per_var[var] = _add_event_error(
-                info, (truth_by_var or {}).get(var), kind
-            )
+            per_var[var] = _add_event_error(info, (truth_by_var or {}).get(var), kind)
         if per_var:
             per_model[label] = per_var
     return per_model
@@ -2017,7 +2010,13 @@ def plot_multivar_event_maps(
     variables = list(variables)
     truth = (
         _read_event_truth(
-            by_label, variables, date, reference, reference_path, member_dim, latlon_dims
+            by_label,
+            variables,
+            date,
+            reference,
+            reference_path,
+            member_dim,
+            latlon_dims,
         )
         if show_truth or kind != "raw"
         else None
@@ -2085,7 +2084,13 @@ def plot_var_event_maps(
     variables = list(variables)
     truth = (
         _read_event_truth(
-            by_label, variables, date, reference, reference_path, member_dim, latlon_dims
+            by_label,
+            variables,
+            date,
+            reference,
+            reference_path,
+            member_dim,
+            latlon_dims,
         )
         if show_truth or kind != "raw"
         else None
@@ -2301,7 +2306,14 @@ def _read_signal_sources(
 
 
 def _read_signal_truth(
-    by_label, variables, index_of, quantity, reference, reference_path, units, latlon_dims
+    by_label,
+    variables,
+    index_of,
+    quantity,
+    reference,
+    reference_path,
+    units,
+    latlon_dims,
 ):
     """``{var: bundle}`` holding the RCM's own signal."""
     _, base = _truth_source(by_label, reference, reference_path)
@@ -2398,8 +2410,16 @@ def plot_var_signal_maps(
     index_of = _signal_indices_for(variables, index)
 
     truth = (
-        _read_signal_truth(by_label, variables, index_of, quantity, reference,
-                           reference_path, units, latlon_dims)
+        _read_signal_truth(
+            by_label,
+            variables,
+            index_of,
+            quantity,
+            reference,
+            reference_path,
+            units,
+            latlon_dims,
+        )
         if show_truth or kind != "raw"
         else None
     )
@@ -2425,7 +2445,7 @@ def plot_var_signal_maps(
                 metric=f"{index_of[var]}_{quantity}",
                 kind=kind,
                 season=season,
-                raw_symmetric=True,   # a change straddles zero
+                raw_symmetric=True,  # a change straddles zero
                 filename=(
                     f"var_signal_maps_{var}_{index_of[var]}_{quantity}_{kind}"
                     f"{_season_suffix(season)}"
@@ -2475,8 +2495,16 @@ def plot_multivar_signal_maps(
     index_of = _signal_indices_for(variables, index)
 
     truth = (
-        _read_signal_truth(by_label, variables, index_of, quantity, reference,
-                           reference_path, units, latlon_dims)
+        _read_signal_truth(
+            by_label,
+            variables,
+            index_of,
+            quantity,
+            reference,
+            reference_path,
+            units,
+            latlon_dims,
+        )
         if show_truth or kind != "raw"
         else None
     )

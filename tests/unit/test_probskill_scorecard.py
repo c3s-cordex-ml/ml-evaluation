@@ -66,8 +66,8 @@ def test_prob_columns_are_three_wedges() -> None:
 def test_serat_is_folded_around_one() -> None:
     """|log10(SERAT)|: 1 is perfect, and equal under/over-dispersion tie."""
     folded = pp._comparable(np.array([1.0, 0.5, 2.0, 10.0]), "serat")
-    assert folded[0] == pytest.approx(0.0)          # perfectly dispersed
-    assert folded[1] == pytest.approx(folded[2])    # half vs double: same badness
+    assert folded[0] == pytest.approx(0.0)  # perfectly dispersed
+    assert folded[1] == pytest.approx(folded[2])  # half vs double: same badness
     assert folded[3] == pytest.approx(1.0)
     # an error metric passes through untouched
     assert list(pp._comparable(np.array([1.0, 2.0]), "crps")) == [1.0, 2.0]
@@ -107,10 +107,14 @@ def test_missing_store_is_all_nan(tmp_path: pathlib.Path) -> None:
 def test_render_places_one_triangle_per_cell(tmp_path: pathlib.Path) -> None:
     """Rows x columns of triangles, three wedges each, values annotated."""
     per_model = {
-        "RESDIFF": {"pr": {"crps": 2.0, "bs": 0.2, "serat": 0.5},
-                    "tas": {"crps": 1.0, "bs": 0.1, "serat": 1.0}},
-        "FLOW-MATCHING": {"pr": {"crps": 1.0, "bs": 0.1, "serat": 1.0},
-                          "tas": {"crps": 2.0, "bs": 0.2, "serat": 2.0}},
+        "RESDIFF": {
+            "pr": {"crps": 2.0, "bs": 0.2, "serat": 0.5},
+            "tas": {"crps": 1.0, "bs": 0.1, "serat": 1.0},
+        },
+        "FLOW-MATCHING": {
+            "pr": {"crps": 1.0, "bs": 0.1, "serat": 1.0},
+            "tas": {"crps": 2.0, "bs": 0.2, "serat": 2.0},
+        },
     }
     path = pp.render_multivar_probskill_scorecard(
         per_model, str(tmp_path / "fig"), variables=["pr", "tas"], season="annual"
@@ -146,12 +150,16 @@ def test_plot_skips_sources_without_prob_output(
     monkeypatch.setattr(pp, "read_prob_metrics", fake_read)
     seen = {}
     monkeypatch.setattr(
-        pp, "render_multivar_probskill_scorecard",
+        pp,
+        "render_multivar_probskill_scorecard",
         lambda per_model, out, **k: seen.update(per_model) or "fig.png",
     )
 
     out = pp.plot_multivar_probskill_scorecard(
-        {"RESDIFF": str(tmp_path / "RESDIFF"), "UNET-MULTI": str(tmp_path / "UNET-MULTI")},
+        {
+            "RESDIFF": str(tmp_path / "RESDIFF"),
+            "UNET-MULTI": str(tmp_path / "UNET-MULTI"),
+        },
         str(tmp_path / "fig"),
         ["pr"],
     )
@@ -188,7 +196,7 @@ def test_labels_ignore_wobble_the_colour_cannot_show() -> None:
     """
     crps = [0.59539, 0.59532, 0.59543, 0.59531, 0.59533]
     scores = pp._normalise(np.array(crps), "crps")
-    assert scores.max() - scores.min() < 0.01          # one flat shade
+    assert scores.max() - scores.min() < 0.01  # one flat shade
     assert pp._fmt_column(crps, scores) == ["0.60"] * 5
 
     # Where the colour DOES separate cells, the digits follow -- but only as far
@@ -202,11 +210,14 @@ def test_labels_ignore_wobble_the_colour_cannot_show() -> None:
     assert all(len(lab.split(".")[1]) <= 3 for lab in capped), capped
 
 
-def test_equal_labels_imply_equal_colours(captured: list[dict], tmp_path: pathlib.Path) -> None:
+def test_equal_labels_imply_equal_colours(
+    captured: list[dict], tmp_path: pathlib.Path
+) -> None:
     """The figure-level invariant: same printed number => same wedge colour."""
     vals = [0.91, 0.894, 0.891]
     per_model = {
-        f"m{i}": {"pr": {"crps": 1.0, "bs": 0.1, "serat": v}} for i, v in enumerate(vals)
+        f"m{i}": {"pr": {"crps": 1.0, "bs": 0.1, "serat": v}}
+        for i, v in enumerate(vals)
     }
     labels = pp._fmt_column(vals)
     scores = pp._normalise(np.array(vals, dtype=float), "serat")
@@ -230,9 +241,9 @@ def swept_cell(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> str:
     sizes = [2, 4, 10]
     values = np.array(
         [
-            [2.0, 2.0, 2.0],                    # crps
-            [0.20, 0.20, 0.20],                 # bs
-            [1 - 1 / n for n in sizes],         # serat
+            [2.0, 2.0, 2.0],  # crps
+            [0.20, 0.20, 0.20],  # bs
+            [1 - 1 / n for n in sizes],  # serat
         ]
     )
     d = tmp_path / "pr"
@@ -254,7 +265,9 @@ def test_sweep_selection_picks_one_ensemble_size(swept_cell: str) -> None:
     assert pp.read_prob_metrics(swept_cell, sel={"n_members": 4})["serat"] == 0.75
 
 
-def test_sweep_without_selection_takes_the_full_ensemble(swept_cell: str, capsys) -> None:
+def test_sweep_without_selection_takes_the_full_ensemble(
+    swept_cell: str, capsys
+) -> None:
     """No `sel` -> the largest size, said out loud -- never the mean across sizes.
 
     Averaging a diagnostic over ensemble sizes would be a number that describes
@@ -302,6 +315,9 @@ def test_row_sel_makes_one_store_several_rows(
 def test_plot_returns_none_when_nothing_ran(tmp_path: pathlib.Path) -> None:
     """No prob stores anywhere -> None and a message, not a traceback."""
     (tmp_path / "RESDIFF" / "pr").mkdir(parents=True)
-    assert pp.plot_multivar_probskill_scorecard(
-        {"RESDIFF": str(tmp_path / "RESDIFF")}, str(tmp_path / "fig"), ["pr"]
-    ) is None
+    assert (
+        pp.plot_multivar_probskill_scorecard(
+            {"RESDIFF": str(tmp_path / "RESDIFF")}, str(tmp_path / "fig"), ["pr"]
+        )
+        is None
+    )

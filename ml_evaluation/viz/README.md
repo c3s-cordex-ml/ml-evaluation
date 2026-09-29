@@ -55,8 +55,7 @@ in the figure.
   experiment (perfect vs imperfect boundaries) without doubling the palette.
   Defaults to None, so single-experiment figures are unaffected.
 - `row_sel={label: {"n_members": N}}` (probskill only, optional) picks one
-  configuration out of a store that holds several: `ml-eval prob --n-members
-  "2,4,6,8,10"` stacks an ensemble-size sweep along an `n_members` dimension
+  configuration out of a store that holds several: `ml-eval prob --n-members "2,4,6,8,10"` stacks an ensemble-size sweep along an `n_members` dimension
   rather than splitting it across directories, so several rows can share one
   path and differ only by the size read out of it. Without it a swept store
   falls back to its largest size (the full ensemble) and says so — it is never
@@ -124,8 +123,8 @@ ______________________________________________________________________
 
 1. the caller's `vminmax` / `vminmax_bias` / `cmap` / `cmap_bias` — one value,
    or a `{var: value}` mapping when the figure spans several variables;
-2. `get_example_color_scales(var, metric)`, whichever ends it pins;
-3. a range derived from the plotted data and **shared by every panel of that
+1. `get_example_color_scales(var, metric)`, whichever ends it pins;
+1. a range derived from the plotted data and **shared by every panel of that
    variable** in the figure (symmetric about zero for the error panels).
 
 Rule 3 is the safety net: with no catalogue entry, matplotlib would otherwise

@@ -201,8 +201,9 @@ def var_skill_columns(var: str, metrics=None) -> list[tuple[str, str]]:
     return columns
 
 
-def _open_diag(metrics_dir: str, store: str, diag: str, member_dim="member",
-               member_num=0):
+def _open_diag(
+    metrics_dir: str, store: str, diag: str, member_dim="member", member_num=0
+):
     """The DataArray for one diagnostic and one member, loaded into memory, or
     None if absent."""
     path = os.path.join(metrics_dir, store)

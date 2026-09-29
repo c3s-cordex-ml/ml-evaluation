@@ -18,7 +18,9 @@ SPATIAL_DIM_CANDIDATES: tuple[tuple[str, str], ...] = (
 )
 
 
-def spatial_dims(obj: xr.DataArray | xr.Dataset, var: str | None = None) -> tuple[str, str]:
+def spatial_dims(
+    obj: xr.DataArray | xr.Dataset, var: str | None = None
+) -> tuple[str, str]:
     """
     The two horizontal dimensions of a variable, whatever convention it uses.
 
@@ -78,7 +80,9 @@ def spatial_dims(obj: xr.DataArray | xr.Dataset, var: str | None = None) -> tupl
     return matches[0]
 
 
-def spatial_dims_present(obj: xr.DataArray | xr.Dataset, var: str | None = None) -> tuple[str, ...]:
+def spatial_dims_present(
+    obj: xr.DataArray | xr.Dataset, var: str | None = None
+) -> tuple[str, ...]:
     """
     Like :func:`spatial_dims`, but returns ``()`` instead of raising.
 

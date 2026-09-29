@@ -460,7 +460,9 @@ def plot_multivar_signal_scorecard(
                         )
 
     ax.set_xlim(-0.7, ncols - 0.3)
-    ax.set_ylim(-(nrows - 1) - (3.1 if rings else 2.9), 0.9)  # bottom band holds the legend
+    ax.set_ylim(
+        -(nrows - 1) - (3.1 if rings else 2.9), 0.9
+    )  # bottom band holds the legend
     ax.set_aspect("equal")
     ax.set_xticks(range(ncols))
 
