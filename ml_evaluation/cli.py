@@ -2385,9 +2385,6 @@ def binaryevents(
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
 
     x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
-    # Horizontal dims of THIS variable: (lat, lon) on a regular grid,
-    # (y, x) on a curvilinear one where lat/lon are 2-D coordinates.
-    sdims = spatial_dims(x1_ds, var)
 
     # Force loading when testing on smaller datasets so quick to run
     # Works well on 6 years 3 members
@@ -2400,39 +2397,49 @@ def binaryevents(
     x0_da = x0_ds[var]
     x1_da = x1_ds[var]
 
-
     # -------------------
     # pr specific (SAL)
     # -------------------
 
     if var == "pr":
-
         # Compute Spatial FSS score of daily data (over lat, lon): series
-        click.echo("Computing Spatial FSS score of daily data (over lat, lon): series...")
+        click.echo(
+            "Computing Spatial FSS score of daily data (over lat, lon): series..."
+        )
         sfss_ds = compute_sfss2D_xr(
             x1_da,
             x0_da,
             var,
             eThresh=1.0 * scale + shift,
-            relation='gt', 
+            relation="gt",
             window=3,
-            lat_name='lat',
-            lon_name='lon',
-            member_name=member_dim)
+            lat_name="lat",
+            lon_name="lon",
+            member_name=member_dim,
+        )
 
         # Compute SAL scores of daily data (over lat, lon): series
         click.echo("Computing SAL scores of daily data (over lat, lon): series...")
-        sal_s_ds, sal_a_ds, sal_l_ds, sal_l1_ds, sal_l2_ds, sal_targ_num_ds, sal_pred_num_ds = compute_sal_xr(
+        (
+            sal_s_ds,
+            sal_a_ds,
+            sal_l_ds,
+            sal_l1_ds,
+            sal_l2_ds,
+            sal_targ_num_ds,
+            sal_pred_num_ds,
+        ) = compute_sal_xr(
             x1_da,
             x0_da,
             var,
-            thr_quantile=0.95, 
-            thr_factor=1/15, 
-            minFac=0.0, 
+            thr_quantile=0.95,
+            thr_factor=1 / 15,
+            minFac=0.0,
             minsize=0,
-            lat_name='lat',
-            lon_name='lon',
-            member_name=member_dim)
+            lat_name="lat",
+            lon_name="lon",
+            member_name=member_dim,
+        )
 
     # Save all binary-event metrics
     click.echo("Combining and saving metrics...")
@@ -2447,12 +2454,14 @@ def binaryevents(
             "sal_l2_series": sal_l2_ds,
             "sal_targ_num_series": sal_targ_num_ds,
             "sal_pred_num_series": sal_pred_num_ds,
-            "sfss_series": sfss_ds
+            "sfss_series": sfss_ds,
         }
 
         # Store metrics to Zarr
 
-        metrics_path_series = _get_output_path(output, "metrics_binary_event_series.zarr")
+        metrics_path_series = _get_output_path(
+            output, "metrics_binary_event_series.zarr"
+        )
         write_zarr(metrics_series, metrics_path_series, mode="w", var=var)
 
         click.echo(f"Saved all binary-event metrics to {metrics_path_series} etc...")
