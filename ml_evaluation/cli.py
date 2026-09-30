@@ -15,6 +15,8 @@ from ml_evaluation.evaluation.diagnostics import (
     bs_xr,
     crps_xr,
     mean_spread_skill_ratio,
+    compute_sal_xr,
+    compute_sfss2D_xr,
 )
 import ml_evaluation.evaluation.indices as indices
 from ml_evaluation.evaluation.signal import (
@@ -2260,6 +2262,202 @@ def cdextremes(
     click.echo(f"Saved all calday percentile metrics to {metrics_path}")
 
     click.echo("Calday percentile evaluation complete.")
+
+
+@main.command()
+@click.option(
+    "--x0",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to ground-truth NetCDF file.",
+)
+@click.option(
+    "--x1",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to predictions NetCDF file.",
+)
+@click.option("--var", required=True, type=str, help="Variable name to evaluate.")
+@click.option(
+    "--output",
+    required=True,
+    type=str,
+    help="Directory or file path for the output Zarr results.",
+)
+@click.option(
+    "--season",
+    type=str,
+    default=None,
+    help="Optional season/month to filter (e.g., DJF, MAM, JJA, SON, JAN).",
+)
+@click.option(
+    "--align-leap-days",
+    type=str,
+    default=None,
+    help="Option to align datasets to standard calendar by filling missing leap days.",
+)
+@click.option(
+    "--member-num",
+    type=int,
+    default=None,
+    help="Option to load just a single member (for ensemble predictions).",
+)
+@click.option(
+    "--force-load",
+    type=bool,
+    default=False,
+    help="Option to load data into memory for quick testing of small datasets.",
+)
+@click.option(
+    "--use-dask",
+    type=bool,
+    default=False,
+    help="Option to use Dask for parallel processing.",
+)
+def binaryevents(
+    x0: str,
+    x1: str,
+    var: str,
+    output: str,
+    season: str | None,
+    align_leap_days: str | None,
+    member_num: int | None,
+    force_load: bool,
+    use_dask: bool,
+) -> None:
+    """
+    Run the binary-event evaluation workflow.
+
+    Computes SAL scores for x1 wrt x0
+    for the specified variable and optionally filters by season.
+
+    Parameters
+    ----------
+    x0 : str
+        Path to ground-truth NetCDF file.
+    x1 : str
+        Path to predictions NetCDF file.
+    var : str
+        Variable name to evaluate.
+    output : str
+        Directory, file prefix, or final Zarr store path.
+    season : str | None
+        Optional season or month standard name.
+    align_leap_days : str | None
+        Options to align datasets to standard calendar by filling missing leap days.
+    member_num : int | None
+        Option to evaluate a single member or the ensemble mean.
+        - member == -1 : compute the ensemble mean over all members.
+        - member >= 0  : select that single member by integer position.
+        Ignored (with a warning) if x1 has no member dimension.
+    force_load : bool
+        Option to load data into memory for quick testing of small datasets.
+    use_dask : bool
+        Option to use Dask for parallel processing.
+
+    Returns
+    -------
+    None
+    """
+    if use_dask:
+        from dask.distributed import Client
+
+        _client = Client(**dask_default_params)
+        click.echo("Using dask")
+
+    click.echo(f"Running binary-event evaluation for variable '{var}'...")
+    click.echo(f"Loading reference: {x0}")
+    x0_ds = load_dataset(
+        x0, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )
+    click.echo(f"Loading prediction: {x1}")
+    x1_ds = load_dataset(
+        x1, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )
+
+    x0_ds = x0_ds[[var]]
+    x1_ds = x1_ds[[var]]
+
+    # Check for different pr units in target vs prediction
+    if var == "pr":
+        if x1_ds["pr"].max() > 1 and x0_ds["pr"].max() < 1:
+            click.echo("WARNING: pr converted from mm/day to kg/m2/s")
+            x1_ds["pr"] = x1_ds["pr"] / 86400.0
+
+    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
+    # Horizontal dims of THIS variable: (lat, lon) on a regular grid,
+    # (y, x) on a curvilinear one where lat/lon are 2-D coordinates.
+    sdims = spatial_dims(x1_ds, var)
+
+    # Force loading when testing on smaller datasets so quick to run
+    # Works well on 6 years 3 members
+    if force_load:
+        x0_ds.load()
+        x1_ds.load()
+
+    scale, shift = convert_threshold_units(x0_ds, var)
+
+    x0_da = x0_ds[var]
+    x1_da = x1_ds[var]
+
+
+    # -------------------
+    # pr specific (SAL)
+    # -------------------
+
+    if var == "pr":
+
+        # Compute Spatial FSS score of daily data (over lat, lon): series
+        click.echo("Computing Spatial FSS score of daily data (over lat, lon): series...")
+        sfss_ds = compute_sfss2D_xr(
+            x1_da,
+            x0_da,
+            var,
+            eThresh=1.0 * scale + shift,
+            relation='gt', 
+            window=3,
+            lat_name='lat',
+            lon_name='lon',
+            member_name=member_dim)
+
+        # Compute SAL scores of daily data (over lat, lon): series
+        click.echo("Computing SAL scores of daily data (over lat, lon): series...")
+        sal_s_ds, sal_a_ds, sal_l_ds, sal_l1_ds, sal_l2_ds, sal_targ_num_ds, sal_pred_num_ds = compute_sal_xr(
+            x1_da,
+            x0_da,
+            var,
+            thr_quantile=0.95, 
+            thr_factor=1/15, 
+            minFac=0.0, 
+            minsize=0,
+            lat_name='lat',
+            lon_name='lon',
+            member_name=member_dim)
+
+    # Save all binary-event metrics
+    click.echo("Combining and saving metrics...")
+
+    # Metrics dictionaries
+    if var == "pr":
+        metrics_series = {
+            "sal_s_series": sal_s_ds,
+            "sal_a_series": sal_a_ds,
+            "sal_l_series": sal_l_ds,
+            "sal_l1_series": sal_l1_ds,
+            "sal_l2_series": sal_l2_ds,
+            "sal_targ_num_series": sal_targ_num_ds,
+            "sal_pred_num_series": sal_pred_num_ds,
+            "sfss_series": sfss_ds
+        }
+
+        # Store metrics to Zarr
+
+        metrics_path_series = _get_output_path(output, "metrics_binary_event_series.zarr")
+        write_zarr(metrics_series, metrics_path_series, mode="w", var=var)
+
+        click.echo(f"Saved all binary-event metrics to {metrics_path_series} etc...")
+
+    click.echo("Binary-event evaluation complete.")
 
 
 if __name__ == "__main__":
