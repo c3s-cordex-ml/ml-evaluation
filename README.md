@@ -1,6 +1,7 @@
 # Evaluating machine-learning-based climate downscaling models
 
-This module builds on the set of evaluation indices and diagnostics recommended by [CORDEX-ML-Bench](https://github.com/WCRP-CORDEX/ml-benchmark/tree/main/evaluation) for assessing Machine Learning-based regional climate downscaling models.
+This module packages a set of evaluation indices, diagnostics and plotting tools for assessing Machine Learning-based regional climate downscaling models. It expands on the [CORDEX-ML-Bench](https://github.com/WCRP-CORDEX/ml-benchmark/tree/main/evaluation) validation functions and could be used for further CORDEX benchmarking activities.
+
 
 ## Project Structure
 
