@@ -1,4 +1,4 @@
-# Tools for evaluating machine-learning-based climate downscaling models
+# Evaluating machine-learning-based climate downscaling models
 
 This module builds on the set of evaluation indices and diagnostics recommended by [CORDEX-ML-Bench](https://github.com/WCRP-CORDEX/ml-benchmark/tree/main/evaluation) for assessing Machine Learning-based regional climate downscaling models.
 
