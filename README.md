@@ -1,6 +1,6 @@
 # Evaluating machine-learning-based climate downscaling models
 
-This module packages a set of evaluation indices, diagnostics and plotting tools for assessing Machine Learning-based regional climate downscaling models. It expands on the [CORDEX-ML-Bench](https://github.com/WCRP-CORDEX/ml-benchmark/tree/main/evaluation) validation functions and could be used for further CORDEX benchmarking activities.
+This module packages a set of evaluation indices, diagnostics and visualisation tools for assessing Machine Learning-based regional climate downscaling models. It expands on the [CORDEX-ML-Bench](https://github.com/WCRP-CORDEX/ml-benchmark/tree/main/evaluation) validation functions and could be used for further CORDEX benchmarking activities.
 
 
 ## Project Structure
@@ -15,6 +15,7 @@ This repository is structured as a standard Python package with self-contained e
   - `evaluation/` - Core and extended evaluation indices and diagnostics.
     - `indices.py` - Standard evaluation indices (e.g., mean, wet/dry day frequency).
     - `diagnostics.py` - Standard performance diagnostics comparing predictions and reference data (e.g., bias, RMSE, correlation).
+  - `viz/` - Core and extended visualisation tools.
 - `environment.yaml` - Legacy Conda environment description.
 - `tests/` - Unit tests for testing the CLI, diagnostics, and indices.
 - `Dockerfile` - Docker configuration to containerize the evaluation environment and CLI.
