@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable, cast
 
 import numpy as np
+import scipy as sp
 import xarray as xr
 from numpy import fft
 from scipy.stats import (
@@ -1430,3 +1431,867 @@ def mean_spread_skill_ratio(
     spread_skill_ratio_ds = xr.Dataset({var: spread_skill_ratio})
 
     return spread_skill_ratio_ds
+
+
+def compute_sal_xr(
+    prediction_xr,
+    target_xr,
+    var,
+    eThreshFix=None,
+    eThreshPrFix=None,
+    thr_quantile=None,
+    thr_factor=None,
+    minFac=None,
+    minsize=0,
+    structure=np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=int),
+    lat_name="lat",
+    lon_name="lon",
+    member_name=None,
+):
+    """
+    Compute SAL score wrt given threhold(s)
+    Based on Wernli et al., 2008 and 2009
+    https://journals.ametsoc.org/view/journals/mwre/136/11/2008mwr2415.1.xml
+    https://journals.ametsoc.org/view/journals/wefo/24/6/2009waf2222271_1.xml
+
+    *Assumes input fields are non-negative like precipitation. May behave
+    unexpectedly if negative values exist.
+
+    Extended to allow the use of:
+    - fixed thresholds independent of input data
+    - different minimum object size thresholds
+    - different structure for neighbour definitions
+    **If prediction_xr is an ensemble, member_name must be specified to
+    match the name of the member dimensions and lat_name and lon_name
+    must also be correctly specified
+
+    Copyright (c) 2026 Klima consulting
+    Author: Rosie Eade
+    License: MIT (see LICENSE)
+
+    Parameters:
+    -----------
+    prediction_xr : xr.DataArray
+        Prediction field data. Must contain 'lat' and 'lon' dimensions,
+        plus any number of leading dimensions (e.g. [time, lat, lon] or
+        [time, member, lat, lon]).
+    target_xr : xr.DataArray
+        Target field data, same shape as prediction_xr but without
+        ensemble dimension.
+    var : str
+        Variable name to analyse.
+    eThreshFix : float | None
+        Fixed threshold to be used to define event (same units as target)
+        If eThreshFix value given, this overrides quantile based options
+    eThreshPrFix : float | None
+        Fixed threshold to be used to define event (same units as target)
+        If None, uses eThreshFix.
+    thr_quantile : float | None
+        Quantile value in [0.0, 1.0] used to compute threshold to define
+        event, as Wernli et al. 2009 (they use thr_quantile=0.95)
+    thr_factor : float | None
+        Factor to reduce the quantile by, as Wernli et al. 2008 & 2009
+        (they use thr_factor=1/15)
+    minFac : float | str | None
+        Option to mask data less than threshold=minFac before computing
+        quantile, as Wernli et al. 2009 (they use 0.1 mm for precip)
+        Special case: minFac='min' implies use min value of field,
+        chosen to align with option in pysteps.
+    minsize : int = 0
+        Option to ignore options with size (no. grid points) < minsize
+    structure : numpy.ndarray, dtype=int, shape [3, 3]
+        This array defines what are classed as neighbouring grid points.
+        2 Options:
+        np.array([[0, 1, 0],[1, 1, 1],[0, 1, 0]], dtype=int) # Orthogonal-
+         only (default)
+        np.ones((3, 3), dtype=int) # Orthogonal and diagonal
+    lat_name : str
+        Define name of latitude dimension e.g. 'lat' or 'y'
+    lon_name : str
+        Define name of longitude dimension e.g. 'lon' or 'x'
+    member_name : str | None
+        Define name of member dimension (ensemble prediction) e.g.
+        'member' or 'realization'
+
+    Returns:
+    --------
+    Tuple of xr.Dataset
+        Arrays of SAL score elements for input target and prediction field pairs
+        (np.nan if no objects found). Has the same leading dimensions as
+        the input arrays, e.g. [time] or [time, member].
+        (structure, amplitude, location, location_1, location_2,
+        number of objects found in target field,
+        number of objects found in prediction field)
+
+    See Also
+    --------
+
+    scipy.ndimage.label :
+    Identify objects using sp.ndimage.label
+    https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.label.html
+
+    Method checked against pysteps
+    https://pysteps.readthedocs.io/en/stable/
+    Using default pysteps parameters, compute_sal() has identical results
+    except:
+    - pysteps rejects objects that are within 10 pixels of another object
+      (distance between location of peaks),
+      i.e. doesn't appear to merge such objects as expected?
+    - compute_sal keeps objects as separate, regardless of proximity
+
+    """
+
+    # Validate spatial dim names exist in the input
+    for name, xr_obj in [
+        (lat_name, target_xr),
+        (lon_name, target_xr),
+        (lat_name, prediction_xr),
+        (lon_name, prediction_xr),
+    ]:
+        if name not in xr_obj.dims:
+            raise ValueError(
+                f"Spatial dimension '{name}' not found in dims {list(xr_obj.dims)}. "
+                f"Use lat_name/lon_name to specify the correct dimension names."
+            )
+
+    spatial_dims = {lat_name, lon_name}
+
+    # Detect if ensemble dim present in prediction but not target, and expand
+    # target to match using expand_dims + broadcast
+    extra_member_dim = None
+    if member_name in prediction_xr.dims and member_name not in target_xr.dims:
+        extra_member_dim = member_name
+
+    if extra_member_dim is not None:
+        target_xr = target_xr.expand_dims(
+            {extra_member_dim: prediction_xr[extra_member_dim]}
+        )
+        target_xr = target_xr.broadcast_like(prediction_xr)
+
+    if target_xr.values.shape != prediction_xr.values.shape:
+        raise ValueError(
+            f"Shape mismatch: Target ({target_xr.values.shape}), "
+            f"Prediction ({prediction_xr.values.shape})"
+        )
+
+    # Identify spatial vs leading dimensions
+    all_dims = list(prediction_xr.dims)
+    leading_dims = [d for d in all_dims if d not in spatial_dims]
+
+    # --- Special case: no leading dimensions, single [lat, lon] field ---
+    if not leading_dims:
+        sal_tmp, _, _ = compute_sal(
+            prediction_xr.values,
+            target_xr.values,
+            eThreshFix=eThreshFix,
+            eThreshPrFix=eThreshPrFix,
+            thr_factor=thr_factor,
+            thr_quantile=thr_quantile,
+            minFac=minFac,
+            minsize=minsize,
+            structure=structure,
+        )
+        sal_s_xr = xr.Dataset({var: sal_tmp.sal_s})
+        sal_a_xr = xr.Dataset({var: sal_tmp.sal_a})
+        sal_l_xr = xr.Dataset({var: sal_tmp.sal_l})
+        sal_l1_xr = xr.Dataset({var: sal_tmp.sal_l1})
+        sal_l2_xr = xr.Dataset({var: sal_tmp.sal_l2})
+        sal_targ_num_xr = xr.Dataset({var: sal_tmp.sal_targ_num})
+        sal_pred_num_xr = xr.Dataset({var: sal_tmp.sal_pred_num})
+
+        sal_all = (
+            sal_s_xr,
+            sal_a_xr,
+            sal_l_xr,
+            sal_l1_xr,
+            sal_l2_xr,
+            sal_targ_num_xr,
+            sal_pred_num_xr,
+        )
+
+        return sal_all
+
+    # Transpose to ensure leading dims come first, spatial dims last:
+    # [...leading, lat_name, lon_name]
+    ordered_dims = leading_dims + [lat_name, lon_name]
+    target_xr = target_xr.transpose(*ordered_dims)
+    prediction_xr = prediction_xr.transpose(*ordered_dims)
+
+    # Flatten all leading dims into a single axis for iteration
+    leading_shape = target_xr.values.shape[
+        :-2
+    ]  # e.g. (ntime,) or (ntime, nrealization)
+    spatial_shape = target_xr.values.shape[-2:]  # (nlat, nlon)
+    n_total = int(np.prod(leading_shape))
+
+    target_flat = target_xr.values.reshape(n_total, *spatial_shape)
+    prediction_flat = prediction_xr.values.reshape(n_total, *spatial_shape)
+
+    # Check for negative values
+    targ_min = target_flat.min()
+    pred_min = prediction_flat.min()
+    if targ_min < 0 or pred_min < 0:
+        print("WARNING: input fields contain negative values. SAL score function ")
+        print("assumes non-negative values, so may behave unexpectedly.")
+
+    sal_s = []
+    sal_a = []
+    sal_l = []
+    sal_l1 = []
+    sal_l2 = []
+    sal_targ_n = []
+    sal_pred_n = []
+
+    for tcount in range(n_total):
+        sal_tmp, targ_obj, pred_obj = compute_sal(
+            prediction_flat[tcount],
+            target_flat[tcount],
+            eThreshFix=eThreshFix,
+            eThreshPrFix=eThreshPrFix,
+            thr_factor=thr_factor,
+            thr_quantile=thr_quantile,
+            minFac=minFac,
+            minsize=minsize,
+            structure=structure,
+        )
+
+        sal_s.append(sal_tmp.sal_s)
+        sal_a.append(sal_tmp.sal_a)
+        sal_l.append(sal_tmp.sal_l)
+        sal_l1.append(sal_tmp.sal_l1)
+        sal_l2.append(sal_tmp.sal_l2)
+        sal_targ_n.append(sal_tmp.sal_targ_num)
+        sal_pred_n.append(sal_tmp.sal_pred_num)
+
+    # Reshape results back to the leading dimensions shape
+    def to_array(lst):
+        return np.array(lst).reshape(leading_shape)
+
+    sal_s_xr = xr.Dataset({var: (leading_dims, to_array(sal_s))})
+    sal_a_xr = xr.Dataset({var: (leading_dims, to_array(sal_a))})
+    sal_l_xr = xr.Dataset({var: (leading_dims, to_array(sal_l))})
+    sal_l1_xr = xr.Dataset({var: (leading_dims, to_array(sal_l1))})
+    sal_l2_xr = xr.Dataset({var: (leading_dims, to_array(sal_l2))})
+    sal_targ_num_xr = xr.Dataset({var: (leading_dims, to_array(sal_targ_n))})
+    sal_pred_num_xr = xr.Dataset({var: (leading_dims, to_array(sal_pred_n))})
+
+    # Restore coordinates for all leading dimensions
+    for dim in leading_dims:
+        if dim in prediction_xr.coords:
+            sal_s_xr[dim] = prediction_xr[dim]
+            sal_a_xr[dim] = prediction_xr[dim]
+            sal_l_xr[dim] = prediction_xr[dim]
+            sal_l1_xr[dim] = prediction_xr[dim]
+            sal_l2_xr[dim] = prediction_xr[dim]
+            sal_targ_num_xr[dim] = prediction_xr[dim]
+            sal_pred_num_xr[dim] = prediction_xr[dim]
+
+    sal_all = (
+        sal_s_xr,
+        sal_a_xr,
+        sal_l_xr,
+        sal_l1_xr,
+        sal_l2_xr,
+        sal_targ_num_xr,
+        sal_pred_num_xr,
+    )
+
+    return sal_all
+
+
+def compute_sal(
+    prediction,
+    target,
+    eThreshFix=None,
+    eThreshPrFix=None,
+    thr_quantile=None,
+    thr_factor=None,
+    minFac=None,
+    minsize=0,
+    structure=np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=int),
+    printThresh=False,
+):
+    """
+    Compute SAL score wrt given threhold(s)
+    Based on Wernli et al., 2008 and 2009
+    https://journals.ametsoc.org/view/journals/mwre/136/11/2008mwr2415.1.xml
+    https://journals.ametsoc.org/view/journals/wefo/24/6/2009waf2222271_1.xml
+
+    *Assumes input fields are non-negative like precipitation. May behave
+    unexpectedly if negative values exist.
+
+    Extended to allow the use of:
+    - fixed thresholds independent of input data
+    - different minimum object size thresholds
+    - different structure for neighbour definitions
+
+    Copyright (c) 2026 Klima consulting
+    Author: Rosie Eade
+    License: MIT (see LICENSE)
+
+    Parameters:
+    -----------
+    prediction : numpy.ndarray
+        Prediction field data as 2d [lat, lon] array
+    target : numpy.ndarray
+        Target field data, same shape as prediction
+    eThreshFix : float | None
+        Fixed threshold to be used to define event (same units as target)
+        If eThreshFix value given, this overrides quantile based options
+    eThreshPrFix : float | None
+        Fixed threshold to be used to define event (same units as target)
+        If None, uses eThreshFix.
+    thr_quantile : float | None
+        Quantile value in [0.0, 1.0] used to compute threshold to define
+        event, as Wernli et al. 2009 (they use thr_quantile=0.95)
+    thr_factor : float | None
+        Factor to reduce the quantile by, as Wernli et al. 2008 & 2009
+        (they use thr_factor=1/15)
+    minFac : float | str | None
+        Option to mask data less than threshold=minFac before computing
+        quantile, as Wernli et al. 2009 (they use 0.1 mm for precip)
+        Special case: minFac='min' implies use min value of field,
+        chosen to align with option in pysteps.
+    minsize : int = 0
+        Option to ignore options with size (no. grid points) < minsize
+    structure : numpy.ndarray, dtype=int, shape [3, 3]
+        This array defines what are classed as neighbouring grid points.
+        2 Options:
+        np.array([[0, 1, 0],[1, 1, 1],[0, 1, 0]], dtype=int) # Orthogonal-
+         only (default)
+        np.ones((3, 3), dtype=int) # Orthogonal and diagonal
+    printThresh : boolean
+        If True: print thresholds used
+
+    Returns:
+    --------
+    xr.Dataset
+        SAL scores for single input target and prediction field pair
+        (np.nan if no objects found)
+        .sal_s = structure
+        .sal_a = amplitude
+        .sal_l = location
+        .sal_l1 = location_1
+        .sal_l2 = location_2
+        .sal_targ_num = number of objects found in target field
+        .sal_pred_num = number of objects found in prediction field
+    xr.Dataset | None
+        Object information for target (None if no objects found)
+        .obj_com_lat : object centre of mass lat. (units: no. grid boxes)
+        .obj_com_lon : object centre of mass lon. (units: no. grid boxes)
+        .obj_max : object max value
+        .obj_size : object size (no grid points)
+        .obj_labeled_array : object field, integer labels (shape==target)
+        Sub-select single objects:
+            pred_object_xarray.sel(object_num=6).obj_max
+    xr.Dataset | None
+        Object information for prediction (as for target)
+
+    See Also
+    --------
+
+    scipy.ndimage.label :
+    Identify objects using sp.ndimage.label
+    https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.label.html
+
+    Method checked against pysteps
+    https://pysteps.readthedocs.io/en/stable/
+    Using default pysteps parameters, compute_sal() has identical results
+    except:
+    - pysteps rejects objects that are within 10 pixels of another object
+      (distance between location of peaks),
+      i.e. doesn't appear to merge such objects as expected?
+    - compute_sal keeps objects as separate, regardless of proximity
+
+    Examples
+    --------
+
+    Example to sub-select single objects:
+    >>> sal, targ, pred = compute_sal(target, prediction)
+    >>> pred.sel(object_num=1).obj_max
+
+    """
+
+    if target.shape != prediction.shape:
+        raise ValueError(
+            f"Shape mismatch: target ({target.shape}, prediction {prediction.shape})"
+        )
+
+    # Code assumes that minsize is an integer so check (and convert)
+    if minsize is None:
+        minsize = 0
+    if isinstance(minsize, float):
+        minsize = int(minsize)
+
+    # If fixed target threshold defined, default to using this
+    if eThreshFix is not None:
+        # Use fixed thresholds
+        eThresh = eThreshFix
+        if eThreshPrFix is None:
+            eThreshPr = eThresh
+        if eThreshPrFix is not None:
+            eThreshPr = eThreshPrFix
+
+    # If no fixed target threshold defined, use quantile based thresholds
+    # Set default values if not supplied
+    if eThreshFix is None:
+        if thr_quantile is None:
+            thr_quantile = 0.95
+        if thr_factor is None:
+            thr_factor = 1 / 15.0
+
+        # Compute quantile-based thresholds from input data,
+        # with option to first mask out very small values
+        if isinstance(minFac, (int, float)):
+            eThresh = thr_factor * np.nanquantile(target[target > minFac], thr_quantile)
+            eThreshPr = thr_factor * np.nanquantile(
+                prediction[prediction > minFac], thr_quantile
+            )
+        if isinstance(minFac, str):
+            if minFac == "min":
+                eThresh = thr_factor * np.nanquantile(
+                    target[target > np.nanmin(target)], thr_quantile
+                )
+                eThreshPr = thr_factor * np.nanquantile(
+                    prediction[prediction > np.nanmin(prediction)], thr_quantile
+                )
+            else:
+                minFac = None
+        if minFac is None:
+            eThresh = thr_factor * np.nanquantile(target, thr_quantile)
+            eThreshPr = thr_factor * np.nanquantile(prediction, thr_quantile)
+
+    if printThresh is True:
+        print(f"eThresh={eThresh:.3f}")
+        print(f"eThreshPr={eThreshPr:.3f}")
+
+    # Setup empty xarray dataset for the case where no objects are found
+    no_object_xr = xr.Dataset(
+        {
+            "sal_s": np.nan,
+            "sal_a": np.nan,
+            "sal_l": np.nan,
+            "sal_l1": np.nan,
+            "sal_l2": np.nan,
+            "sal_targ_num": 0,
+            "sal_pred_num": 0,
+        }
+    )
+
+    # If all data below event thresholds, then no objects can be found
+    targ_max = target.max()
+    pred_max = prediction.max()
+    if targ_max <= eThresh or pred_max <= eThreshPr:
+        print("No Objects Found: Event thresholds too large")
+        return no_object_xr, None, None
+
+    targ_masked: np.ndarray = (target > eThresh) & np.isfinite(target)
+    targ_labeled_array, targ_num_features = sp.ndimage.label(
+        targ_masked, structure=structure
+    )
+
+    pred_masked: np.ndarray = (prediction > eThreshPr) & np.isfinite(prediction)
+    pred_labeled_array, pred_num_features = sp.ndimage.label(
+        pred_masked, structure=structure
+    )
+
+    # Compute size of objects
+    targSize = np.zeros(targ_num_features)
+    for icount in range(targ_num_features):
+        targSize[icount] = targ_labeled_array[targ_labeled_array == icount + 1].size
+    predSize = np.zeros(pred_num_features)
+    for icount in range(pred_num_features):
+        predSize[icount] = pred_labeled_array[pred_labeled_array == icount + 1].size
+
+    # Option to discard objects if too small and then renumber
+    # - assumes minsize is an integer
+    ReCompSize = False
+    targSizemin = targSize.min()
+    targSizemax = targSize.max()
+    predSizemin = predSize.min()
+    predSizemax = predSize.max()
+    # If all objects below size thresholds, then no objects can be found
+    if targSizemax < minsize or predSizemax < minsize:
+        print("No Objects Found: Objects too small")
+        return no_object_xr, None, None
+
+    if minsize > 1 and targSizemin < minsize:
+        targ_labeled_tmp = targ_labeled_array.copy()
+        for ocount in range(targ_num_features):
+            if targSize[ocount] < minsize:
+                targ_labeled_tmp[targ_labeled_tmp == (ocount + 1)] = 0
+        unq_lab_tmp = np.unique(targ_labeled_tmp)
+        targ_num_features_tmp = len(unq_lab_tmp) - 1
+        for ocount in range(targ_num_features_tmp):
+            targ_labeled_tmp[targ_labeled_tmp == unq_lab_tmp[ocount + 1]] = ocount + 1
+        targ_labeled_array = targ_labeled_tmp.copy()
+        targ_num_features = targ_num_features_tmp
+        ReCompSize = True
+
+    if minsize > 1 and predSizemin < minsize:
+        pred_labeled_tmp = pred_labeled_array.copy()
+        for ocount in range(pred_num_features):
+            if predSize[ocount] < minsize:
+                pred_labeled_tmp[pred_labeled_tmp == (ocount + 1)] = 0
+        unq_lab_tmp = np.unique(pred_labeled_tmp)
+        pred_num_features_tmp = len(unq_lab_tmp) - 1
+        for ocount in range(pred_num_features_tmp):
+            pred_labeled_tmp[pred_labeled_tmp == unq_lab_tmp[ocount + 1]] = ocount + 1
+        pred_labeled_array = pred_labeled_tmp.copy()
+        pred_num_features = pred_num_features_tmp
+        ReCompSize = True
+
+    # Re-Compute size of objects
+    if ReCompSize:
+        targSize = np.zeros(targ_num_features)
+        for icount in range(targ_num_features):
+            targSize[icount] = targ_labeled_array[targ_labeled_array == icount + 1].size
+        predSize = np.zeros(pred_num_features)
+        for icount in range(pred_num_features):
+            predSize[icount] = pred_labeled_array[pred_labeled_array == icount + 1].size
+
+    # Compute SAL score (as Wernli et al, 2008)
+
+    # ----------------------------
+    # - Amplitude
+    #   Measure of total over whole domain
+    sal_amplitude = 2.0 * (prediction.mean() - target.mean())
+    sal_amplitude = sal_amplitude / (prediction.mean() + target.mean())
+
+    # ----------------------------
+    # - Location
+    #   Measure of location of objects wrt whole domain
+    # - based on centre of mass of fields and objects
+    # scipy.ndimage.center_of_mass
+    # docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.center_of_mass.html
+
+    # --- location 1 based on centre of mass of total fields
+    # taken from pysteps
+    # Normalised difference of target and prediction centres of mass
+    # - distances computed in number of grid points
+    # - assumes small region so actual distances roughly equal?
+    # centre_of_mass() assumes data non-negative and non-missing
+    max_d = np.sqrt(target.shape[0] ** 2 + target.shape[1] ** 2)
+    targ_shifted = target - np.nanmin(target)
+    targCoM = sp.ndimage.center_of_mass(np.nan_to_num(targ_shifted, nan=0))
+    pred_shifted = prediction - np.nanmin(prediction)
+    predCoM = sp.ndimage.center_of_mass(np.nan_to_num(pred_shifted, nan=0))
+    diffCoM = np.sqrt((predCoM[1] - targCoM[1]) ** 2 + (predCoM[0] - targCoM[0]) ** 2)
+    Loc1 = np.abs(diffCoM) / max_d
+
+    # --- location 2 based on centre of mass of individual objects
+    # - Compute total sum of values per object (sum of all grid points) [Rn]
+    targTotal = np.zeros(targ_num_features)
+    for icount in range(targ_num_features):
+        targTotal[icount] = target[targ_labeled_array == icount + 1].sum()
+    predTotal = np.zeros(pred_num_features)
+    for icount in range(pred_num_features):
+        predTotal[icount] = prediction[pred_labeled_array == icount + 1].sum()
+
+    # Compute centre of mass of each object and distance from centre of its total field
+    targ_distCoM = np.zeros(targ_num_features)
+    targ_obj_CoM = []
+    for icount in range(targ_num_features):
+        tmp_shifted = target.copy() - np.nanmin(target)
+        tmp_shifted[targ_labeled_array != icount + 1] = np.nan
+        CoMtmp = sp.ndimage.center_of_mass(np.nan_to_num(tmp_shifted, nan=0))
+        dist_tmp = np.sqrt(
+            (CoMtmp[1] - targCoM[1]) ** 2 + (CoMtmp[0] - targCoM[0]) ** 2
+        )
+        targ_distCoM[icount] = dist_tmp
+        targ_obj_CoM.append(CoMtmp)
+
+    pred_distCoM = np.zeros(pred_num_features)
+    pred_obj_CoM = []
+    for icount in range(pred_num_features):
+        tmp_shifted = prediction.copy() - np.nanmin(prediction)
+        tmp_shifted[pred_labeled_array != icount + 1] = np.nan
+        CoMtmp = sp.ndimage.center_of_mass(np.nan_to_num(tmp_shifted, nan=0))
+        dist_tmp = np.sqrt(
+            (CoMtmp[1] - predCoM[1]) ** 2 + (CoMtmp[0] - predCoM[0]) ** 2
+        )
+        pred_distCoM[icount] = dist_tmp
+        pred_obj_CoM.append(CoMtmp)
+
+    # Compute weighted average distance of each object from centre of its total field [r]
+    targ_wadistCoM = (targTotal * np.abs(targ_distCoM)).sum() / targTotal.sum()
+    pred_wadistCoM = (predTotal * np.abs(pred_distCoM)).sum() / predTotal.sum()
+
+    Loc2 = 2 * np.abs(pred_wadistCoM - targ_wadistCoM) / max_d
+
+    sal_location = Loc1 + Loc2
+
+    # ----------------------------
+    # - Structure
+    #   Measure of relative 'volume' in objects
+
+    # - Compute max value in each object
+    targMax = np.zeros(targ_num_features)
+    for icount in range(targ_num_features):
+        targMax[icount] = target[targ_labeled_array == icount + 1].max()
+    predMax = np.zeros(pred_num_features)
+    for icount in range(pred_num_features):
+        predMax[icount] = prediction[pred_labeled_array == icount + 1].max()
+
+    targVOL = targTotal / targMax
+    predVOL = predTotal / predMax
+
+    targ_waVOL = (targTotal * targVOL).sum() / targTotal.sum()
+    pred_waVOL = (predTotal * predVOL).sum() / predTotal.sum()
+
+    sal_structure = 2 * (pred_waVOL - targ_waVOL) / (pred_waVOL + targ_waVOL)
+
+    # ----------------------------
+
+    sal_xarray = xr.Dataset(
+        {
+            "sal_s": sal_structure,
+            "sal_a": sal_amplitude,
+            "sal_l": sal_location,
+            "sal_l1": Loc1,
+            "sal_l2": Loc2,
+            "sal_targ_num": targ_num_features,
+            "sal_pred_num": pred_num_features,
+        }
+    )
+
+    targ_com_array = np.array(targ_obj_CoM)
+    pred_com_array = np.array(pred_obj_CoM)
+
+    targ_object_xarray = xr.Dataset(
+        {
+            "obj_com_lat": ("object_num", targ_com_array[:, 0]),
+            "obj_com_lon": ("object_num", targ_com_array[:, 1]),
+            "obj_max": ("object_num", targMax),
+            "obj_size": ("object_num", targSize),
+            "obj_labeled_array": (["lat", "lon"], targ_labeled_array),
+        }
+    )
+
+    pred_object_xarray = xr.Dataset(
+        {
+            "obj_com_lat": ("object_num", pred_com_array[:, 0]),
+            "obj_com_lon": ("object_num", pred_com_array[:, 1]),
+            "obj_max": ("object_num", predMax),
+            "obj_size": ("object_num", predSize),
+            "obj_labeled_array": (["lat", "lon"], pred_labeled_array),
+        }
+    )
+
+    return sal_xarray, targ_object_xarray, pred_object_xarray
+
+
+def make_mask(input, eThresh, relation="gt"):
+    """
+    Convert input array into a boolean mask based on threshold eThresh and relation.
+
+    Parameters
+    ----------
+    input : numpy.ndarray | xr.DataArray
+        Array of floats
+    eThresh : float | numpy.ndarray | xr.DataArray
+        Event threshold to define binary event
+        If an array, this should match shape and type of input,
+        or follow numpy broadcasting rules.
+    relation : str
+        Relationship of event to threshold: 'gt', 'ge', 'lt', 'le', 'eq', 'ne'
+
+    Return
+    -----------
+    numpy.ndarray | xr.DataArray
+        Boolean version of input, same format.
+
+    Copyright (c) 2026 Klima consulting
+    Author: Rosie Eade
+    License: MIT (see LICENSE)
+
+    """
+
+    comparison_map = {
+        "gt": lambda x, t: x > t,
+        "lt": lambda x, t: x < t,
+        "ge": lambda x, t: x >= t,
+        "le": lambda x, t: x <= t,
+        "eq": lambda x, t: x == t,
+        "ne": lambda x, t: x != t,
+    }
+
+    if relation not in comparison_map:
+        raise ValueError(
+            f"relation must be one of {list(comparison_map.keys())}, got '{relation}'"
+        )
+
+    return comparison_map[relation](input, eThresh) & np.isfinite(input)
+
+
+def compute_sfss2D_xr(
+    prediction,
+    target,
+    var,
+    eThresh,
+    relation="gt",
+    window=1,
+    lat_name="lat",
+    lon_name="lon",
+    member_name=None,
+):
+    """
+    Spatial Fractional Skill Score
+    Threshold based binary fields [0, 1] = [none-event, event]
+    Compute for each 2d image separately e.g. for each timestep
+    ***Assumes SFSS computed on 2d fields defined by lat_name and lon_name dimensions***
+    e.g. [ time, lat, lon ] => compute for lat/lon fields at each timestep.
+
+    Roberts, N. M., & Lean, H. W. (2008). Scale-Selective Verification of
+    Rainfall Accumulations from High-Resolution Forecasts of Convective
+    Events, https://doi.org/10.1175/2007MWR2123.1
+
+    Copyright (c) 2026 Klima consulting
+    Author: Rosie Eade
+    License: MIT (see LICENSE)
+
+    Parameters
+    ----------
+    prediction : xr.DataArray
+        N-dimensional array Prediction (same shape as target)
+        ***Assumes spatial dimensions are final 2 in array***
+        e.g. [time, member, lat, lon]
+    target : xr.DataArray
+        N-dimensional array Target (same shape as prediction)
+    var : str
+        Variable name to analyse.
+    eThresh : float
+        Event Threshold to define binary event
+    relation : str, default 'gt'
+        Relationship of event to threshold: 'gt', 'ge', 'lt', 'le', 'eq', 'ne'
+    window : int
+        Size of square window for allowed neighbours, centred on point;
+        window=1 reduces to a pointwise comparison.
+    lat_name : str
+        Define name of latitude dimension e.g. 'lat' or 'y'
+    lon_name : str
+        Define name of longitude dimension e.g. 'lon' or 'x'
+    member_name : str | None
+        Define name of member dimension (ensemble prediction) e.g.
+        'member' or 'realization'
+
+    Return
+    ------
+    xr.Dataset
+        Array of SFSS, same format as input target
+
+    """
+
+    # Check input array types
+    if not isinstance(target, xr.DataArray) and not isinstance(
+        prediction, xr.DataArray
+    ):
+        raise ValueError(
+            f"input type error, expected xr.DataArray but got: T {type(target)}, P {type(prediction)}"
+        )
+
+    # Validate spatial dim names exist in the input
+    for name, xr_obj in [
+        (lat_name, target),
+        (lon_name, target),
+        (lat_name, prediction),
+        (lon_name, prediction),
+    ]:
+        if name not in xr_obj.dims:
+            raise ValueError(
+                f"Spatial dimension '{name}' not found in dims {list(xr_obj.dims)}. "
+                f"Use lat_name/lon_name to specify the correct dimension names."
+            )
+
+    spatial_dims = {lat_name, lon_name}
+
+    # Detect if ensemble dim present in prediction but not target, and expand
+    # target to match using expand_dims + broadcast
+    extra_member_dim = None
+    if member_name in prediction.dims and member_name not in target.dims:
+        extra_member_dim = member_name
+
+    if extra_member_dim is not None:
+        target = target.expand_dims({extra_member_dim: prediction[extra_member_dim]})
+        target = target.broadcast_like(prediction)
+
+    if target.values.shape != prediction.values.shape:
+        raise ValueError(
+            f"Shape mismatch: Target ({target.values.shape}), "
+            f"Prediction ({prediction.values.shape})"
+        )
+
+    # Identify spatial vs leading dimensions
+    all_dims = list(prediction.dims)
+    leading_dims = [d for d in all_dims if d not in spatial_dims]
+
+    # Create the transpose order so lat and lon are last
+    ordered_dims = leading_dims + [lat_name, lon_name]
+
+    # Transpose both arrays
+    prediction = prediction.transpose(*ordered_dims)
+    target = target.transpose(*ordered_dims)
+
+    # False/True fields
+    prediction_masked = make_mask(prediction, eThresh, relation=relation)
+    target_masked = make_mask(target, eThresh, relation=relation)
+
+    prediction_bin = prediction.copy()
+    target_bin = target.copy()
+    prediction_bin.values[prediction_masked] = 1.0
+    prediction_bin.values[~prediction_masked] = 0.0
+    target_bin.values[target_masked] = 1.0
+    target_bin.values[~target_masked] = 0.0
+
+    # Define filter_axes, used for assigning neighbours within window
+    if len(prediction.shape) <= 2:
+        filter_axes = None
+    if len(prediction.shape) > 2:
+        filter_axes = (-1, -2)
+
+    # Generate fractions: for each point, compute fraction of surrounding points
+    # within given length scale (window) that have event (value = 1)
+    # e.g. use smoothing fn so Xij becomes the average of all values in surrounding square window
+    # For values at edge, this fills empty part of window with zeros
+    # - outputs np.ndarray regardless if input type
+
+    prediction_frac = sp.ndimage.uniform_filter(
+        prediction_bin.astype(float),
+        size=window,
+        axes=filter_axes,
+        mode="constant",
+        cval=0.0,
+    )
+    target_frac = sp.ndimage.uniform_filter(
+        target_bin.astype(float),
+        size=window,
+        axes=filter_axes,
+        mode="constant",
+        cval=0.0,
+    )
+
+    tmp = prediction.copy()
+    tmp.values = prediction_frac
+    prediction_frac = tmp.copy()
+    tmp = target.copy()
+    tmp.values = target_frac
+    target_frac = tmp.copy()
+    tmp = 0.0
+
+    # Compute MSE between 2 fields
+    mse = ((prediction_frac - target_frac) ** 2).mean(axis=filter_axes)
+
+    # Compute MSE reference <= worst (largest) possible MSE (assumes completely unaligned fields)
+    mse_ref = (prediction_frac**2).mean(axis=filter_axes) + (target_frac**2).mean(
+        axis=filter_axes
+    )
+    # Replace 0s with nan
+    mse_ref = mse_ref.where(mse_ref != 0)
+
+    # Compute SFFS
+    mse_ratio = mse / mse_ref
+    sfss_out = 1.0 - mse_ratio
+
+    sfss_xr = xr.Dataset({var: sfss_out})
+
+    return sfss_xr
