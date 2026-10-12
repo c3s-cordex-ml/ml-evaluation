@@ -424,7 +424,7 @@ def psd(
 
     power_x0 = np.abs(fft_x0) ** 2
     power_x1 = np.abs(fft_x1) ** 2
-
+    
     psd_x0_list = [radial_average(p) for p in power_x0]
     # psd_x1_list = [radial_average(p) for p in power_x1]
     # ensemble -> too many values to unpack as expects p shape [lat, lon]
@@ -485,7 +485,8 @@ def ralsd(psd_x0: xr.Dataset, psd_x1: xr.Dataset, var: str) -> xr.Dataset:
     ratio = psd_x0[var] / psd_x1[var].clip(min=1e-30)
     log_ratio = 10.0 * np.log10(ratio.clip(min=1e-30))
     log_ratio_da = cast(xr.DataArray, log_ratio)
-    res = xr.Dataset({var: (log_ratio_da**2).mean(dim="wavenumber")})
+    # res = xr.Dataset({var: (log_ratio_da**2).mean(dim="wavenumber")}) # ERROR Should be sqrt!
+    res = xr.Dataset({var: np.sqrt((log_ratio_da**2).mean(dim="wavenumber"))})
 
     return res
 
