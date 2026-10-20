@@ -351,12 +351,19 @@ def fast(
     # RAPSD
     # -------------------
 
-    # Compute PSD and RALSD
+    # Compute PSD and RALSD including normalised version
     click.echo("Computing Power Spectral Density (PSD) (over lat, lon)...")
-    psd_x0, psd_x1 = psd(x0_ds, x1_ds, var=var, season=season)
+    psd_x0, psd_x1 = psd(
+        x0_ds, x1_ds, var=var, season=season, norm_psd=False, cutoff=True
+    )
+    psdnorm_x0, psdnorm_x1 = psd(
+        x0_ds, x1_ds, var=var, season=season, norm_psd=True, cutoff=True
+    )
 
     click.echo("Computing Radially Averaged Log Spectral Distance (RALSD)...")
     ralsd_val = ralsd(psd_x0, psd_x1, var)
+    ralsdnorm_val = ralsd(psdnorm_x0, psdnorm_x1, var)
+
     click.echo(f"RALSD: {ralsd_val}")
 
     # -------------------
@@ -510,11 +517,14 @@ def fast(
     metrics_float = {
         "rmse_float": rmse_ds,
         "ralsd_float": ralsd_val,
+        "ralsdnorm_float": ralsdnorm_val,
     }
 
     metrics_psd = {
         "psd_x0": psd_x0,
         "psd_x1": psd_x1,
+        "psdnorm_x0": psdnorm_x0,
+        "psdnorm_x1": psdnorm_x1,
     }
 
     # Store metrics to Zarr
