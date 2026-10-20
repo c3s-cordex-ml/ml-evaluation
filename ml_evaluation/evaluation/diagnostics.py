@@ -372,11 +372,14 @@ def psd(
     x1: xr.Dataset,
     var: str,
     season: str | None = None,
+    norm_psd: bool = False,
+    cutoff: bool = True,
 ) -> tuple[xr.Dataset, xr.Dataset]:
     """
     Compute the power spectral density for x0 and x1 datasets.
 
     Performs a 2D FFT and radially averages to get the power spectral densities.
+    Assumes that lat and lon are the final 2 dimensions in the datasets.
 
     Parameters
     ----------
@@ -388,6 +391,10 @@ def psd(
         Variable name to analyse.
     season : str | None, optional
         Season to filter before computing the PSD.
+    norm_psd : bool
+        True => normalise psd so sums to one
+    cutoff : bool
+        True => ignore wavelengths that aren't fully resolved
 
     Returns
     -------
@@ -422,10 +429,13 @@ def psd(
     fft_x0 = fft.fftshift(fft.fft2(x0_np, axes=(-2, -1)), axes=(-2, -1))
     fft_x1 = fft.fftshift(fft.fft2(x1_np, axes=(-2, -1)), axes=(-2, -1))
 
-    power_x0 = np.abs(fft_x0) ** 2
-    power_x1 = np.abs(fft_x1) ** 2
-    
+    # Standardise by size of region grid
+    power_x0 = np.abs(fft_x0) ** 2 / (fft_x0.shape[-2] * fft_x0.shape[-1])
+    power_x1 = np.abs(fft_x1) ** 2 / (fft_x1.shape[-2] * fft_x1.shape[-1])
+
     psd_x0_list = [radial_average(p) for p in power_x0]
+    psd_x0_np = np.array(psd_x0_list)
+
     # psd_x1_list = [radial_average(p) for p in power_x1]
     # ensemble -> too many values to unpack as expects p shape [lat, lon]
     # flatten power_x1 then put back together
@@ -436,7 +446,23 @@ def psd(
     psd_x1_np = np.array(psd_x1_list)
     psd_x1_np = psd_x1_np.reshape(*power_x1.shape[:-2], psd_x1_np.shape[-1])
 
-    avg_psd_x0 = np.mean(psd_x0_list, axis=-2)
+    if cutoff:
+        # Option to ignore wavelengths that aren't fully resolved
+        max_ll = int(np.max([x0_np.shape[-2], x0_np.shape[-1]]))
+        if max_ll % 2 == 1:
+            Nmax = int(max_ll / 2) + 1  # e.g. 129 -> [0, 1, ..., 64]
+        else:
+            Nmax = int(max_ll / 2)  # e.g. 128 -> [0, 1, ..., 63]
+        psd_x0_np = psd_x0_np[..., :Nmax].copy()
+        psd_x1_np = psd_x1_np[..., :Nmax].copy()
+
+    if norm_psd:
+        # Normalise over wavenumbers, assumes last dimension
+        psd_x0_np = psd_x0_np / np.sum(psd_x0_np, axis=-1, keepdims=True)
+        psd_x1_np = psd_x1_np / np.sum(psd_x1_np, axis=-1, keepdims=True)
+
+    # Mean over time, assumes 2nd last dimension
+    avg_psd_x0 = np.mean(psd_x0_np, axis=-2)
     avg_psd_x1 = np.mean(psd_x1_np, axis=-2)
 
     psd_x0_da = xr.DataArray(avg_psd_x0, dims=x0_new_dims, name="PSD_x0")
