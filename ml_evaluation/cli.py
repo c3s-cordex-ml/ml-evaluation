@@ -539,6 +539,286 @@ def fast(
 
 @main.command()
 @click.option(
+    "--x0",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to ground-truth NetCDF file.",
+)
+@click.option(
+    "--x1",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to predictions NetCDF file.",
+)
+@click.option(
+    "--var",
+    required=True,
+    type=click.Choice(["pr", "tasmax"]),
+    help="Variable to evaluate: precipitation (pr) or maximum daily temperature (tasmax).",
+)
+@click.option(
+    "--output",
+    required=True,
+    type=str,
+    help="Directory, file prefix, or final CSV file path.",
+)
+@click.option(
+    "--season",
+    type=str,
+    default=None,
+    help="Optional season/month to filter (e.g., DJF, MAM, JJA, SON, JAN).",
+)
+@click.option(
+    "--align-leap-days",
+    type=str,
+    default=None,
+    help="Options to align datasets to standard calendar by filling missing leap days.",
+)
+@click.option(
+    "--member-num",
+    type=int,
+    default=None,
+    help="Option to evaluate a single member or the ensemble mean.",
+)
+@click.option(
+    "--force-load",
+    type=bool,
+    default=False,
+    help="Option to load data into memory for quick testing of small datasets.",
+)
+@click.option(
+    "--use-dask",
+    type=bool,
+    default=False,
+    help="Option to use Dask for parallel processing.",
+)
+def benchmark(
+    x0: str,
+    x1: str,
+    var: str,
+    output: str,
+    season: str | None,
+    align_leap_days: str | None,
+    member_num: int | None,
+    force_load: bool,
+    use_dask: bool,
+) -> None:
+    """Compute scalar CORDEX-ML-Bench comparison metrics for pr or tasmax.
+    
+        Parameters
+    ----------
+    x0 : str
+        Path to ground-truth NetCDF file.
+    x1 : str
+        Path to predictions NetCDF file.
+    var : str
+        Variable name to evaluate.
+    output : str
+        Directory, file prefix, or final Zarr store path.
+    season : str | None
+        Optional season or month standard name.
+    align_leap_days : str | None
+        Options to align datasets to standard calendar by filling missing leap days.
+    member_num : int | None
+        Option to evaluate a single member or the ensemble mean.
+        - member == -1 : compute the ensemble mean over all members.
+        - member >= 0  : select that single member by integer position.
+        Ignored (with a warning) if x1 has no member dimension.
+    force_load : bool
+        Option to load data into memory for quick testing of small datasets.
+    use_dask : bool
+        Option to use Dask for parallel processing.
+
+    Returns
+    -------
+    None
+    """
+    if use_dask:
+        from dask.distributed import Client
+
+        _client = Client(**dask_default_params)
+        click.echo("Using dask")
+
+    click.echo(f"Running benchmark evaluation for variable '{var}'...")
+    click.echo(f"Loading reference: {x0}")
+    x0_ds = load_dataset(
+        x0, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )[[var]]
+    click.echo(f"Loading prediction: {x1}")
+    x1_ds = load_dataset(
+        x1, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
+    )[[var]]
+
+    if var == "pr" and x1_ds["pr"].max() > 1 and x0_ds["pr"].max() < 1:
+        click.echo("WARNING: pr converted from mm/day to kg/m2/s")
+        x1_ds["pr"] = x1_ds["pr"] / 86400.0
+
+    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
+    # Horizontal dims of THIS variable: (lat, lon) on a regular grid,
+    # (y, x) on a curvilinear one where lat/lon are 2-D coordinates.
+    sdims = spatial_dims(x1_ds, var)
+
+    # Force loading when testing on smaller datasets so quick to run
+    # Works well on 6 years 3 members 
+    if force_load:
+        x0_ds.load()
+        x1_ds.load()
+
+    scale, shift = convert_threshold_units(x0_ds, var)
+
+    # -------------------
+    # RMSE
+    # -------------------
+
+    click.echo("Computing RMSE of daily data...")
+    rmse_ds = rmse_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        dim=("time", *sdims),
+    )
+
+    # -------------------
+    # Bias
+    # -------------------
+
+    click.echo("Computing bias of the climatology...")
+    biasf_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices.mean,
+        output_index=False,
+    )
+    bias_ds = abs(biasf_ds).mean()
+
+    # -------------------
+    # RAPSD
+    # -------------------
+
+    # Compute PSD and RALSD
+    click.echo("Computing Power Spectral Density (PSD)...")
+    psd_x0, psd_x1 = psd(x0_ds, x1_ds, var=var, season=season)
+    click.echo("Computing Radially Averaged Log Spectral Distance (RALSD)...")
+    ralsd_val = ralsd(psd_x0, psd_x1, var)
+
+    metrics = {
+        "rmse": rmse_ds,
+        "clim_mean": bias_ds,
+        "ralsd": ralsd_val,
+    }
+
+    # -------------------
+    # pr specific 
+    # -------------------
+
+    if var == "pr":
+
+        click.echo("Computing bias of the Simple Daily Intensity Index (SDII)...")
+        biasf_sdii_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_sdii,
+            wet_threshold=1.0 * scale + shift,
+            cmean=True,
+            output_index=False,
+        )
+        # Aggregate to a scalar
+        metrics["sdii"] = abs(biasf_sdii_ds[var]).mean()
+
+        click.echo("Computing bias of the mean annual maximum 1-day precipitation (Rx1day)...")
+        biasf_max1day_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_extrema,
+            maxmin="max",
+            cmean=True,
+        )
+        # Aggregate to a scalar
+        metrics["rx1day"] = abs(biasf_max1day_ds[var]).mean()
+
+        # Compute Logarithmic Histogram Distance
+        click.echo("Computing Logarithmic Histogram Distance (LHD)...")
+        metrics["lhdf"] = calc_pdf_metric_xr(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=None,
+            dim=("time", *sdims),
+            bins_arr=None,
+            nbins=100,
+            bin_target_only=True,
+            typedistance="lhd",
+            member_name=member_dim,
+        )
+
+    # -------------------
+    # tasmax specific 
+    # -------------------
+
+    elif var == 'tasmax':
+
+        click.echo("Computing bias of the mean annual maximum daily maximum temperature (TXx)...")
+        biasf_max1day_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_extrema,
+            maxmin="max",
+            cmean=True,
+        )
+        # Aggregate to a scalar
+        metrics["txx"] = abs(biasf_max1day_ds).mean()
+
+        click.echo("Computing the Perkins Skill Score (PSS)...")
+        metrics["pss"] = calc_pdf_metric_xr(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=None,
+            dim=("time", *sdims),
+            bins_arr=None,
+            nbins=100,
+            bin_target_only=True,
+            typedistance="pss",
+            member_name=member_dim,
+        )
+
+        # Compute Bias of std of annual means (over time): field
+        # **IAV
+        click.echo("Computing bias of the Interannual Variability (IAV)...")
+        biasf_annstd_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.interannual_var,
+        )
+        # Aggregate to a scalar
+        metrics["iav"] = abs(biasf_annstd_ds).mean()
+
+    # Save all benchmark-track metrics
+    click.echo("Combining and saving metrics...")
+
+    metrics_path = _get_output_path(output, "metrics_benchmark.zarr")
+    write_zarr(metrics, metrics_path, mode="w", var=var)
+
+    click.echo(f"Saved benchmark metrics to {metrics_path}")
+
+    click.echo("Benchmark evaluation complete.")
+
+
+@main.command()
+@click.option(
     "--hist",
     required=True,
     type=click.Path(exists=True),
