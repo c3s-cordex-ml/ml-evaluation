@@ -1,3 +1,8 @@
+# NOTE: This module contains third-party code distributed under the MIT License.
+# Each third-party function is marked with an SPDX header immediately above its
+# definition. Full copyright notices and licence texts are in
+# THIRD_PARTY_NOTICES.md (the project's own licence is in LICENSE).
+
 from __future__ import annotations
 
 from typing import Any, Callable, cast
@@ -18,7 +23,9 @@ from ml_evaluation.evaluation.utils import (
 )
 from ml_evaluation.transformations import spatial_dims
 
-
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def bias_index(
     x0: xr.Dataset,
     x1: xr.Dataset,
@@ -72,7 +79,9 @@ def bias_index(
     else:
         return bias
 
-
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def ratio_index(
     x0: xr.Dataset,
     x1: xr.Dataset,
@@ -283,6 +292,9 @@ def corr_index(
     return corr_result
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def bias_multivariable_correlation(
     x0: xr.Dataset,
     x1: xr.Dataset,
@@ -367,6 +379,9 @@ def bias_multivariable_correlation(
     return output_ds
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def psd(
     x0: xr.Dataset,
     x1: xr.Dataset,
@@ -482,6 +497,9 @@ def psd(
     return psd_x0_ds, psd_x1_ds
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def ralsd(psd_x0: xr.Dataset, psd_x1: xr.Dataset, var: str) -> xr.Dataset:
     """
     Compute the Radially Averaged Log Spectral Distance (RALSD).
@@ -517,6 +535,9 @@ def ralsd(psd_x0: xr.Dataset, psd_x1: xr.Dataset, var: str) -> xr.Dataset:
     return res
 
 
+# SPDX-FileCopyrightText: 2026 Klima consulting
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 2.
 def calc_pdf_metric_nparray(
     arr0: np.ndarray,
     arr1: np.ndarray,
@@ -535,7 +556,7 @@ def calc_pdf_metric_nparray(
     metric using the specified method.
 
     Copyright (c) 2026 Klima consulting
-    Author: Rosie Eade
+    License: MIT (see THIRD_PARTY_NOTICES.md)
 
     Parameters
     ----------
@@ -883,6 +904,9 @@ def calc_pdf_metric_nparray(
     return dist_out
 
 
+# SPDX-FileCopyrightText: 2026 Klima consulting
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 2.
 def calc_pdf_metric_xr(
     x0: xr.Dataset,
     x1: xr.Dataset,
@@ -908,7 +932,7 @@ def calc_pdf_metric_xr(
     computing distribution comparison metrics.
 
     Copyright (c) 2026 Klima consulting
-    Author: Rosie Eade
+    License: MIT (see THIRD_PARTY_NOTICES.md)
 
     Parameters
     ----------
@@ -1099,9 +1123,6 @@ def calc_histdata_xr(
     Filters by season, applies any index functions if specified, and
     flattens across time, lat, lon.
 
-    Copyright (c) 2026 Klima consulting
-    Author: Rosie Eade
-
     Parameters
     ----------
     x0 : xr.Dataset
@@ -1194,7 +1215,6 @@ def crps_xr(
     Compute the crps for two xarray Datasets,
     using the form:
     CRPS(X, y) = E|X - y| - 1/2 * E|X - X'|
-
 
     Parameters
     ----------
@@ -1460,6 +1480,9 @@ def mean_spread_skill_ratio(
     return spread_skill_ratio_ds
 
 
+# SPDX-FileCopyrightText: 2026 Klima consulting
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 2.
 def compute_sal_xr(
     prediction_xr,
     target_xr,
@@ -1493,8 +1516,7 @@ def compute_sal_xr(
     must also be correctly specified
 
     Copyright (c) 2026 Klima consulting
-    Author: Rosie Eade
-    License: MIT (see LICENSE)
+    License: MIT (see THIRD_PARTY_NOTICES.md)
 
     Parameters:
     -----------
@@ -1726,6 +1748,9 @@ def compute_sal_xr(
     return sal_all
 
 
+# SPDX-FileCopyrightText: 2026 Klima consulting
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 2.
 def compute_sal(
     prediction,
     target,
@@ -1753,8 +1778,7 @@ def compute_sal(
     - different structure for neighbour definitions
 
     Copyright (c) 2026 Klima consulting
-    Author: Rosie Eade
-    License: MIT (see LICENSE)
+    License: MIT (see THIRD_PARTY_NOTICES.md)
 
     Parameters:
     -----------
@@ -2108,6 +2132,9 @@ def compute_sal(
     return sal_xarray, targ_object_xarray, pred_object_xarray
 
 
+# SPDX-FileCopyrightText: 2026 Klima consulting
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 2.
 def make_mask(input, eThresh, relation="gt"):
     """
     Convert input array into a boolean mask based on threshold eThresh and relation.
@@ -2129,8 +2156,7 @@ def make_mask(input, eThresh, relation="gt"):
         Boolean version of input, same format.
 
     Copyright (c) 2026 Klima consulting
-    Author: Rosie Eade
-    License: MIT (see LICENSE)
+    License: MIT (see THIRD_PARTY_NOTICES.md)
 
     """
 
@@ -2151,6 +2177,9 @@ def make_mask(input, eThresh, relation="gt"):
     return comparison_map[relation](input, eThresh) & np.isfinite(input)
 
 
+# SPDX-FileCopyrightText: 2026 Klima consulting
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 2.
 def compute_sfss2D_xr(
     prediction,
     target,
@@ -2174,8 +2203,7 @@ def compute_sfss2D_xr(
     Events, https://doi.org/10.1175/2007MWR2123.1
 
     Copyright (c) 2026 Klima consulting
-    Author: Rosie Eade
-    License: MIT (see LICENSE)
+    License: MIT (see THIRD_PARTY_NOTICES.md)
 
     Parameters
     ----------
