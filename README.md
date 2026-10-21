@@ -1,6 +1,6 @@
 # Evaluating machine-learning-based climate downscaling models
 
-This module packages a set of evaluation indices, diagnostics and vizualisation tools for assessing Machine Learning-based regional climate downscaling models. It expands on the [CORDEX-ML-Bench](https://github.com/WCRP-CORDEX/ml-benchmark/tree/main/evaluation) validation functions and could be used for further CORDEX benchmarking activities.
+This module packages a set of evaluation indices, diagnostics and visualisation tools for assessing Machine Learning-based regional climate downscaling models. It expands on the [CORDEX-ML-Bench](https://github.com/WCRP-CORDEX/ml-benchmark/tree/main/evaluation) validation functions and could be used for further CORDEX benchmarking activities.
 
 ## Project Structure
 
@@ -14,14 +14,20 @@ This repository is structured as a standard Python package with self-contained e
   - `evaluation/` - Core and extended evaluation indices and diagnostics.
     - `indices.py` - Standard evaluation indices (e.g., mean, wet/dry day frequency).
     - `diagnostics.py` - Standard performance diagnostics comparing predictions and reference data (e.g., bias, RMSE, correlation).
-  - `viz/` - Core and extended vizualisation tools.
+    - `utils.py` - Additional functions used by diagnostics.py and indices.py.
+  - `viz/` - Core and extended visualisation tools.
 - `environment.yaml` - Legacy Conda environment description.
 - `tests/` - Unit tests for testing the CLI, diagnostics, and indices.
+- `docs/` - Documentation source, including the `credits.md` page (support, contributors and third-party credits).
 - `Dockerfile` - Docker configuration to containerize the evaluation environment and CLI.
 - `pixi.toml` - Project configuration file for Pixi, specifying Conda and PyPI dependencies, build platforms, and developer tasks.
 - `pixi.lock` - Lockfile storing the exact versions and hashes of resolved dependencies, ensuring a reproducible environment.
 - `pyproject.toml` - Standard Python packaging metadata, defining dependencies, metadata, and the `ml-eval` CLI entry point.
 - `.pre-commit-config.yaml` - Configuration for QA/linting hooks executed before commits.
+- `LICENSE` - MIT License covering the project's own code.
+- `NOTICE` - Project copyright and third-party attributions.
+- `THIRD_PARTY_NOTICES.md` - Third-party functions used, their sources, and the full copyright notices and licence texts.
+- `CONTRIBUTORS` - List of contributors, based on git history.
 
 ______________________________________________________________________
 
@@ -323,6 +329,35 @@ You can contribute via issues, pull requests, or direct commits:
   ```
 
 - Go to GitHub.com and click **Compare & pull request** to submit the PR.
+
+### Licence Headers and Third-Party Code
+
+- If you add or adapt code from another project, keep the original copyright and license notice with it:
+  - Put an SPDX header (copyright holder and license) directly above the function, as for the existing third-party functions in ml_evaluation/evaluation/diagnostics.py.
+  - Add the function to THIRD_PARTY_NOTICES.md, with the source location, modified or unmodified status, and also the full license text if this is a new source.
+  - Add the license holder to NOTICE.
+
+______________________________________________________________________
+
+## License and Third-Party Code
+
+ml-evaluation is released under the MIT License (see [LICENSE](LICENSE)).
+
+Some functions are derived from third party MIT-licensed code. These functions are marked with SPDX headers in the source. Their source locations and full licence texts are given in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), with a summary in [NOTICE](NOTICE).
+
+______________________________________________________________________
+
+## Contributors
+
+The people who have contributed to this project are listed in [CONTRIBUTORS](CONTRIBUTORS). The list is based on git history: git shortlog -s -e --no-merges.
+
+______________________________________________________________________
+
+## Acknowledgements
+
+We acknowledge support from the Copernicus Climate Change Service (C3S), under contract C3S2_384, implemented by ECMWF on behalf of the European Union.
+
+See also the credits page in the documentation (`docs/credits.md`).
 
 ______________________________________________________________________
 

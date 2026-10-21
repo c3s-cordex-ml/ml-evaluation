@@ -1,0 +1,25 @@
+NOTICE
+
+ml-evaluation
+Copyright (c) 2026 c3s-cordex-ml
+
+This project is licensed under the MIT License (see LICENSE).
+
+Third-party attributions
+------------------------
+This project includes third-party code, distributed under the MIT License.
+Each third-party function is marked with an SPDX header immediately above
+its definition.
+
+  - CORDEX
+    Copyright (c) 2026 CORDEX
+
+  - Klima consulting
+    Copyright (c) 2026 Klima consulting
+
+The functions derived from each source, the source locations and the full
+copyright notices and license texts are given in THIRD_PARTY_NOTICES.md.
+
+Contributors
+------------
+See CONTRIBUTORS.

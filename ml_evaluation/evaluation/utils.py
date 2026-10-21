@@ -1,3 +1,11 @@
+# SPDX-FileCopyrightText: 2026 c3s-cordex-ml
+# SPDX-License-Identifier: MIT
+
+# NOTE: This module contains third-party code distributed under the MIT License.
+# Each third-party function is marked with an SPDX header immediately above its
+# definition. Full copyright notices and license texts are in
+# THIRD_PARTY_NOTICES.md (the project's own license is in LICENSE).
+
 from __future__ import annotations
 
 
@@ -5,6 +13,9 @@ import numpy as np
 import xarray as xr
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def filter_by_monthseason(x: xr.Dataset, season: str | None) -> xr.Dataset:
     """
     Filter the dataset by season or month label.
@@ -56,6 +67,9 @@ def filter_by_monthseason(x: xr.Dataset, season: str | None) -> xr.Dataset:
     return x
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def radial_average(array_2d: np.ndarray) -> np.ndarray:
     """
     Compute the radial average of a two-dimensional field.
@@ -80,6 +94,91 @@ def radial_average(array_2d: np.ndarray) -> np.ndarray:
     return tbin / np.maximum(nr, 1)
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
+def max_spell_length(condition: np.ndarray) -> float:
+    """
+    Compute the maximum consecutive spell length in a boolean sequence.
+
+    Parameters
+    ----------
+    condition : np.ndarray
+        Boolean sequence describing the spell condition.
+
+    Returns
+    -------
+    float
+        Maximum consecutive spell length.
+    """
+    max_run = 0
+    run = 0
+    for flag in condition:
+        if flag:
+            run += 1
+            if run > max_run:
+                max_run = run
+        else:
+            run = 0
+    return float(max_run)
+
+
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
+def compute_max_spell_per_year(arr: xr.DataArray) -> xr.DataArray:
+    """
+    Compute max spell length per year.
+
+    Parameters
+    ----------
+    arr : xr.DataArray
+        Boolean array describing the spell condition over time.
+
+    Returns
+    -------
+    xr.DataArray
+        Resampled maximum spell length.
+    """
+    tdim = "time"
+    output: xr.DataArray = xr.apply_ufunc(
+        max_spell_length,
+        arr.chunk({tdim: -1}),
+        input_core_dims=[[tdim]],
+        output_core_dims=[[]],
+        vectorize=True,
+        dask="parallelized",
+        output_dtypes=[float],
+    )
+    return output
+
+
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
+def ann_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArray:
+    """
+    Aggregate maximum spell length over the resampled period.
+
+    Parameters
+    ----------
+    condition : xr.DataArray
+        Boolean array describing the spell condition over time.
+    freq : str, default '1YE'
+        Resampling frequency following pandas offset aliases.
+
+    Returns
+    -------
+    xr.DataArray
+        Resampled maximum spell length.
+    """
+    output: xr.DataArray = condition.resample(time=freq).map(compute_max_spell_per_year)
+    return output
+
+
+# SPDX-FileCopyrightText: 2026 Klima consulting
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 2.
 def xr_spearman_corr(da_a, da_b, dim=None):
     """
     Spearman rank correlation between two DataArrays, mirroring xr.corr's API.
@@ -94,6 +193,9 @@ def xr_spearman_corr(da_a, da_b, dim=None):
     dim : str, Sequence[str], or None
         Dimension(s) to reduce over. If None, uses all dims shared by
         da_a and da_b (same default behavior as xr.corr).
+
+    Copyright (c) 2026 Klima consulting
+    License: MIT (see THIRD_PARTY_NOTICES.md)
 
     Returns
     -------
@@ -126,76 +228,3 @@ def xr_spearman_corr(da_a, da_b, dim=None):
         )
 
     return xr.corr(rank_a, rank_b, dim=dim)
-
-
-def max_spell_length(condition: np.ndarray) -> float:
-    """
-    Compute the maximum consecutive spell length in a boolean sequence.
-
-    Parameters
-    ----------
-    condition : np.ndarray
-        Boolean sequence describing the spell condition.
-
-    Returns
-    -------
-    float
-        Maximum consecutive spell length.
-    """
-    max_run = 0
-    run = 0
-    for flag in condition:
-        if flag:
-            run += 1
-            if run > max_run:
-                max_run = run
-        else:
-            run = 0
-    return float(max_run)
-
-
-def compute_max_spell_per_year(arr: xr.DataArray) -> xr.DataArray:
-    """
-    Compute max spell length per year.
-
-    Parameters
-    ----------
-    arr : xr.DataArray
-        Boolean array describing the spell condition over time.
-
-    Returns
-    -------
-    xr.DataArray
-        Resampled maximum spell length.
-    """
-    tdim = "time"
-    output: xr.DataArray = xr.apply_ufunc(
-        max_spell_length,
-        arr.chunk({tdim: -1}),
-        input_core_dims=[[tdim]],
-        output_core_dims=[[]],
-        vectorize=True,
-        dask="parallelized",
-        output_dtypes=[float],
-    )
-    return output
-
-
-def ann_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArray:
-    """
-    Aggregate maximum spell length over the resampled period.
-
-    Parameters
-    ----------
-    condition : xr.DataArray
-        Boolean array describing the spell condition over time.
-    freq : str, default '1YE'
-        Resampling frequency following pandas offset aliases.
-
-    Returns
-    -------
-    xr.DataArray
-        Resampled maximum spell length.
-    """
-    output: xr.DataArray = condition.resample(time=freq).map(compute_max_spell_per_year)
-    return output
