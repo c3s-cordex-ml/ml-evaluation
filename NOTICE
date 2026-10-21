@@ -7,8 +7,8 @@ This project is licensed under the MIT License (see LICENSE).
 
 Third-party attributions
 ------------------------
-This project includes third-party code, distributed under the MIT License. 
-Each third-party function is marked with an SPDX header immediately above 
+This project includes third-party code, distributed under the MIT License.
+Each third-party function is marked with an SPDX header immediately above
 its definition.
 
   - CORDEX

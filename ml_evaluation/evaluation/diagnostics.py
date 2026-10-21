@@ -3,8 +3,8 @@
 
 # NOTE: This module contains third-party code distributed under the MIT License.
 # Each third-party function is marked with an SPDX header immediately above its
-# definition. Full copyright notices and licence texts are in
-# THIRD_PARTY_NOTICES.md (the project's own licence is in LICENSE).
+# definition. Full copyright notices and license texts are in
+# THIRD_PARTY_NOTICES.md (the project's own license is in LICENSE).
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ from ml_evaluation.evaluation.utils import (
     xr_spearman_corr,
 )
 from ml_evaluation.transformations import spatial_dims
+
 
 # SPDX-FileCopyrightText: 2026 CORDEX
 # SPDX-License-Identifier: MIT
@@ -81,6 +82,7 @@ def bias_index(
 
     else:
         return bias
+
 
 # SPDX-FileCopyrightText: 2026 CORDEX
 # SPDX-License-Identifier: MIT

@@ -1,8 +1,3 @@
-<!--
-SPDX-FileCopyrightText: 2026 c3s-cordex-ml
-SPDX-License-Identifier: MIT
--->
-
 # Credits and support
 
 ## Support
@@ -17,8 +12,8 @@ The people who have contributed to ml-evaluation are listed in the
 
 ## Third-party code
 
-Some functions used in the code are derived from third-party MIT-licensed code. 
-Details, source locations and full license texts are in `NOTICE` and 
+Some functions used in the code are derived from third-party MIT-licensed code.
+Details, source locations and full license texts are in `NOTICE` and
 `THIRD_PARTY_NOTICES.md` in the root of the repository.
 
 ## License

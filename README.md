@@ -332,10 +332,10 @@ You can contribute via issues, pull requests, or direct commits:
 
 ### Licence Headers and Third-Party Code
 
-- If you add or adapt code from another project, keep the original copyright and license notice with it: 
-  - Put an SPDX header (copyright holder and license) directly above the function, as for the existing third-party functions in ml_evaluation/evaluation/diagnostics.py. 
+- If you add or adapt code from another project, keep the original copyright and license notice with it:
+  - Put an SPDX header (copyright holder and license) directly above the function, as for the existing third-party functions in ml_evaluation/evaluation/diagnostics.py.
   - Add the function to THIRD_PARTY_NOTICES.md, with the source location, modified or unmodified status, and also the full license text if this is a new source.
-  - Add the license holder to NOTICE. 
+  - Add the license holder to NOTICE.
 
 ______________________________________________________________________
 

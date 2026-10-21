@@ -3,8 +3,8 @@
 
 # NOTE: This module contains third-party code distributed under the MIT License.
 # Each third-party function is marked with an SPDX header immediately above its
-# definition. Full copyright notices and licence texts are in
-# THIRD_PARTY_NOTICES.md (the project's own licence is in LICENSE).
+# definition. Full copyright notices and license texts are in
+# THIRD_PARTY_NOTICES.md (the project's own license is in LICENSE).
 
 from __future__ import annotations
 
