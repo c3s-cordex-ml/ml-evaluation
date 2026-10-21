@@ -21,6 +21,19 @@ Functions used:
   - bias_multivariable_correlation   ml_evaluation/evaluation/diagnostics.py   (modified)
   - psd   ml_evaluation/evaluation/diagnostics.py   (modified)
   - ralsd   ml_evaluation/evaluation/diagnostics.py   (modified)
+  - mean   ml_evaluation/evaluation/indices.py   (modified)
+  - interannual_var   ml_evaluation/evaluation/indices.py   (modified)
+  - lag1_corr   ml_evaluation/evaluation/indices.py   (modified)
+  - ann_extrema   ml_evaluation/evaluation/indices.py   (modified; generalised from txx)
+  - ann_freq_wrt_array   ml_evaluation/evaluation/indices.py   (modified; generalised from su)
+  - ann_maxspell_wrt_array   ml_evaluation/evaluation/indices.py   (modified; generalised from cwd)
+  - ann_sdii   ml_evaluation/evaluation/indices.py   (modified; generalised from sdii)
+  - radial_average   ml_evaluation/evaluation/utils.py   (modified; from _radial_average)
+  - max_spell_length   ml_evaluation/evaluation/utils.py   (modified; from _max_spell_length)
+  - filter_by_monthseason   ml_evaluation/evaluation/utils.py   (modified; generalised from _filter_by_season)
+  - compute_max_spell_per_year   ml_evaluation/evaluation/utils.py   (modified; generalised from _resample_max_spell)
+  - ann_max_spell   ml_evaluation/evaluation/utils.py   (modified; generalised from _resample_max_spell)
+
 
 MIT License
 

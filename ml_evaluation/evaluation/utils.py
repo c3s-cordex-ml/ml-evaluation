@@ -1,3 +1,8 @@
+# NOTE: This module contains third-party code distributed under the MIT License.
+# Each third-party function is marked with an SPDX header immediately above its
+# definition. Full copyright notices and licence texts are in
+# THIRD_PARTY_NOTICES.md (the project's own licence is in LICENSE).
+
 from __future__ import annotations
 
 
@@ -5,6 +10,9 @@ import numpy as np
 import xarray as xr
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def filter_by_monthseason(x: xr.Dataset, season: str | None) -> xr.Dataset:
     """
     Filter the dataset by season or month label.
@@ -56,6 +64,9 @@ def filter_by_monthseason(x: xr.Dataset, season: str | None) -> xr.Dataset:
     return x
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def radial_average(array_2d: np.ndarray) -> np.ndarray:
     """
     Compute the radial average of a two-dimensional field.
@@ -128,6 +139,9 @@ def xr_spearman_corr(da_a, da_b, dim=None):
     return xr.corr(rank_a, rank_b, dim=dim)
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def max_spell_length(condition: np.ndarray) -> float:
     """
     Compute the maximum consecutive spell length in a boolean sequence.
@@ -154,6 +168,9 @@ def max_spell_length(condition: np.ndarray) -> float:
     return float(max_run)
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def compute_max_spell_per_year(arr: xr.DataArray) -> xr.DataArray:
     """
     Compute max spell length per year.
@@ -181,6 +198,9 @@ def compute_max_spell_per_year(arr: xr.DataArray) -> xr.DataArray:
     return output
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def ann_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArray:
     """
     Aggregate maximum spell length over the resampled period.

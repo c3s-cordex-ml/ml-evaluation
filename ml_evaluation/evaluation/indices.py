@@ -1,3 +1,8 @@
+# NOTE: This module contains third-party code distributed under the MIT License.
+# Each third-party function is marked with an SPDX header immediately above its
+# definition. Full copyright notices and licence texts are in
+# THIRD_PARTY_NOTICES.md (the project's own licence is in LICENSE).
+
 from __future__ import annotations
 
 import numpy as np
@@ -11,6 +16,9 @@ from ml_evaluation.evaluation.utils import (
 )
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def mean(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     """
     Compute the mean of a variable in a dataset over the time dimension.
@@ -129,6 +137,9 @@ def calday_quantile(x: xr.Dataset, var: str, q: float, padding: int = 2) -> xr.D
     return result
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def ann_extrema(
     x: xr.Dataset,
     var: str,
@@ -204,6 +215,9 @@ def ann_extrema(
     return output
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def ann_freq_wrt_array(
     x: xr.Dataset,
     var: str,
@@ -329,6 +343,9 @@ def ann_freq_wrt_array(
     return output
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def ann_maxspell_wrt_array(
     x: xr.Dataset,
     var: str,
@@ -455,6 +472,9 @@ def ann_maxspell_wrt_array(
     return output
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def ann_sdii(
     x: xr.Dataset,
     var: str,
@@ -517,6 +537,9 @@ def ann_sdii(
     return output
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def interannual_var(
     x: xr.Dataset,
     var: str,
@@ -570,6 +593,9 @@ def interannual_var(
     return output_std
 
 
+# SPDX-FileCopyrightText: 2026 CORDEX
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
 def lag1_corr(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset:
     """
     Compute the lag-1 autocorrelation of the target variable along time.
