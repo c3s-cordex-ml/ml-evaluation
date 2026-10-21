@@ -14,6 +14,7 @@ Project code: Copyright (c) 2026 c3s-cordex-ml, licensed under MIT
 1. CORDEX
 
 Source:    https://github.com/WCRP-CORDEX/ml-benchmark
+
 License:   MIT
 
 Functions used:
@@ -63,6 +64,7 @@ SOFTWARE.
 2. Klima consulting
 
 Source:    https://github.com/klima-aero/verification_code
+
 License:   MIT
 
 Functions used:
