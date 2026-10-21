@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 c3s-cordex-ml
+# SPDX-License-Identifier: MIT
+
 # NOTE: This module contains third-party code distributed under the MIT License.
 # Each third-party function is marked with an SPDX header immediately above its
 # definition. Full copyright notices and licence texts are in

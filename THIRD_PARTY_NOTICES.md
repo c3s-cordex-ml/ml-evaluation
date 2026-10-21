@@ -70,6 +70,7 @@ Functions used:
   - compute_sal   ml_evaluation/evaluation/diagnostics.py   (modified)
   - make_mask   ml_evaluation/evaluation/diagnostics.py   (modified)
   - compute_sfss2D_xr   ml_evaluation/evaluation/diagnostics.py   (modified)
+  - xr_spearman_corr   ml_evaluation/evaluation/utils.py   (modified)
 
 MIT License
 

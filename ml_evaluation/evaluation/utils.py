@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 c3s-cordex-ml
+# SPDX-License-Identifier: MIT
+
 # NOTE: This module contains third-party code distributed under the MIT License.
 # Each third-party function is marked with an SPDX header immediately above its
 # definition. Full copyright notices and licence texts are in
@@ -91,54 +94,6 @@ def radial_average(array_2d: np.ndarray) -> np.ndarray:
     return tbin / np.maximum(nr, 1)
 
 
-def xr_spearman_corr(da_a, da_b, dim=None):
-    """
-    Spearman rank correlation between two DataArrays, mirroring xr.corr's API.
-
-    Computed as Pearson correlation (xr.corr) on rank-transformed data,
-    which is the standard definition of Spearman's rho.
-
-    Parameters
-    ----------
-    da_a, da_b : xr.DataArray
-        Arrays to correlate. Must share the dimension(s) given in `dim`.
-    dim : str, Sequence[str], or None
-        Dimension(s) to reduce over. If None, uses all dims shared by
-        da_a and da_b (same default behavior as xr.corr).
-
-    Returns
-    -------
-    xr.DataArray
-        Spearman correlation coefficient, with `dim` reduced out.
-    """
-    if dim is None:
-        dim = list(set(da_a.dims) & set(da_b.dims))
-
-    dims = [dim] if isinstance(dim, str) else list(dim)
-
-    if len(dims) == 1:
-        rank_a = da_a.chunk({dims[0]: -1}).rank(dim=dims[0])
-        rank_b = da_b.chunk({dims[0]: -1}).rank(dim=dims[0])
-    else:
-        # DataArray.rank only supports a single dim, so stack the
-        # requested dims into one before ranking, then unstack.
-        stacked = "__spearman_stack__"
-        rank_a = (
-            da_a.stack({stacked: dims})
-            .chunk({stacked: -1})
-            .rank(dim=stacked)
-            .unstack(stacked)
-        )
-        rank_b = (
-            da_b.stack({stacked: dims})
-            .chunk({stacked: -1})
-            .rank(dim=stacked)
-            .unstack(stacked)
-        )
-
-    return xr.corr(rank_a, rank_b, dim=dim)
-
-
 # SPDX-FileCopyrightText: 2026 CORDEX
 # SPDX-License-Identifier: MIT
 # Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 1.
@@ -219,3 +174,57 @@ def ann_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArray:
     """
     output: xr.DataArray = condition.resample(time=freq).map(compute_max_spell_per_year)
     return output
+
+
+# SPDX-FileCopyrightText: 2026 Klima consulting
+# SPDX-License-Identifier: MIT
+# Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 2.
+def xr_spearman_corr(da_a, da_b, dim=None):
+    """
+    Spearman rank correlation between two DataArrays, mirroring xr.corr's API.
+
+    Computed as Pearson correlation (xr.corr) on rank-transformed data,
+    which is the standard definition of Spearman's rho.
+
+    Parameters
+    ----------
+    da_a, da_b : xr.DataArray
+        Arrays to correlate. Must share the dimension(s) given in `dim`.
+    dim : str, Sequence[str], or None
+        Dimension(s) to reduce over. If None, uses all dims shared by
+        da_a and da_b (same default behavior as xr.corr).
+
+    Copyright (c) 2026 Klima consulting
+    License: MIT (see THIRD_PARTY_NOTICES.md)
+
+    Returns
+    -------
+    xr.DataArray
+        Spearman correlation coefficient, with `dim` reduced out.
+    """
+    if dim is None:
+        dim = list(set(da_a.dims) & set(da_b.dims))
+
+    dims = [dim] if isinstance(dim, str) else list(dim)
+
+    if len(dims) == 1:
+        rank_a = da_a.chunk({dims[0]: -1}).rank(dim=dims[0])
+        rank_b = da_b.chunk({dims[0]: -1}).rank(dim=dims[0])
+    else:
+        # DataArray.rank only supports a single dim, so stack the
+        # requested dims into one before ranking, then unstack.
+        stacked = "__spearman_stack__"
+        rank_a = (
+            da_a.stack({stacked: dims})
+            .chunk({stacked: -1})
+            .rank(dim=stacked)
+            .unstack(stacked)
+        )
+        rank_b = (
+            da_b.stack({stacked: dims})
+            .chunk({stacked: -1})
+            .rank(dim=stacked)
+            .unstack(stacked)
+        )
+
+    return xr.corr(rank_a, rank_b, dim=dim)
