@@ -59,7 +59,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 \=======================================================================
-2\. Klima consulting
+
+2. Klima consulting
 
 Source:    https://github.com/klima-aero/verification_code
 License:   MIT
