@@ -35,7 +35,7 @@ pixi shell -e dev
 
 # Option B — conda
 conda env create -f environment.yaml
-conda activate rcm-emulation
+conda activate ml-evaluation
 pip install -e .
 ```
 
@@ -157,17 +157,17 @@ ______________________________________________________________________
 | **`multivar`** | `--x0`, `--x1`<br>`--var`, `--var2` | Bias of the Pearson and Spearman correlation between two predicted variables | `metrics_mv_field` |
 | **`prob`** | `--x0` truth<br>`--x1` ensemble prediction<br>`--var` | CRPS, Brier score for the > P50 event, spread–error ratio (the last only when the prediction has ≥ 2 members) | `metrics_prob_field`<br>`metrics_prob_float` |
 
-Options shared by every track: `--output` (directory, file prefix, or an explicit `.zarr` path), `--season` (`DJF`/`MAM`/`JJA`/`SON` or a month name; omit for whole-year), `--align-leap-days` (reconcile calendar mismatches), `--force-load` (pull the lazy arrays into memory — handy on small test data), `--use-dask` (parallel, out-of-core), and `--member-num` (every track except `prob`, which needs the full ensemble — it takes `--n-members` instead, see §4.5).
+Options shared by every track: `--output` (directory, file prefix, or an explicit `.zarr` path), `--season` (`DJF`/`MAM`/`JJA`/`SON` or a month name; omit for whole-year), `--align-leap-days` (reconcile calendar mismatches), `--force-load` (pull the lazy arrays into memory — handy on small test data), `--use-dask` (parallel, out-of-core), and `--member-num` (every track except `prob`, which needs the full ensemble — it takes `--n-members` instead, see [§4.5](#45-probabilistic-skill-ml-eval-prob)).
 
 Inside every store the metrics are stacked as a single `value` variable indexed by a **`diagnostic`** coordinate, so a metric is selected with `ds["value"].sel(diagnostic="<name>")`. Stores are split by *shape*: `_field` are maps, `_series` are time axes, `_float` are domain scalars, `_hist` are histograms, `_psd` are spectra.
 
 ______________________________________________________________________
 
-All five tracks are covered one by one below. Four score one variable at a time; `multivar` is the exception — it takes a second `--var2` and asks about the *relationship* between two predictands, so it only applies to an emulator that produces both.
+All five tracks are covered below. Four score one variable at a time; `multivar` instead takes a second `--var2` and evaluates the correlation between two variables, so it applies only to an emulator that produces both.
 
 ### 4.1 The basic track: `ml-eval fast`
 
-The cheap, single-pass statistics that feed the scorecards. One call scores one (prediction, variable, season):
+The cheap, single-pass statistics that feed the scorecards. One call evaluates a single prediction for one variable and season:
 
 All commands and scripts below are run **from the project root** (`CORDEX-BENCH-ALPS/`), so every path is relative to it.
 
@@ -194,7 +194,7 @@ Add `--season JJA` for a summer-only version of every metric in the call (the fl
 
 The `member` dimension is always present (length 1 for a deterministic emulator, unless `--member-num` collapsed it), so a metric of a generative emulator keeps one value per realisation. Storing the target and prediction indices next to the bias (`targ_mean_field`, `pred_mean_field`, …) means the maps behind a score can be plotted without recomputing anything.
 
-One of those indices is not just there for plotting. `targ_std_field` is the **observed daily standard deviation** of the truth at each grid point — the spread of the daily values themselves, not of the annual means, which is what the `slow` track's `targ_annstd_field` holds. Its domain mean is the physical scale the multivariate skill scorecard divides its wedges by (§7.1.2), so it is read from the *reference* model's stores and is identical for every row. `bias_std_field` / `pred_std_field` come from the same computation and give the daily-variability bias in its own right: a generative emulator that over-sharpens shows up here before it shows up in RALSD.
+One of those indices is not just there for plotting. `targ_std_field` is the **observed daily standard deviation** of the truth at each grid point — the spread of the daily values themselves, not of the annual means, which is what the `slow` track's `targ_annstd_field` holds. Its domain mean is the physical scale the multivariate skill scorecard divides its wedges by ([§7.1.2](#712-multivariate-skill-scorecard--plot_multivar_skill_scorecard)), so it is read from the *reference* model's stores and is identical for every row. `bias_std_field` / `pred_std_field` come from the same computation and give the daily-variability bias in its own right: a generative emulator that over-sharpens shows up here before it shows up in RALSD.
 
 > `targ_std_field` is written by `ml-eval fast` from August 2026 on. Metric stores computed before that carry no daily σ, and the skill scorecard leaves the affected wedges blank rather than guessing a scale — re-run `ml-eval fast` for at least the reference model to colour them.
 
@@ -330,7 +330,7 @@ ml-eval multivar \
 Three things are specific to this track:
 
 - **The leaf is named after the pair**, `pr_tasmax`, not after a variable. The metric describes both, and keeping it out of the per-variable leaves stops a univariate figure from picking it up by accident.
-- **Pearson or Spearman.** Both are computed in one pass. `pcorr` measures a linear relationship, `scorr` a monotonic one; for precipitation — zero-bounded and heavily skewed, with a point mass at "dry" — the rank version is the safer default, and it is what the figure in §7.1.6 shows.
+- **Pearson or Spearman.** Both are computed in one pass. `pcorr` measures a linear relationship, `scorr` a monotonic one; for precipitation — zero-bounded and heavily skewed, with a point mass at "dry" — the rank version is the safer default, and it is what the figure in [§7.1.6](#716-multivariate-coherence--plot_var_skill_maps-on-a-variable-pair) shows.
 - **`--member-num` matters here.** A correlation is a property of *one* realisation, so an ensemble prediction is scored on a single member. Without the flag every member is correlated separately: N times the work for a bundle whose extra members no figure reads.
 
 There is no `_float` companion: the track writes maps only, and the domain mean is printed in the corner of each panel by the figure.
@@ -381,7 +381,7 @@ ml-eval prob \
 ml-eval prob ... --n-members "2,4,6,8,10"
 ```
 
-The output directory does not change and neither does anything else's view of it: without the flag no such dimension is written, and a reader that asks for no particular size gets the largest (the full ensemble). §7.1.7 plots the sweep as one row per size. Two caveats worth knowing before reading such a figure: CRPS and BS use the **fair** estimator, which is already debiased for ensemble size and so should be near-flat in *N*; and N = 1 is not a usable point, since SERAT is undefined there and would drop out of the stacked store.
+The output directory does not change and neither does anything else's view of it: without the flag no such dimension is written, and a reader that asks for no particular size gets the largest (the full ensemble). [§7.1.7](#717-probabilistic-scorecard--plot_multivar_probskill_scorecard) plots the sweep as one row per size. Two caveats worth knowing before reading such a figure: CRPS and BS use the **fair** estimator, which is already debiased for ensemble size and so should be near-flat in *N*; and N = 1 is not a usable point, since SERAT is undefined there and would drop out of the stacked store.
 
 Reading the interpretation right:
 
@@ -474,8 +474,6 @@ Note how each track states its own answer to "which realisation?": `fast` and `s
 
 ______________________________________________________________________
 
-______________________________________________________________________
-
 ## 6. The visualisation package
 
 `ml_evaluation.viz` reads the Zarr stores back and renders the figures — metrics are computed once and re-visualised many times. Ten entry points, all following the same three rules:
@@ -507,14 +505,14 @@ The two averages are not the same quantity, which is why neither is silent: `mem
 | `plot_var_series` | one per (variable, index): interannual line plot, one line per source | `metrics_signal_series` | `index`, `reference` / `driver` / `baseline` (+ `_path`), `years`, `units` |
 | `plot_multivar_skill_maps` | **one** figure: variables (columns) × models (rows), truth on top | any `*_field` store the metric lives in | `metric`, `kind`, `show_truth`, `reference` |
 | `plot_var_skill_maps` | one per variable: truth at (1,1), models down column 2, error in column 3 | ″ | `metric`, `kind`, `show_truth`, `reference` |
-| `plot_domain` | one map: the outline of each experiment grid over coastlines (documentation, not evaluation) — the figure in §2 | the grids' own **NetCDF** | `title`, `resolutions`, `margin` |
+| `plot_domain` | one map: the outline of each experiment grid over coastlines (documentation, not evaluation) — the figure in [§2](#2-case-study-cordex-bench-alps) | the grids' own **NetCDF** | `title`, `resolutions`, `margin` |
 | `plot_multivar_probskill_scorecard` | **one** figure: models × variables, each cell a triangle of CRPS / BS / SERAT for ensemble predictions | `metrics_prob_float` | `metrics` (wedges), `season`, `row_sel`, `annotate` |
 | `plot_var_signal_maps` | one per variable: the RCM's own signal at (1,1), each model's signal down column 2, its signal error in column 3 | `metrics_signal_field` | `index`, `quantity`, `kind`, `reference_path` |
 | `plot_multivar_signal_maps` | **one** figure: variables × sources, the RCM's signal on top | ″ | ″ |
 | `plot_multivar_event_maps` | `plot_multivar_skill_maps` for a **single date** | prediction / target **NetCDF** | `date`, `kind`, `show_truth`, `reference_path` |
 | `plot_var_event_maps` | `plot_var_skill_maps` for a **single date** | prediction / target **NetCDF** | ″ |
 
-Names read **`plot_{scope}_{topic}_{figure}`**: *scope* is `var` (one figure per variable) or `multivar` (all variables in one); *topic* is `skill` (error against the RCM truth), `signal` (climate-change change) or `event` (a single date); *figure* is `scorecard` or `maps` (`probskill` is a fourth topic, for the ensemble diagnostics of §4.5). So the scorecards and the maps each form the same 2 × 2, and `plot_var_series` is the one exception — it produces skill or signal from its `baseline` argument at call time, so its topic slot stays empty.
+Names read **`plot_{scope}_{topic}_{figure}`**: *scope* is `var` (one figure per variable) or `multivar` (all variables in one); *topic* is `skill` (error against the RCM truth), `signal` (climate-change change) or `event` (a single date); *figure* is `scorecard` or `maps` (`probskill` is a fourth topic, for the ensemble diagnostics of [§4.5](#45-probabilistic-skill-ml-eval-prob)). So the scorecards and the maps each form the same 2 × 2, and `plot_var_series` is the one exception — it produces skill or signal from its `baseline` argument at call time, so its topic slot stays empty.
 
 **The event pair is the odd one out**: `ml-eval` only writes *time-reduced* diagnostics, so a single day is nowhere in a `metrics_*.zarr`. Those two read the prediction and target NetCDFs directly, which makes them the pre-evaluation check — the figure to look at *before* trusting any metric.
 
@@ -530,9 +528,9 @@ For the full API — the catalogues, the `read_*` / `render_*` layers and the he
 
 ## 7. Results
 
-The figures below all come from the runs of §5. They split in two: **§7.1** asks how faithfully each emulator reproduces the target RCM (skill), **§7.2** asks whether it projects the same climate change (signal). Every figure in the first group is an error against the truth; every figure in the second is a change between periods, referenced to each source's own baseline.
+The figures below all come from the runs of [§5](#5-scoring-a-whole-emulator-in-one-script). They split in two: [**§7.1**](#71-analysing-downscaling-skill) asks how faithfully each emulator reproduces the target RCM (skill), [**§7.2**](#72-analysing-the-climate-change-signal) asks whether it projects the same climate change (signal). Every figure in the first group is an error against the truth; every figure in the second is a change between periods, referenced to each source's own baseline.
 
-All of them share this preamble, which turns the naming convention of §3.2 into paths:
+All of them share this preamble, which turns the naming convention of [§3.2](#32-directory-convention) into paths:
 
 ```python
 import os
@@ -682,7 +680,7 @@ print(plot_var_skill_scorecard(
 
 *The same case, one variable. The two diffusion emulators take nine of the ten columns between them — CPMGEM eight of those (mean bias, P99, RX1day, wet-day frequency, SDII, P98wet, RALSD and lag-1 correlation) and RESDIFF the P01 bias, most of them by a factor of three or more over either U-Net. The RALSD gap is the categorical one: 0.019 and 0.045 against 16.2 and 21.3, i.e. only the diffusion models reproduce the fine-scale spectrum at all. Their one shared loss is the tenth column, RMSE (4.24 and 4.43 vs 3.70 for UNET-MULTI): a stochastic realisation is penalised for putting the right small-scale structure in the wrong place, exactly the double penalty a per-pixel error metric imposes on a sharp field. Note the CV line making the opposite point about the mean bias: CPMGEM's is far smaller (0.0791 vs 0.419) but has CV ≈ 1, so it is a field of compensating errors rather than a uniformly small bias. Grey = no metrics on disk.*
 
-`member_num` applies here too, and to the CV line underneath each value — both are read from the same realisation, so a cell never mixes members. Passing `metrics=None` falls back to a sensible per-variable default (7 precipitation columns, 6 otherwise). The full menu is in `METRIC_LABELS`; besides the fast-track keys used above it exposes the **slow-track** columns `wd`, `wdh`, `fcss`, `lhd`, `bias_annstd`, `bias_p90` — available as soon as §4.2's `ml-eval slow` has run into the same directory. Only error-type diagnostics are exposed: `pss`, `pcorr` and `scorr` are higher-is-better and would score inverted in a scorecard that treats every column as an error. To rename a header, pass a `(metric_key, label)` pair instead of a bare key.
+`member_num` applies here too, and to the CV line underneath each value — both are read from the same realisation, so a cell never mixes members. Passing `metrics=None` falls back to a sensible per-variable default (7 precipitation columns, 6 otherwise). The full menu is in `METRIC_LABELS`; besides the fast-track keys used above it exposes the **slow-track** columns `wd`, `wdh`, `fcss`, `lhd`, `bias_annstd`, `bias_p90` — available as soon as [§4.2](#42-the-extended-track-ml-eval-slow)'s `ml-eval slow` has run into the same directory. Only error-type diagnostics are exposed: `pss`, `pcorr` and `scorr` are higher-is-better and would score inverted in a scorecard that treats every column as an error. To rename a header, pass a `(metric_key, label)` pair instead of a bare key.
 
 For finer control — a unit conversion, an extra row, a custom row order — split the wrapper into its two halves and post-process in between:
 
@@ -740,15 +738,15 @@ print(plot_var_skill_maps(
 
 ![RX1day maps for pr: truth, then each model's field and its bias against the truth](figures/var_maps_pr_max1day_bias_annual.png)
 
-*RX1day (`max1day`) over the mid-century period. The truth averages 55.6 mm/day; UNET-SINGLE and UNET-MULTI reach only 42.9 and 42.5, and their bias columns are uniformly brown (−12.7 and −13.1) — the wettest day of the year is underestimated almost everywhere, not just on average. The diffusion emulators land close to the truth (RESDIFF 52.8, bias −2.76; CPMGEM 53.3, bias −2.27) with bias fields that are nearly white throughout, retaining only a faint domain-wide dryness. This is the spatial counterpart of the RX1day time series in §7.1.5: the series showed the two U-Nets sitting ~10-13 mm/day low every single year, the map shows that the deficit is domain-wide rather than concentrated in the Alpine ridge.*
+*RX1day (`max1day`) over the mid-century period. The truth averages 55.6 mm/day; UNET-SINGLE and UNET-MULTI reach only 42.9 and 42.5, and their bias columns are uniformly brown (−12.7 and −13.1) — the wettest day of the year is underestimated almost everywhere, not just on average. The diffusion emulators land close to the truth (RESDIFF 52.8, bias −2.76; CPMGEM 53.3, bias −2.27) with bias fields that are nearly white throughout, retaining only a faint domain-wide dryness. This is the spatial counterpart of the RX1day time series in [§7.1.5](#715-time-series--plot_var_series): the series showed the two U-Nets sitting ~10-13 mm/day low every single year, the map shows that the deficit is domain-wide rather than concentrated in the Alpine ridge.*
 
-`member_num` selects the realisation mapped (`-1` averages the metric over members) — worth setting explicitly for a diffusion emulator, since member 0 of a stochastic ensemble is one draw among many, not a summary. `metric="max1day"` is the fast-track name for RX1day — the `signal` store calls the same index `rx1day`, which is why the time series in §7.1.5 uses that spelling. Swap `metric=` for `sdii`, `mean`, `p99`, `acorr`, … to map any other index the run wrote, and use `plot_multivar_skill_maps` to put several variables in one figure instead (columns = variables, rows = models).
+`member_num` selects the realisation mapped (`-1` averages the metric over members) — worth setting explicitly for a diffusion emulator, since member 0 of a stochastic ensemble is one draw among many, not a summary. `metric="max1day"` is the fast-track name for RX1day — the `signal` store calls the same index `rx1day`, which is why the time series in [§7.1.5](#715-time-series--plot_var_series) uses that spelling. Swap `metric=` for `sdii`, `mean`, `p99`, `acorr`, … to map any other index the run wrote, and use `plot_multivar_skill_maps` to put several variables in one figure instead (columns = variables, rows = models).
 
 ______________________________________________________________________
 
 #### 7.1.5 Time series — `plot_var_series`
 
-The scorecards reduce a run to one number per metric and the maps to one field. `plot_var_series` keeps the **year** axis, so it is the only figure that shows *when* a model drifts — whether an error is a constant offset, a trend, or a failure to follow the interannual swings. It reads the `metrics_signal_series.zarr` store of §4.3, which holds the raw annual value (not the change) for both test windows on one `year` axis; `series_indices(var)` lists what a variable has.
+The scorecards reduce a run to one number per metric and the maps to one field. `plot_var_series` keeps the **year** axis, so it is the only figure that shows *when* a model drifts — whether an error is a constant offset, a trend, or a failure to follow the interannual swings. It reads the `metrics_signal_series.zarr` store of [§4.3](#43-the-climate-change-signal-ml-eval-signal), which holds the raw annual value (not the change) for both test windows on one `year` axis; `series_indices(var)` lists what a variable has.
 
 ```python
 from ml_evaluation.viz.plot_var_series import plot_var_series
@@ -765,9 +763,9 @@ for var, index, units in [("tasmax", "mean", "K"), ("pr", "rx1day", "mm day$^{-1
     ))
 ```
 
-Beyond `reference`, three optional arguments shape the panel: `driver` adds the driving GCM as a dashed grey line, `baseline=(y0, y1)` plots anomalies with respect to each source's *own* mean over that window (the fair way to compare climate-change signals, as in §4.3), and `years` restricts the axis.
+Beyond `reference`, three optional arguments shape the panel: `driver` adds the driving GCM as a dashed grey line, `baseline=(y0, y1)` plots anomalies with respect to each source's *own* mean over that window (the fair way to compare climate-change signals, as in [§4.3](#43-the-climate-change-signal-ml-eval-signal)), and `years` restricts the axis.
 
-**Overlaying the two frameworks (optional).** The perfect and imperfect runs of one emulator live in different directories — the `<DATASET>` field of the run name is `UPS-<RCM>-<GCM>` or the bare `<GCM>` (§3.2) — so both can be passed as ordinary labels. Left at that they would take two categorical colours each and read as unrelated models; `variant_of` pairs them instead, drawing the second dashed in the first's colour:
+**Overlaying the two frameworks (optional).** The perfect and imperfect runs of one emulator live in different directories — the `<DATASET>` field of the run name is `UPS-<RCM>-<GCM>` or the bare `<GCM>` ([§3.2](#32-directory-convention)) — so both can be passed as ordinary labels. Left at that they would take two categorical colours each and read as unrelated models; `variant_of` pairs them instead, drawing the second dashed in the first's colour:
 
 ```python
 paths = {
@@ -800,27 +798,27 @@ The line stays the ensemble mean and a shaded band in the same colour shows the 
 
 For a run that predates that output — or to combine separate per-member runs — a label's value may instead be a **list of paths** (one `ml-eval signal --member-num k` run each); the figure then computes the mean and the band itself, unioning members that cover different years.
 
-> **Units.** `ml-eval signal` canonicalises before computing, so precipitation in these series is already mm/day — unlike the fast-track metrics the §7.1.3 scorecard reads, no 86400 scaling is applied here.
+> **Units.** `ml-eval signal` canonicalises before computing, so precipitation in these series is already mm/day — unlike the fast-track metrics the [§7.1.3](#713-univariate-skill-scorecard--plot_var_skill_scorecard) scorecard reads, no 86400 scaling is applied here.
 
 ![Domain-mean annual mean tasmax, historical and mid-century, one line per source](figures/series_tasmax_mean_annual.png)
 
 *Annual mean `tasmax`, domain mean; solid = perfect predictors, dashed = imperfect. Under perfect predictors all four emulators sit on top of the RCM truth in both windows — they reproduce not just the ~1.9 K warming between the periods but the year-to-year variability, including the 1985 cold year and the 2050 spike. For a perfect-predictor experiment this is the expected result, and it is the baseline against which the precipitation panel should be read.*
 
-*The dashed lines are the same emulators driven by the raw GCM. They stay **in phase** with the truth — the driving GCM is the same run that drove the RCM, so the two share a chronology and a cold year in the RCM is a cold year in the GCM too — but sit ~0.8-1 K warm throughout the historical window. That offset is the GCM's own bias passing through the downscaling untouched, not an emulator error: the same networks, fed upscaled RCM fields instead, land on the truth. Which is the whole point of running both frameworks, and the reason §7.2 references every source to its own baseline.*
+*The dashed lines are the same emulators driven by the raw GCM. They stay **in phase** with the truth — the driving GCM is the same run that drove the RCM, so the two share a chronology and a cold year in the RCM is a cold year in the GCM too — but sit ~0.8-1 K warm throughout the historical window. That offset is the GCM's own bias passing through the downscaling untouched, not an emulator error: the same networks, fed upscaled RCM fields instead, land on the truth. Which is the whole point of running both frameworks, and the reason [§7.2](#72-analysing-the-climate-change-signal) references every source to its own baseline.*
 
 ![Domain-mean annual RX1day, historical and mid-century, one line per source](figures/series_pr_rx1day_annual.png)
 
-*Annual RX1day (the wettest day of each year), domain mean, same sources and periods. Under perfect predictors (solid) the models separate into two groups: RESDIFF and CPMGEM track the phase of the truth and stay within a few mm/day of its level, falling short only in the wettest years of the mid-century window, while both U-Nets sit ~10-13 mm/day low in every single year of both windows. The offset is systematic rather than a drift — their interannual variability is in phase, they simply cannot reach the extreme. §7.1.4 maps the same deficit and shows it is domain-wide.*
+*Annual RX1day (the wettest day of each year), domain mean, same sources and periods. Under perfect predictors (solid) the models separate into two groups: RESDIFF and CPMGEM track the phase of the truth and stay within a few mm/day of its level, falling short only in the wettest years of the mid-century window, while both U-Nets sit ~10-13 mm/day low in every single year of both windows. The offset is systematic rather than a drift — their interannual variability is in phase, they simply cannot reach the extreme. [§7.1.4](#714-spatial-maps--plot_var_skill_maps) maps the same deficit and shows it is domain-wide.*
 
 *Every emulator loses further ground under imperfect predictors (dashed) — by ~2-4 mm/day for the U-Nets and CPMGEM, and by ~5-8 for RESDIFF, whose dashed line drops clear of the other diffusion runs — and the gap widens in the future window. Note what does **not** change: the ranking. The two groups stay ordered the same way in both frameworks, so the deficit the U-Nets show is a property of those models rather than of the boundary data they were given.*
 
-Reading the two together is the point: a model can be indistinguishable from the truth on a smooth variable and still miss an extreme by more than 20 %, which is exactly what the scorecards in §7.1.2 and §7.1.3 summarise into single cells.
+Reading the two together is the point: a model can be indistinguishable from the truth on a smooth variable and still miss an extreme by more than 20 %, which is exactly what the scorecards in [§7.1.2](#712-multivariate-skill-scorecard--plot_multivar_skill_scorecard) and [§7.1.3](#713-univariate-skill-scorecard--plot_var_skill_scorecard) summarise into single cells.
 
 ______________________________________________________________________
 
 #### 7.1.6 Multivariate coherence — `plot_var_skill_maps` on a variable *pair*
 
-Every figure so far scores one variable at a time. §4.4's `ml-eval multivar` scores the *link* between two, and it needs no figure of its own: its output is a correlation field like any other, so the map function of §7.1.4 draws it — the only difference is that the "variable" passed in is the **pair leaf**, `pr_tasmax`, and the metric is `mv_scorr` (or `mv_pcorr`).
+Every figure so far scores one variable at a time. [§4.4](#44-multivariate-consistency-ml-eval-multivar)'s `ml-eval multivar` scores the *link* between two, and it needs no figure of its own: its output is a correlation field like any other, so the map function of [§7.1.4](#714-spatial-maps--plot_var_skill_maps) draws it — the only difference is that the "variable" passed in is the **pair leaf**, `pr_tasmax`, and the metric is `mv_scorr` (or `mv_pcorr`).
 
 ```python
 from ml_evaluation.viz.plot_diagnostic_maps import plot_var_skill_maps
@@ -846,13 +844,13 @@ The colour scales are pinned by hand here, which is worth doing for this figure:
 
 *The bias columns are the reason to plot the field rather than trust the number. Every one of those near-zero domain means is a cancellation: UNET-SINGLE is up to 0.06 too anti-correlated over the western Mediterranean (deep green) and as much too weakly coupled over the Alps and the Balkans (magenta), and UNET-MULTI's −0.00 hides the largest, noisiest error field of the four. RESDIFF and CPMGEM keep the same dipole but at visibly lower amplitude over the sea.*
 
-Read it next to §7.1.2: the univariate wedges rank these models clearly and this one barely separates them at all, at least in the mean. The two figures are not in conflict — they ask different questions, which is exactly why the multivariate track exists, and why its map matters more than its domain scalar.
+Read it next to [§7.1.2](#712-multivariate-skill-scorecard--plot_multivar_skill_scorecard): the univariate wedges rank these models clearly and this one barely separates them at all, at least in the mean. The two figures are not in conflict — they ask different questions, which is exactly why the multivariate track exists, and why its map matters more than its domain scalar.
 
 ______________________________________________________________________
 
 #### 7.1.7 Probabilistic scorecard — `plot_multivar_probskill_scorecard`
 
-The scorecards above score a single field against the truth. A generative emulator produces an *ensemble*, and §4.5's `ml-eval prob` asks the questions a single field cannot answer: does the ensemble contain the truth (CRPS), does it get threshold events right (BS), and is its spread honest (SERAT)?
+The scorecards above score a single field against the truth. A generative emulator produces an *ensemble*, and [§4.5](#45-probabilistic-skill-ml-eval-prob)'s `ml-eval prob` asks the questions a single field cannot answer: does the ensemble contain the truth (CRPS), does it get threshold events right (BS), and is its spread honest (SERAT)?
 
 Those three do not share a scale or even a sense, so they get a triangle rather than a hexagon: **CRPS** on top, **BS** lower-left, **SERAT** lower-right, with the raw value printed in each wedge.
 
@@ -875,7 +873,7 @@ Reading it:
 - **The colour is normalised** per (variable, diagnostic) across the plotted models, so one colour bar serves all three. SERAT is folded to `|log10(SERAT)|` first — it is best at **1**, not at 0, and under- and over-dispersion by the same factor are equally wrong — then every wedge is divided by the largest value in its column. After that lower is better everywhere, so a dark cell is a good one.
 - **A blank wedge means SERAT was not computed.** It needs at least two members; `ml-eval prob` omits it for a single-member prediction rather than writing something meaningless. CRPS and BS have deterministic counterparts (mean absolute error and the 0/1 indicator loss), so deterministic and generative emulators still share the figure.
 
-**One row per ensemble size.** RESDIFF was re-run here with `ensemble_size: 10` and scored with `--n-members "2,4,6,8,10"` (§4.5), which puts five scored configurations in *one* store. Rows then differ by `row_sel` rather than by path — the same directory read five times, at five coordinates:
+**One row per ensemble size.** RESDIFF was re-run here with `ensemble_size: 10` and scored with `--n-members "2,4,6,8,10"` ([§4.5](#45-probabilistic-skill-ml-eval-prob)), which puts five scored configurations in *one* store. Rows then differ by `row_sel` rather than by path — the same directory read five times, at five coordinates:
 
 ```python
 NS = [2, 4, 6, 8, 10]
@@ -904,7 +902,7 @@ The deterministic emulators are absent from this figure by construction: with `e
 
 ### 7.2 Analysing the climate-change signal
 
-A model can reproduce the RCM's climate faithfully and still project the wrong *change* — or carry a large bias and get the change exactly right. The signal figures ask the second question, and they all rest on the same trick from §4.3: each source's change is computed against **its own** historical baseline, so whatever bias it inherited from the driving GCM cancels. The reference is no longer a baseline model but the **RCM truth itself**, whose own signal is what the emulators are trying to match.
+A model can reproduce the RCM's climate faithfully and still project the wrong *change* — or carry a large bias and get the change exactly right. The signal figures ask the second question, and they all rest on the same trick from [§4.3](#43-the-climate-change-signal-ml-eval-signal): each source's change is computed against **its own** historical baseline, so whatever bias it inherited from the driving GCM cancels. The reference is no longer a baseline model but the **RCM truth itself**, whose own signal is what the emulators are trying to match.
 
 ```python
 # the RCM's own signal, computed once by SIMULATIONS/RCM/evaluation.sh
@@ -914,11 +912,11 @@ rcm_path = os.path.join(SIM, "RCM", "outputs", "evaluation", "rcm",
 
 #### 7.2.1 Multivariate signal radar — `plot_multivar_signal_radar`
 
-The counterpart of §7.1.2: rows are the models, columns the variables, and each cell is a small radar with one spoke per index — top `mean`/`SDII`, bottom-left `P01`/`R01`, bottom-right `P99`/`RX1day` — and one closed polyline per boundary framework.
+The counterpart of [§7.1.2](#712-multivariate-skill-scorecard--plot_multivar_skill_scorecard): rows are the models, columns the variables, and each cell is a small radar with one spoke per index — top `mean`/`SDII`, bottom-left `P01`/`R01`, bottom-right `P99`/`RX1day` — and one closed polyline per boundary framework.
 
 The radial coordinate is the signal **divided by the RCM's**, which is dimensionless and so reads the same way in every column whatever the variable's units. The RCM sits at radius 1 on every spoke whichever way its own change goes, and is drawn once as a dashed unit triangle rather than as a row. The scale runs from **no signal at the centre** through the RCM's own change at the dashed triangle to **twice it at the rim**, so the reading is positional: *on* the dashed triangle reproduces the RCM's change, *inside* damps it, *outside* overshoots it. A signal of the **wrong sign** is clamped to the centre and marked `x`, collapsing that spoke.
 
-Each model must appear once per case, labelled `"MODEL (case)"`, so the paths are built over both frameworks rather than the single `CASE` fixed in §7:
+Each model must appear once per case, labelled `"MODEL (case)"`, so the paths are built over both frameworks rather than the single `CASE` fixed in [§7](#7-results):
 
 ```python
 from ml_evaluation.viz.plot_multivar_signal_scorecard import plot_multivar_signal_radar
@@ -949,7 +947,7 @@ The `units` mapping picks the quantity per variable: temperature changes are rea
 
 ![Climate-change-signal radar: models as rows, variables as columns, a three-spoke triangle per cell with the RCM dashed and one polyline per boundary framework](figures/signal_radar_annual.png)
 
-*The RCM is the dashed unit triangle of every cell, and each emulator is drawn twice — blue under perfect predictors, red under imperfect ones. On `tasmax` the perfect polylines sit almost exactly on the RCM's (0.93 to 0.96 of its +1.90 K mean warming, i.e. +1.77 to +1.82 K) and the imperfect ones pull uniformly inward to 0.81 to 0.83 (+1.53 to +1.57 K) — the weaker signal each one carries from the driving GCM, not a failure of the downscaling. On `pr` the two frameworks separate much further: the RCM's +5.6 % SDII and +7.5 % RX1day are reproduced at 0.80 to 0.92 and 0.71 to 0.87 under perfect predictors but collapse to 0.30 to 0.46 and 0.34 to 0.65 under imperfect ones. The one spoke that points **outward** is `R01`, where every emulator overshoots the RCM's −1.5 % wet-day decline by a factor of 1.4 to 1.7 under perfect predictors — the visible asymmetry of the precipitation cells, and the detail §7.2.2 resolves. That contrast is the whole reason each source is referenced to its own baseline.*
+*The RCM is the dashed unit triangle of every cell, and each emulator is drawn twice — blue under perfect predictors, red under imperfect ones. On `tasmax` the perfect polylines sit almost exactly on the RCM's (0.93 to 0.96 of its +1.90 K mean warming, i.e. +1.77 to +1.82 K) and the imperfect ones pull uniformly inward to 0.81 to 0.83 (+1.53 to +1.57 K) — the weaker signal each one carries from the driving GCM, not a failure of the downscaling. On `pr` the two frameworks separate much further: the RCM's +5.6 % SDII and +7.5 % RX1day are reproduced at 0.80 to 0.92 and 0.71 to 0.87 under perfect predictors but collapse to 0.30 to 0.46 and 0.34 to 0.65 under imperfect ones. The one spoke that points **outward** is `R01`, where every emulator overshoots the RCM's −1.5 % wet-day decline by a factor of 1.4 to 1.7 under perfect predictors — the visible asymmetry of the precipitation cells, and the detail [§7.2.2](#722-univariate-signal-scorecard--plot_var_signal_scorecard) resolves. That contrast is the whole reason each source is referenced to its own baseline.*
 
 #### 7.2.2 Univariate signal scorecard — `plot_var_signal_scorecard`
 
@@ -975,7 +973,7 @@ print(plot_var_signal_scorecard(
 
 #### 7.2.3 Spatial maps of the signal — `plot_var_signal_maps`
 
-The map counterpart of §7.2.1, and the signal twin of §7.1.4: the RCM's own change at (1,1), each model's change down column 2, and — with `kind="bias"` — its **signal error** (model minus RCM) in column 3.
+The map counterpart of [§7.2.1](#721-multivariate-signal-radar--plot_multivar_signal_radar), and the signal twin of [§7.1.4](#714-spatial-maps--plot_var_skill_maps): the RCM's own change at (1,1), each model's change down column 2, and — with `kind="bias"` — its **signal error** (model minus RCM) in column 3.
 
 ```python
 from ml_evaluation.viz.plot_diagnostic_maps import plot_var_signal_maps
@@ -1008,7 +1006,7 @@ Because a change straddles zero, *every* panel here is diverging and symmetric a
 
 #### 7.2.4 Time series of the signal — `plot_var_series` with a baseline
 
-The same call as §7.1.5 plus one argument. `baseline=(y0, y1)` subtracts each source's **own** mean over that window, turning the absolute series into the change each model projects:
+The same call as [§7.1.5](#715-time-series--plot_var_series) plus one argument. `baseline=(y0, y1)` subtracts each source's **own** mean over that window, turning the absolute series into the change each model projects:
 
 ```python
 for var, index, units in [("tasmax", "mean", "K"), ("pr", "rx1day", "mm day$^{-1}$")]:
@@ -1020,13 +1018,13 @@ for var, index, units in [("tasmax", "mean", "K"), ("pr", "rx1day", "mm day$^{-1
     ))
 ```
 
-The historical years then scatter around zero by construction and the mid-century segment is the projected change, so the lines can be compared regardless of how biased each model is in absolute terms. Output lands as `series_<var>_<index>_anom_<season>.png` — the `_anom` suffix keeps it apart from the absolute version of §7.1.5.
+The historical years then scatter around zero by construction and the mid-century segment is the projected change, so the lines can be compared regardless of how biased each model is in absolute terms. Output lands as `series_<var>_<index>_anom_<season>.png` — the `_anom` suffix keeps it apart from the absolute version of [§7.1.5](#715-time-series--plot_var_series).
 
 ![tasmax mean anomalies from each source's own 1981-2000 mean](figures/series_tasmax_mean_anom_annual.png)
 
-*Mean `tasmax` as an anomaly from each source's own 1981-2000 climate; solid = perfect predictors, dashed = imperfect. The perfect-framework lines are indistinguishable from the RCM's in both windows: they reproduce not just the ~+1.9 K shift between the periods but every year-to-year excursion, including the 2050 spike and the 2044 dip. Referenced this way a systematic warm or cold bias would cancel — the ~1 K offset of §7.1.5 is gone from the dashed lines here — so what is left is purely the projected change.*
+*Mean `tasmax` as an anomaly from each source's own 1981-2000 climate; solid = perfect predictors, dashed = imperfect. The perfect-framework lines are indistinguishable from the RCM's in both windows: they reproduce not just the ~+1.9 K shift between the periods but every year-to-year excursion, including the 2050 spike and the 2044 dip. Referenced this way a systematic warm or cold bias would cancel — the ~1 K offset of [§7.1.5](#715-time-series--plot_var_series) is gone from the dashed lines here — so what is left is purely the projected change.*
 
-*And that change differs by framework. The imperfect lines track the same excursions but sit below the perfect ones through the last decade — ~+1.7 K where the perfect ones reach ~+2.2 K: under raw GCM boundaries these emulators project distinctly less warming. That is the same contrast the scorecard in §7.2.1 compresses into two rows per model (+1.77 to +1.82 K perfect against +1.53 to +1.57 K imperfect), shown here year by year. Contrast §7.2.2, where precipitation extremes separate the models sharply.*
+*And that change differs by framework. The imperfect lines track the same excursions but sit below the perfect ones through the last decade — ~+1.7 K where the perfect ones reach ~+2.2 K: under raw GCM boundaries these emulators project distinctly less warming. That is the same contrast the scorecard in [§7.2.1](#721-multivariate-signal-radar--plot_multivar_signal_radar) compresses into two rows per model (+1.77 to +1.82 K perfect against +1.53 to +1.57 K imperfect), shown here year by year. Contrast [§7.2.2](#722-univariate-signal-scorecard--plot_var_signal_scorecard), where precipitation extremes separate the models sharply.*
 
 ______________________________________________________________________
 
