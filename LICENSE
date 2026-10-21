@@ -21,7 +21,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------------------
-The MIT License above applies to the project's own code. Some functions in
-ml_evaluation/evaluation/diagnostics.py are derived from third-party MIT-licensed
-code carrying separate copyright notices; these are listed, with their full
-licence texts, in THIRD_PARTY_NOTICES.md.
+The MIT License above applies to the project's own code. Some functions are 
+derived from third-party MIT-licensed code carrying separate copyright notices; 
+these are listed, with their full licence texts, in THIRD_PARTY_NOTICES.md.
