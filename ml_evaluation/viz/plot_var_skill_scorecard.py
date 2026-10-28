@@ -92,6 +92,7 @@ VALUE_SRC = {
     "bias_p99": ("metrics_fast_field.zarr", "bias_p99_field", True),
     "bias_acorr": ("metrics_fast_field.zarr", "bias_acorr_field", True),
     "bias_rx1day": ("metrics_fast_field.zarr", "bias_max1day_field", True),
+    "bias_txx": ("metrics_fast_field.zarr", "bias_max1day_field", True),
     "bias_r01": ("metrics_fast_pr_field.zarr", "bias_r1_field", True),
     "bias_sdii": ("metrics_fast_pr_field.zarr", "bias_sdii_field", True),
     "bias_p98wet": ("metrics_fast_pr_field.zarr", "bias_p98wet_field", True),
@@ -103,6 +104,7 @@ VALUE_SRC = {
     "wdh": ("metrics_slow_field.zarr", "wdh_field", False),
     "fcss": ("metrics_slow_field.zarr", "fcss_field", False),
     "lhd": ("metrics_slow_field.zarr", "lhd_field", False),
+    "pss": ("metrics_slow_field.zarr", "pss_field", False),
     "bias_annstd": ("metrics_slow_field.zarr", "bias_annstd_field", True),
     "bias_p90": ("metrics_slow_field.zarr", "bias_p90_field", True),
 }
@@ -137,6 +139,7 @@ METRIC_LABELS = {
     "bias_p99": "P99 bias",
     "bias_acorr": "Lag1 corr bias",
     "bias_rx1day": "Rx1day bias",
+    "bias_txx": "TXx bias",
     "bias_r01": "Wet-day freq bias",
     "bias_sdii": "SDII bias",
     "bias_p98wet": "P98Wet bias",
@@ -144,6 +147,7 @@ METRIC_LABELS = {
     "wdh": "Wasserstein (PDF)",
     "fcss": "FCSS",
     "lhd": "LHD",
+    "pss": "PSS",
     "bias_annstd": "Ann. std bias",
     "bias_p90": "P90 bias",
 }
