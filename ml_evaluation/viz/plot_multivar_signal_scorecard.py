@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 c3s-cordex-ml
+# SPDX-License-Identifier: MIT
+
 """
 Climate-change-signal *scorecard* for ML RCM emulators.
 

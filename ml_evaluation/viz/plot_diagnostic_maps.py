@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 c3s-cordex-ml
+# SPDX-License-Identifier: MIT
+
 """
 Code to plot a matrices of lat/lon gridded fields from the validation package.
 

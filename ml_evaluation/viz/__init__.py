@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 c3s-cordex-ml
+# SPDX-License-Identifier: MIT
+
 """Visualization helpers for ml-evaluation outputs.
 
 Each figure entry point whose name equals its submodule is intentionally *not*

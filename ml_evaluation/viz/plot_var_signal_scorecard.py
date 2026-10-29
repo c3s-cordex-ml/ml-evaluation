@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 c3s-cordex-ml
+# SPDX-License-Identifier: MIT
+
 """
 Per-variable *climate-change-signal scorecard* heatmap for ML RCM emulators.
 
