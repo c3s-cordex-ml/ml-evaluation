@@ -22,8 +22,6 @@ dependencies:
 - mpmath
 - networkx
 - sympy
-- pytorch
-- torchvision
 - click
 - zarr
 - bottleneck

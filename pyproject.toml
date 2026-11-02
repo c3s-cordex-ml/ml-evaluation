@@ -32,9 +32,10 @@ dependencies = [
   "mpmath",
   "networkx",
   "sympy",
-  "torch",
-  "torchvision",
-  "click"
+  "click",
+  "dask>=2026.7.1,<2027",
+  "distributed>=2026.7.1,<2027",
+  "zarr>=3.2.1,<4"
 ]
 description = "Evaluation of Machine Learning Regional Climate Models"
 name = "ml-evaluation"
