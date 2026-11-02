@@ -209,6 +209,59 @@ def write_zarr(
     ds.load().to_zarr(path, encoding=encoding, mode=mode)
 
 
+def write_json(
+    metrics: dict[str, Any],
+    path: str,
+    var: str | None = None,
+) -> None:
+    """
+    Save a dictionary of scalar diagnostics to a JSON file.
+
+    Each diagnostic (Dataset, DataArray or number) is reduced to a single
+    float and written as a flat ``{name: value}`` mapping. NaN values are not
+    valid JSON, so they are written as ``null`` (not filled or dropped).
+
+    Parameters
+    ----------
+    metrics : dict[str, Any]
+        Dictionary mapping diagnostic names to scalar values.
+    path : str
+        The output file path.
+    var : str | None, optional
+        The variable name to extract from Dataset elements. Required if any
+        element is a Dataset.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If a diagnostic is not a scalar (it still has dimensions).
+    """
+    import json
+    import math
+    from pathlib import Path
+
+    values: dict[str, float | None] = {}
+    for name, item in metrics.items():
+        if isinstance(item, xr.Dataset):
+            if var is None:
+                raise ValueError("var must be specified for Dataset diagnostics.")
+            item = item[var]
+        if isinstance(item, xr.DataArray):
+            if item.ndim != 0:
+                raise ValueError(
+                    f"Diagnostic '{name}' is not a scalar (dims: {item.dims})."
+                )
+            item = item.load().item()
+        number = float(item)
+        values[name] = None if math.isnan(number) else number
+
+    Path(path).write_text(json.dumps(values, indent=2) + "\n")
+
+
 def write_text(content: str, path: str) -> None:
     """
     Write a string content to a text file.

@@ -24,7 +24,7 @@ from ml_evaluation.evaluation.signal import (
     compute_signal,
     snap_grid,
 )
-from ml_evaluation.io import load_dataset, write_zarr, dask_default_params
+from ml_evaluation.io import load_dataset, write_json, write_zarr, dask_default_params
 from ml_evaluation.transformations import (
     align_dims,
     convert_threshold_units,
@@ -56,7 +56,7 @@ def _get_output_path(base: str, default_name: str) -> str:
     """
     if os.path.isdir(base):
         return os.path.join(base, default_name)
-    if base.endswith(".zarr"):
+    if base.endswith((".zarr", ".json")):
         return base
     return f"{base}_{default_name}"
 
@@ -560,7 +560,7 @@ def fast(
     "--output",
     required=True,
     type=str,
-    help="Directory, file prefix, or final CSV file path.",
+    help="Directory, file prefix, or final JSON file path.",
 )
 @click.option(
     "--season",
@@ -603,7 +603,7 @@ def benchmark(
     force_load: bool,
     use_dask: bool,
 ) -> None:
-    """Compute scalar CORDEX-ML-Bench comparison metrics for pr or tasmax.
+    """Compute scalar CORDEX-ML-Bench comparison metrics for 'pr' or 'tasmax'.
     
         Parameters
     ----------
@@ -745,7 +745,7 @@ def benchmark(
 
         # Compute Logarithmic Histogram Distance
         click.echo("Computing Logarithmic Histogram Distance (LHD)...")
-        metrics["lhdf"] = calc_pdf_metric_xr(
+        metrics["lhd"] = calc_pdf_metric_xr(
             x0_ds,
             x1_ds,
             var=var,
@@ -763,7 +763,7 @@ def benchmark(
     # tasmax specific 
     # -------------------
 
-    elif var == 'tasmax':
+    elif var == "tasmax":
 
         click.echo("Computing bias of the mean annual maximum daily maximum temperature (TXx)...")
         biasf_max1day_ds = bias_index(
@@ -809,11 +809,11 @@ def benchmark(
     # Save all benchmark-track metrics
     click.echo("Combining and saving metrics...")
 
-    metrics_path = _get_output_path(output, "metrics_benchmark.zarr")
-    write_zarr(metrics, metrics_path, mode="w", var=var)
+    metrics_path = _get_output_path(output, "metrics_benchmark.json")
+    write_json(metrics, metrics_path, var=var)
 
     click.echo(f"Saved benchmark metrics to {metrics_path}")
-
+    
     click.echo("Benchmark evaluation complete.")
 
 

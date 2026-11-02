@@ -148,3 +148,27 @@ def test_write_diagnostics_dict(tmp_path: pathlib.Path) -> None:
     ds_nc = xr.open_dataset(str(nc_path))
     assert "value" in ds_nc
     assert set(ds_nc["diagnostic"].values) == {"mean_bias", "rmsefld", "rmse"}
+
+
+import pytest
+
+
+def test_write_json(tmp_path: pathlib.Path) -> None:
+    """write_json reduces Dataset/DataArray/float scalars to a flat JSON map."""
+    import json
+    import numpy as np
+    import xarray as xr
+    from ml_evaluation.io import write_json
+
+    metrics = {
+        "a": xr.Dataset({"pr": xr.DataArray(1.5)}),
+        "b": xr.DataArray(2.5),
+        "c": 3.5,
+        "d": float("nan"),
+    }
+    path = tmp_path / "m.json"
+    write_json(metrics, str(path), var="pr")
+    assert json.loads(path.read_text()) == {"a": 1.5, "b": 2.5, "c": 3.5, "d": None}
+
+    with pytest.raises(ValueError):
+        write_json({"x": xr.DataArray(np.ones(3), dims="t")}, str(path))

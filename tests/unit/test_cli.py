@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import numpy as np
@@ -124,6 +125,65 @@ def test_cli_fast_workflow(
 
     # Check if files were created
     assert os.path.exists(f"{output_prefix}_metrics_fast_field.zarr")
+
+
+@pytest.mark.parametrize(
+    ("var", "expected_metrics"),
+    [
+        ("pr", {"rmse", "clim_mean", "ralsd", "sdii", "rx1day", "lhd"}),
+        ("tasmax", {"rmse", "clim_mean", "ralsd", "txx", "pss", "iav"}),
+    ],
+)
+def test_cli_benchmark_workflow(
+    var: str, expected_metrics: set[str], tmp_path: pathlib.Path
+) -> None:
+    rng = np.random.default_rng(3)
+    times = pd.date_range("2001-01-01", periods=730, freq="D")
+    coords = {"time": times, "lat": [45.0, 46.0], "lon": [10.0, 11.0]}
+    if var == "pr":
+        target = rng.gamma(1.5, 2.0, size=(730, 2, 2))
+        units = "mm/day"
+    else:
+        target = 295.0 + rng.normal(0.0, 3.0, size=(730, 2, 2))
+        units = "K"
+
+    reference = xr.Dataset(
+        {var: (["time", "lat", "lon"], target, {"units": units})},
+        coords=coords,
+    )
+    prediction_values = target * 1.1 + 0.1 if var == "pr" else target + 0.5
+    prediction = xr.Dataset(
+        {var: (["time", "lat", "lon"], prediction_values, {"units": units})},
+        coords=coords,
+    )
+    x0_path = tmp_path / f"{var}_ref.nc"
+    x1_path = tmp_path / f"{var}_pred.nc"
+    reference.to_netcdf(x0_path)
+    prediction.to_netcdf(x1_path)
+    output_prefix = str(tmp_path / f"benchmark_{var}")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "benchmark",
+            "--x0",
+            str(x0_path),
+            "--x1",
+            str(x1_path),
+            "--var",
+            var,
+            "--output",
+            output_prefix,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    json_path = f"{output_prefix}_metrics_benchmark.json"
+    assert os.path.exists(json_path)
+    with open(json_path) as f:
+        metrics = json.load(f)
+    assert set(metrics) == expected_metrics
+    assert all(v is not None and np.isfinite(v) for v in metrics.values())
 
 
 @pytest.fixture
