@@ -715,10 +715,27 @@ def benchmark(
     click.echo("Computing Radially Averaged Log Spectral Distance (RALSD)...")
     ralsd_val = ralsd(psd_x0, psd_x1, var)
 
+    # -------------------
+    # Mean annual maxima
+    # -------------------
+    click.echo("Computing bias of the mean annual daily maxima...")
+    biasf_max1day_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices.ann_extrema,
+        maxmin="max",
+        cmean=True,
+    )
+    # Aggregate to a scalar
+    bias_max1day = abs(biasf_max1day_ds[var]).mean()
+    
     metrics = {
         "rmse": rmse_ds,
-        "clim_mean": bias_ds,
+        "bias_mean": bias_ds,
         "ralsd": ralsd_val,
+        "bias_max1day": bias_max1day,
     }
 
     # -------------------
@@ -739,20 +756,7 @@ def benchmark(
             output_index=False,
         )
         # Aggregate to a scalar
-        metrics["sdii"] = abs(biasf_sdii_ds[var]).mean()
-
-        click.echo("Computing bias of the mean annual maximum 1-day precipitation (Rx1day)...")
-        biasf_max1day_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_extrema,
-            maxmin="max",
-            cmean=True,
-        )
-        # Aggregate to a scalar
-        metrics["rx1day"] = abs(biasf_max1day_ds[var]).mean()
+        metrics["bias_sdii"] = abs(biasf_sdii_ds[var]).mean()
 
         # Compute Logarithmic Histogram Distance
         click.echo("Computing Logarithmic Histogram Distance (LHD)...")
@@ -775,19 +779,6 @@ def benchmark(
     # -------------------
 
     elif var == "tasmax":
-
-        click.echo("Computing bias of the mean annual maximum daily maximum temperature (TXx)...")
-        biasf_max1day_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_extrema,
-            maxmin="max",
-            cmean=True,
-        )
-        # Aggregate to a scalar
-        metrics["txx"] = abs(biasf_max1day_ds).mean()
 
         click.echo("Computing the Perkins Skill Score (PSS)...")
         metrics["pss"] = calc_pdf_metric_xr(
@@ -815,11 +806,12 @@ def benchmark(
             index_fn=indices.interannual_var,
         )
         # Aggregate to a scalar
-        metrics["iav"] = abs(biasf_annstd_ds).mean()
+        metrics["bias_annstd"] = abs(biasf_annstd_ds).mean()
 
     # Save all benchmark-track metrics
     click.echo("Combining and saving metrics...")
 
+    metrics = dict(sorted(metrics.items()))
     metrics_path = _get_output_path(output, "metrics_benchmark.json")
     write_json(
         metrics,
