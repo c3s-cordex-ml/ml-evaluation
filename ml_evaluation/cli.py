@@ -30,6 +30,7 @@ from ml_evaluation.transformations import (
     convert_threshold_units,
     spatial_dims,
     spatial_dims_present,
+    standardize_precip_units,
 )
 
 
@@ -649,9 +650,10 @@ def benchmark(
         x1, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
     )[[var]]
 
-    if var == "pr" and x1_ds["pr"].max() > 1 and x0_ds["pr"].max() < 1:
-        click.echo("WARNING: pr converted from mm/day to kg/m2/s")
-        x1_ds["pr"] = x1_ds["pr"] / 86400.0
+    # Ensure precipitation is in mm/day
+    if var == "pr":
+        x0_ds = standardize_precip_units(x0_ds, var)
+        x1_ds = standardize_precip_units(x1_ds, var)
 
     # Ensemble size
     extra_dims = set(x1_ds.dims) - set(x0_ds.dims)

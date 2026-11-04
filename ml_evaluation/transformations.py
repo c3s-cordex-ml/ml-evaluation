@@ -190,6 +190,95 @@ def convert_threshold_units(x0_ds, var):
     return scale, shift
 
 
+def standardize_precip_units(ds: xr.Dataset, var: str) -> xr.Dataset:
+    """
+    Convert precipitation to mm/day, whatever its original units.
+
+    Units are read from the ``units`` attribute of ``ds[var]``:
+
+    - a recognised flux (e.g. ``kg m-2 s-1``) is multiplied by 86400;
+    - a recognised daily amount (e.g. ``mm/day``) is left unchanged;
+    - missing or empty units are inferred from the data: if the maximum is
+      below ``THRESHOLD`` (0.1) the data are assumed to be a
+      flux in kg m-2 s-1 and converted, otherwise they are assumed to be in
+      mm/day. A warning reports the assumption;
+    - any other explicit units raise a ``ValueError``.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Dataset containing ``var``.
+    var : str
+        Name of the variable containing precipitation values.
+
+    Returns
+    -------
+    xr.Dataset
+        A copy of ``ds`` with ``var`` in mm/day and ``attrs["units"]`` set to
+        ``"mm/day"``.
+
+    Raises
+    ------
+    ValueError
+        If the units are explicit but not recognised, or if they are missing
+        and the data are all NaN (so they cannot be inferred).
+    """
+
+    SECONDS_PER_DAY = 86400
+    THRESHOLD = 0.1
+    PRECIP_FLUX_UNITS = {
+        "kg m-2 s-1",
+        "kg/m2/s",
+        "kg m^-2 s^-1",
+        "kg.m-2.s-1",
+        "kg m**-2 s**-1",
+        "mm/s",
+        "mm s-1",
+    }
+    PRECIP_DAILY_UNITS = {
+        "mm/day",
+        "mm day-1",
+        "mm d-1",
+        "mm.day-1",
+        "mm/d",
+        "mm"
+    }
+
+    attrs = dict(ds[var].attrs)
+    raw_units = attrs.get("units")
+    units = "" if raw_units is None else str(raw_units).strip().lower()
+
+    if units in PRECIP_FLUX_UNITS:
+        factor = SECONDS_PER_DAY
+    elif units in PRECIP_DAILY_UNITS:
+        factor = 1.0
+    elif units in ("", "none"):
+        max_value = float(ds[var].max())
+        if np.isnan(max_value):
+            raise ValueError(
+                f"Cannot infer units of '{var}': no 'units' attribute and all "
+                "values are NaN."
+            )
+        if max_value < THRESHOLD:
+            factor = SECONDS_PER_DAY
+            print(
+                f"Warning. '{var}' has no units; assumed kg m-2 s-1 "
+                "and converted to mm/day."
+            )
+        else:
+            factor = 1.0
+            print(f"Warning. '{var}' has no units; assumed mm/day.")
+    else:
+        raise ValueError(f"Unrecognised units for '{var}': {raw_units!r}.")
+
+    ds = ds.copy()
+    if factor != 1.0:
+        ds[var] = ds[var] * factor
+    attrs["units"] = "mm/day"
+    ds[var].attrs = attrs
+    return ds
+
+
 def align_dims(x0_ds, x1_ds, member=None):
     """
     Align x0_ds and x1_ds along lat/lon and time, and detect a member dimension.
