@@ -213,6 +213,7 @@ def write_json(
     metrics: dict[str, Any],
     path: str,
     var: str | None = None,
+    attrs: dict[str, Any] | None = None,
 ) -> None:
     """
     Save a dictionary of scalar diagnostics to a JSON file.
@@ -220,6 +221,8 @@ def write_json(
     Each diagnostic (Dataset, DataArray or number) is reduced to a single
     float and written as a flat ``{name: value}`` mapping. NaN values are not
     valid JSON, so they are written as ``null`` (not filled or dropped).
+    Optional metadata describing how the diagnostics were computed is written
+    as-is under the key ``"attrs"``.
 
     Parameters
     ----------
@@ -230,6 +233,9 @@ def write_json(
     var : str | None, optional
         The variable name to extract from Dataset elements. Required if any
         element is a Dataset.
+    attrs : dict[str, Any] | None, optional
+        JSON-serializable metadata (e.g. the ensemble member evaluated), written
+        under ``"attrs"``. Omitted from the file when None.
 
     Returns
     -------
@@ -238,13 +244,17 @@ def write_json(
     Raises
     ------
     ValueError
-        If a diagnostic is not a scalar (it still has dimensions).
+        If a diagnostic is not a scalar (it still has dimensions), or if
+        ``"attrs"`` is also the name of a diagnostic.
     """
     import json
     import math
     from pathlib import Path
 
-    values: dict[str, float | None] = {}
+    if attrs is not None and "attrs" in metrics:
+        raise ValueError("'attrs' is reserved for metadata, not a diagnostic name.")
+
+    values: dict[str, Any] = {}
     for name, item in metrics.items():
         if isinstance(item, xr.Dataset):
             if var is None:
@@ -258,6 +268,8 @@ def write_json(
             item = item.load().item()
         number = float(item)
         values[name] = None if math.isnan(number) else number
+    if attrs is not None:
+        values["attrs"] = attrs
 
     Path(path).write_text(json.dumps(values, indent=2) + "\n")
 

@@ -653,7 +653,18 @@ def benchmark(
         click.echo("WARNING: pr converted from mm/day to kg/m2/s")
         x1_ds["pr"] = x1_ds["pr"] / 86400.0
 
+    # Ensemble size
+    extra_dims = set(x1_ds.dims) - set(x0_ds.dims)
+    n_members = x1_ds.sizes[extra_dims.pop()] if len(extra_dims) == 1 else 1
+
     x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
+    # Drop the member dimension if it has size 1
+    member = None
+    if member_dim is not None and x1_ds.sizes[member_dim] == 1:
+        member = member_num
+        x1_ds = x1_ds.squeeze(member_dim, drop=True)
+        member_dim = None
+    
     # Horizontal dims of THIS variable: (lat, lon) on a regular grid,
     # (y, x) on a curvilinear one where lat/lon are 2-D coordinates.
     sdims = spatial_dims(x1_ds, var)
@@ -810,7 +821,12 @@ def benchmark(
     click.echo("Combining and saving metrics...")
 
     metrics_path = _get_output_path(output, "metrics_benchmark.json")
-    write_json(metrics, metrics_path, var=var)
+    write_json(
+        metrics,
+        metrics_path,
+        var=var,
+        attrs={"member": member, "n_members": n_members},
+    )
 
     click.echo(f"Saved benchmark metrics to {metrics_path}")
     
