@@ -112,7 +112,9 @@ def _render(
         log_scale=log_scale,
     )
     # plot_pdf_multi_model_Mvar appends the diagnostic tag and the extension.
-    stem = filename + (f"_{incl_diag}" if incl_diag in {"wdh", "fcss", "pss", "lhd"} else "")
+    stem = filename + (
+        f"_{incl_diag}" if incl_diag in {"wdh", "fcss", "pss", "lhd"} else ""
+    )
     path = os.path.join(out, stem + ".png")
     print(f"[var-pdf] {path}  (models: {', '.join(models)})")
     return path

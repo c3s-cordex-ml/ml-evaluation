@@ -2,13 +2,17 @@ import os
 import numpy as np
 import xarray as xr
 import matplotlib
-matplotlib.use('Agg') # Improves plotting efficiency. Remove if want to pause code and make plots within run.
+
+matplotlib.use(
+    "Agg"
+)  # Improves plotting efficiency. Remove if want to pause code and make plots within run.
 import matplotlib.pyplot as plt
 
 from ml_evaluation.viz.plot_hexagon import metrics_dir
 
 # Histogram store (written by ``ml-eval slow``) inside each ``<path>/<var>/`` dir.
 HIST_STORE = "metrics_slow_hist.zarr"
+
 
 # -----------------------------------------------------------------------------
 def plot_pdf_multi_model_Mvar(
@@ -23,8 +27,8 @@ def plot_pdf_multi_model_Mvar(
     season="ANN",
     incl_diag=None,
     ymin=None,
-    log_scale=True):
-
+    log_scale=True,
+):
     """
     Plot histograms (pdfs) straight from zarr files.
     As in ``plot_var_skill_scorecard`` / ``plot_hexagon``, each entry of
@@ -99,7 +103,7 @@ def plot_pdf_multi_model_Mvar(
 
     # Example input parameters
     input_target_pred=['TARG','PRED','PRED']
-    input_member=[0,0,0]    
+    input_member=[0,0,0]
     legend_list=['Ground truth', 'UNET-MULTI', 'RESDIFF']
     color_list=['black','blue','red']
 
@@ -111,98 +115,118 @@ def plot_pdf_multi_model_Mvar(
     variable_list=['pr','tasmax']
 
     """
-    
-    num_variables=len(variable_list)
+
+    num_variables = len(variable_list)
 
     # Default to the current working directory if no valid out_dir given
-    if not isinstance(out_dir,str):
-        out_dir=""
+    if not isinstance(out_dir, str):
+        out_dir = ""
 
     print(out_dir)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
-    if not isinstance(out_fname,str):
-        out_fname=None
+    if not isinstance(out_fname, str):
+        out_fname = None
 
-    if isinstance(out_fname,type(None)):
-        out_fname="pdf_hist_"+season+"_"+str(int(num_variables))+"var"
-        if num_variables==1: out_fname=out_fname+"_"+variable_list[0]
+    if isinstance(out_fname, type(None)):
+        out_fname = "pdf_hist_" + season + "_" + str(int(num_variables)) + "var"
+        if num_variables == 1:
+            out_fname = out_fname + "_" + variable_list[0]
 
-    if not incl_diag in {'wdh','fcss','pss','lhd'}:
-        incl_diag=None
+    if incl_diag not in {"wdh", "fcss", "pss", "lhd"}:
+        incl_diag = None
 
-    if not isinstance(incl_diag,type(None)):
-        out_fname=out_fname+"_"+incl_diag
+    if not isinstance(incl_diag, type(None)):
+        out_fname = out_fname + "_" + incl_diag
 
-    nrows=int(np.ceil(num_variables/2))
-    ncols=2
-    figure_size=(8,10)
-    
-    if num_variables==1:
-        nrows=1
-        ncols=1
-        figure_size=(5,4)
+    nrows = int(np.ceil(num_variables / 2))
+    ncols = 2
+    figure_size = (8, 10)
 
-    fig, axes = plt.subplots(nrows, ncols, figsize=figure_size,
-        layout='constrained', squeeze=False)
+    if num_variables == 1:
+        nrows = 1
+        ncols = 1
+        figure_size = (5, 4)
+
+    fig, axes = plt.subplots(
+        nrows, ncols, figsize=figure_size, layout="constrained", squeeze=False
+    )
 
     for jj in range(num_variables):
-        variable=variable_list[jj]
+        variable = variable_list[jj]
 
-        shift=0.0
-        scale=1.0
-        units=""
+        # shift = 0.0
+        scale = 1.0
+        units = ""
 
-        if variable=="pr":
-            scale=86400.0
-            units="mm/day"
+        if variable == "pr":
+            scale = 86400.0
+            units = "mm/day"
 
-        if variable=="tas" or variable=="tasmax" or variable=="tasmin":
-            units="K"
+        if variable == "tas" or variable == "tasmax" or variable == "tasmin":
+            units = "K"
 
-        if variable=="uas" or variable=="vas":
-            units="m/s"
+        if variable == "uas" or variable == "vas":
+            units = "m/s"
 
-        if variable=="psl":
-            scale=1/100.
-            units="hPa"
+        if variable == "psl":
+            scale = 1 / 100.0
+            units = "hPa"
 
-        if variable=="hurs":
-           units="%"
+        if variable == "hurs":
+            units = "%"
 
-        ax=axes.flatten()[jj]
-        num_hist=len(input_dir_list)
+        ax = axes.flatten()[jj]
+        num_hist = len(input_dir_list)
         for ii in range(num_hist):
-            filename1=os.path.join(metrics_dir(input_dir_list[ii], variable), HIST_STORE)
+            filename1 = os.path.join(
+                metrics_dir(input_dir_list[ii], variable), HIST_STORE
+            )
             print(filename1)
             if not os.path.isdir(filename1):
                 raise ValueError(f"zarr store not found: {filename1}")
             ds1 = xr.open_zarr(filename1)
             ds1 = ds1.sel(member=input_member[ii])
-            ds1_legend=f"{legend_list[ii]}"
+            ds1_legend = f"{legend_list[ii]}"
 
-            if input_target_pred[ii]=='TARG':
-                ds1_hist=ds1['value'].sel(diagnostic='targ_hist_series').load().values[0:-1]
-	
-            if input_target_pred[ii]=='PRED':
-                ds1_hist=ds1['value'].sel(diagnostic='pred_hist_series').load().values[0:-1]
-                if incl_diag=='wdh': ds1_legend=f"{ds1_legend}, WDh={ds1['value'].sel(diagnostic='wdh_float').load().values[0]*scale:.3f}"
-                if incl_diag=='fcss': ds1_legend=f"{ds1_legend}, FCSS={ds1['value'].sel(diagnostic='fcss_float').load().values[0]:.3f}"
-                if incl_diag=='pss': ds1_legend=f"{ds1_legend}, PSS={ds1['value'].sel(diagnostic='pss_float').load().values[0]:.3f}"
-                if incl_diag=='lhd': ds1_legend=f"{ds1_legend}, LHD={ds1['value'].sel(diagnostic='lhd_float').load().values[0]:.3f}"
+            if input_target_pred[ii] == "TARG":
+                ds1_hist = (
+                    ds1["value"].sel(diagnostic="targ_hist_series").load().values[0:-1]
+                )
 
-            ds1_binedges=ds1['value'].sel(diagnostic='bins_hist_series').load().values*scale
+            if input_target_pred[ii] == "PRED":
+                ds1_hist = (
+                    ds1["value"].sel(diagnostic="pred_hist_series").load().values[0:-1]
+                )
+                if incl_diag == "wdh":
+                    ds1_legend = f"{ds1_legend}, WDh={ds1['value'].sel(diagnostic='wdh_float').load().values[0]*scale:.3f}"
+                if incl_diag == "fcss":
+                    ds1_legend = f"{ds1_legend}, FCSS={ds1['value'].sel(diagnostic='fcss_float').load().values[0]:.3f}"
+                if incl_diag == "pss":
+                    ds1_legend = f"{ds1_legend}, PSS={ds1['value'].sel(diagnostic='pss_float').load().values[0]:.3f}"
+                if incl_diag == "lhd":
+                    ds1_legend = f"{ds1_legend}, LHD={ds1['value'].sel(diagnostic='lhd_float').load().values[0]:.3f}"
 
-            ax.stairs(ds1_hist, ds1_binedges, label=ds1_legend, linewidth=1, color=color_list[ii])
+            ds1_binedges = (
+                ds1["value"].sel(diagnostic="bins_hist_series").load().values * scale
+            )
+
+            ax.stairs(
+                ds1_hist,
+                ds1_binedges,
+                label=ds1_legend,
+                linewidth=1,
+                color=color_list[ii],
+            )
 
         if log_scale:
-            ax.set_yscale('log')
-        ax.set_ylim([ymin,None])
+            ax.set_yscale("log")
+        ax.set_ylim([ymin, None])
         ax.set_title(variable)
         ax.set_xlabel(units)
-        ax.set_ylabel('Density')
+        ax.set_ylabel("Density")
         ax.legend()
 
-    plt.savefig(os.path.join(out_dir, out_fname+".png"))
-    plt.close('all')
+    plt.savefig(os.path.join(out_dir, out_fname + ".png"))
+    plt.close("all")
