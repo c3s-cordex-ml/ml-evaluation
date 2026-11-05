@@ -9,6 +9,7 @@ the submodule itself:
 
     from ml_evaluation.viz.plot_hexagon import plot_hexagon
     from ml_evaluation.viz.plot_var_skill_scorecard import plot_var_skill_scorecard
+    from ml_evaluation.viz.plot_var_pdf import plot_var_pdf
     from ml_evaluation.viz.plot_var_signal_scorecard import plot_var_signal_scorecard
     from ml_evaluation.viz.plot_multivar_signal_scorecard import (
         plot_multivar_signal_scorecard,
