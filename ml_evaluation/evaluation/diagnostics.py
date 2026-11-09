@@ -17,6 +17,7 @@ from numpy import fft
 from scipy.stats import (
     wasserstein_distance as scipy_wasserstein_distance,
 )
+from scipy.signal import coherence, welch
 from scipy.spatial.distance import jensenshannon
 
 from ml_evaluation.evaluation.utils import (
@@ -538,6 +539,366 @@ def ralsd(psd_x0: xr.Dataset, psd_x1: xr.Dataset, var: str) -> xr.Dataset:
     res = xr.Dataset({var: np.sqrt((log_ratio_da**2).mean(dim="wavenumber"))})
 
     return res
+
+
+# Latitude-like dimension names on which the grid is regular in (rotated)
+# spherical coordinates, so that cell area is proportional to cos(latitude).
+_SPHERICAL_LAT_DIMS = ("lat", "latitude", "rlat")
+
+
+def _spherical_weights(da: xr.DataArray, sdims: tuple[str, ...]) -> xr.DataArray:
+    """
+    Spherical (area) weights over the horizontal dimensions of ``da``.
+
+    For grids regular in (rotated) latitude/longitude -- horizontal dims
+    lat/lon, latitude/longitude or rlat/rlon -- the cell area is proportional
+    to cos(latitude of the grid's own coordinate system), so the weight is
+    cos of the 1-D latitude-like dimension coordinate. For projected grids
+    (y/x, e.g. Lambert conformal) cells are approximately equal-area and
+    uniform weights are returned.
+
+    Parameters
+    ----------
+    da : xr.DataArray
+        Field whose horizontal grid defines the weights.
+    sdims : tuple of str
+        Horizontal dimension names of ``da`` (from ``spatial_dims``).
+
+    Returns
+    -------
+    xr.DataArray
+        Non-negative weights over the latitude-like dim (broadcast against the
+        other horizontal dim), or a scalar 1.0 DataArray for uniform weights.
+    """
+    for dim in sdims:
+        if dim in _SPHERICAL_LAT_DIMS and dim in da.coords:
+            return cast(xr.DataArray, np.cos(np.deg2rad(da[dim]))).clip(min=0.0)
+    return xr.DataArray(1.0)
+
+
+def _welch_frequencies(
+    ntime: int, fs: float, welch_kwargs: dict[str, Any]
+) -> np.ndarray:
+    """Frequencies returned by a Welch estimate on a series of length ntime."""
+    freqs, _ = welch(np.zeros(ntime), fs=fs, **welch_kwargs)
+    return freqs
+
+
+def temporal_psd(
+    x0: xr.Dataset,
+    x1: xr.Dataset,
+    var: str,
+    season: str | None = None,
+    time_dim: str = "time",
+    fs: float = 1.0,
+    nperseg: int | None = None,
+    noverlap: int | None = None,
+    window: str = "hann",
+    detrend: str | bool = "constant",
+    norm_psd: bool = False,
+    spatial_mean: bool = True,
+    weights: xr.DataArray | None = None,
+) -> tuple[xr.Dataset, xr.Dataset]:
+    """
+    Compute the temporal power spectral density for x0 and x1 datasets.
+
+    Temporal analogue of :func:`psd`: rather than a 2D FFT over (lat, lon)
+    radially averaged into wavenumbers, a Welch estimate of the PSD is taken
+    along the time axis of every grid-point (and member) time series. The
+    per-point spectra are then (optionally) averaged over space with
+    spherical weights, giving one spectrum per member. The output can be
+    compared with :func:`ralsd` after renaming ``frequency`` to
+    ``wavenumber``.
+
+    Parameters
+    ----------
+    x0 : xr.Dataset
+        Ground truth dataset.
+    x1 : xr.Dataset
+        Predicted dataset (may carry one extra member dimension).
+    var : str
+        Variable name to analyse.
+    season : str | None, optional
+        Season/month to filter before computing the PSD. Note the filtered
+        series concatenates non-contiguous periods across years, which adds
+        spurious power at the joins; prefer ``None`` for spectral analysis.
+    time_dim : str, default "time"
+        Name of the time dimension.
+    fs : float, default 1.0
+        Sampling frequency. With the default the frequency coordinate is in
+        cycles per time step (e.g. cycles/day for daily data).
+    nperseg : int or None, optional
+        Welch segment length; scipy default (256, or the series length if
+        shorter) when None. For daily data, a multiple of 365 resolves the
+        annual cycle.
+    noverlap : int or None, optional
+        Points of overlap between segments; scipy default (nperseg // 2).
+    window : str, default "hann"
+        Welch window.
+    detrend : str or bool, default "constant"
+        Welch per-segment detrending ("constant", "linear" or False).
+    norm_psd : bool, default False
+        True => normalise each spectrum so it sums to one over frequency.
+    spatial_mean : bool, default True
+        True => spherically weighted mean over the horizontal dims; False
+        returns the per-grid-point spectra.
+    weights : xr.DataArray or None, optional
+        Explicit horizontal weights (e.g. cell areas) to use instead of the
+        default spherical weights in the spatial mean.
+
+    Returns
+    -------
+    tuple of xr.Dataset
+        Temporal power spectral densities for x0 and x1, with a
+        ``frequency`` dimension (plus ``member`` for an ensemble x1, and the
+        horizontal dims if ``spatial_mean`` is False).
+
+    Notes
+    -----
+    Grid points containing NaN (e.g. masked ocean) yield NaN spectra and are
+    excluded from the spatial mean.
+    """
+    welch_kwargs = dict(
+        nperseg=nperseg, noverlap=noverlap, window=window, detrend=detrend
+    )
+
+    x0_da = filter_by_monthseason(x0, season)[var]
+    x1_da = filter_by_monthseason(x1, season)[var]
+
+    freqs = _welch_frequencies(x0_da.sizes[time_dim], fs, welch_kwargs)
+
+    def _psd_1d(arr: np.ndarray) -> np.ndarray:
+        _, pxx = welch(arr, fs=fs, axis=-1, **welch_kwargs)
+        return pxx
+
+    def _apply(da: xr.DataArray) -> xr.DataArray:
+        out = xr.apply_ufunc(
+            _psd_1d,
+            da,
+            input_core_dims=[[time_dim]],
+            output_core_dims=[["frequency"]],
+            dask="parallelized",
+            output_dtypes=[float],
+            dask_gufunc_kwargs={
+                "output_sizes": {"frequency": freqs.size},
+                "allow_rechunk": True,
+            },
+        ).assign_coords(frequency=freqs)
+        if norm_psd:
+            out = out / out.sum("frequency")
+        if spatial_mean:
+            sdims = spatial_dims(da)
+            w = _spherical_weights(da, sdims) if weights is None else weights
+            out = out.weighted(w.fillna(0.0)).mean(dim=list(sdims))
+        return out
+
+    psd_x0_ds = xr.Dataset({var: _apply(x0_da).rename("PSD_x0")})
+    psd_x1_ds = xr.Dataset({var: _apply(x1_da).rename("PSD_x1")})
+
+    return psd_x0_ds, psd_x1_ds
+
+
+def temporal_lsd(
+    psd_x0: xr.Dataset,
+    psd_x1: xr.Dataset,
+    var: str,
+    drop_zero_frequency: bool = True,
+) -> xr.Dataset:
+    """
+    Compute the Log Spectral Distance (LSD) between two temporal power spectra.
+
+    Temporal analogue of :func:`ralsd`: the root-mean-square over frequency of
+    the difference between the two spectra in decibels,
+
+        LSD = sqrt( mean_f [ 10 log10( P_x0(f) / P_x1(f) ) ]^2 )
+
+    Lower values indicate better agreement.
+
+    Parameters
+    ----------
+    psd_x0 : xr.Dataset
+        Temporal power spectral density of the ground truth (as returned by
+        :func:`temporal_psd`).
+    psd_x1 : xr.Dataset
+        Temporal power spectral density of the prediction (as returned by
+        :func:`temporal_psd`).
+    var : str
+        Variable name to analyse.
+    drop_zero_frequency : bool, default True
+        True => exclude the f = 0 bin. With Welch's per-segment detrending
+        the zero-frequency power is close to zero and noise-dominated, so
+        its log ratio can dominate the distance.
+
+    Returns
+    -------
+    xr.Dataset
+        LSD, with any remaining non-frequency dims (e.g. ``member``, or the
+        horizontal dims if the spectra were computed with
+        ``spatial_mean=False``).
+    """
+    p0 = psd_x0[var]
+    p1 = psd_x1[var]
+    if drop_zero_frequency:
+        p0 = p0.sel(frequency=p0["frequency"] > 0)
+        p1 = p1.sel(frequency=p1["frequency"] > 0)
+
+    ratio = p0 / p1.clip(min=1e-30)
+    log_ratio = cast(xr.DataArray, 10.0 * np.log10(ratio.clip(min=1e-30)))
+    res = xr.Dataset({var: np.sqrt((log_ratio**2).mean(dim="frequency"))})
+
+    return res
+
+
+def temporal_coherence(
+    x0: xr.Dataset,
+    x1: xr.Dataset,
+    var: str,
+    season: str | None = None,
+    time_dim: str = "time",
+    fs: float = 1.0,
+    nperseg: int | None = None,
+    noverlap: int | None = None,
+    window: str = "hann",
+    detrend: str | bool = "constant",
+    aggregate: bool = True,
+    weights: xr.DataArray | None = None,
+) -> xr.Dataset:
+    """
+    Compute the temporal magnitude-squared coherence between x0 and x1.
+
+    At each member e, frequency f and grid point (i, j) the coherence
+    (eq. 23 of [1]_) is
+
+        gamma^2_{e,f,i,j} = |S^{x0 x1}|^2 / (S^{x0 x0} S^{x1 x1})
+
+    where S are Welch estimates of the (cross-)spectral densities of the time
+    series at (e, i, j). Values lie in [0, 1]: 0 means no consistent phase or
+    amplitude relationship between the two series at that frequency, 1 a
+    perfect linear relationship. With ``aggregate`` the coherence is then
+    summarised per member and frequency as the spatial mean
+
+        gamma^2_{e,f} = sum_{i,j} w_{i,j} gamma^2_{e,f,i,j}
+
+    with (normalised) spherical weights over (i, j), as in eq. 24 of [1]_
+    but without averaging over members.
+
+    Parameters
+    ----------
+    x0 : xr.Dataset
+        Reference dataset. If it has no member dimension it is compared with
+        every member of x1; if both share a member dimension, members are
+        paired.
+    x1 : xr.Dataset
+        Comparison dataset (may carry one extra member dimension). Its time
+        coordinate must match x0's exactly.
+    var : str
+        Variable name to analyse.
+    season : str | None, optional
+        Season/month to filter before computing. Note the filtered series
+        concatenates non-contiguous periods across years; prefer ``None``.
+    time_dim : str, default "time"
+        Name of the time dimension.
+    fs : float, default 1.0
+        Sampling frequency (default: frequency in cycles per time step).
+    nperseg : int or None, optional
+        Welch segment length; scipy default when None. Must be smaller than
+        the series length for a meaningful coherence (a single segment gives
+        gamma^2 = 1 identically).
+    noverlap : int or None, optional
+        Points of overlap between segments; scipy default (nperseg // 2).
+    window : str, default "hann"
+        Welch window.
+    detrend : str or bool, default "constant"
+        Welch per-segment detrending ("constant", "linear" or False).
+    aggregate : bool, default True
+        True => return the weighted mean over the horizontal dims only,
+        with dims (member, frequency) (or (frequency,) if there is no member
+        dim). False => return the per-point coherence (eq. 23 of [1]_).
+    weights : xr.DataArray or None, optional
+        Explicit horizontal weights (e.g. cell areas) to use instead of the
+        default spherical weights.
+
+    Returns
+    -------
+    xr.Dataset
+        Coherence, dims (member, frequency) if aggregated, else
+        (member, lat, lon, frequency) or similar.
+
+    Raises
+    ------
+    ValueError
+        If x1 has more than one extra dimension relative to x0, or the time
+        coordinates of x0 and x1 differ.
+
+    Notes
+    -----
+    Grid points where either series contains NaN, or is constant (zero
+    power, e.g. never-raining points), give NaN coherence and are excluded
+    from the spatial mean.
+
+    The Welch estimate is biased high for unrelated series: its noise floor
+    is roughly 1 / (number of averaged segments), so shorter ``nperseg``
+    lowers the floor at the cost of frequency resolution.
+
+    References
+    ----------
+    .. [1] Stamatelopoulos, S., Wang, M., Lopez-Gomez, I., Zepeda-Nunez, L.,
+       Wan, Z. Y., Carver, R., Sha, F., & Sapsis, T. P. (2026). DySCo:
+       Dynamically consistent data-driven downscaling of extremes in climate
+       projections. arXiv preprint arXiv:2608.21998.
+    """
+    extra_dim = set(x1[var].dims) - set(x0[var].dims)
+    if len(extra_dim) > 1:
+        raise ValueError("Error: can't handle x1 with more than one extra dim than x0")
+
+    welch_kwargs = dict(
+        nperseg=nperseg, noverlap=noverlap, window=window, detrend=detrend
+    )
+
+    x0_da = filter_by_monthseason(x0, season)[var]
+    x1_da = filter_by_monthseason(x1, season)[var]
+
+    if not x0_da[time_dim].equals(x1_da[time_dim]):
+        raise ValueError(
+            f"Error: x0 and x1 must share the same {time_dim} coordinate "
+            "(align them first, e.g. with transformations.align_dims)"
+        )
+
+    freqs = _welch_frequencies(x0_da.sizes[time_dim], fs, welch_kwargs)
+
+    def _coh_1d(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        a, b = np.broadcast_arrays(a, b)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            _, cxy = coherence(a, b, fs=fs, axis=-1, **welch_kwargs)
+        # Rounding can push exactly-coherent values a few ulps outside [0, 1]
+        # (NaNs are preserved by np.clip)
+        return np.clip(cxy, 0.0, 1.0)
+
+    coh = xr.apply_ufunc(
+        _coh_1d,
+        x0_da,
+        x1_da,
+        input_core_dims=[[time_dim], [time_dim]],
+        output_core_dims=[["frequency"]],
+        join="exact",
+        dask="parallelized",
+        output_dtypes=[float],
+        dask_gufunc_kwargs={
+            "output_sizes": {"frequency": freqs.size},
+            "allow_rechunk": True,
+        },
+    ).assign_coords(frequency=freqs)
+
+    sdims = spatial_dims(coh)
+    if aggregate:
+        w = _spherical_weights(coh, sdims) if weights is None else weights
+        # Spatial mean only: member (and any other non-spatial) dims are kept
+        coh = coh.weighted(w.fillna(0.0)).mean(dim=list(sdims))
+        coh = coh.transpose(..., "frequency")
+    else:
+        coh = coh.transpose(..., *sdims, "frequency")
+
+    return xr.Dataset({var: coh.rename("coherence")})
 
 
 # SPDX-FileCopyrightText: 2026 Klima consulting

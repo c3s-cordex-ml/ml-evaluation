@@ -20,6 +20,9 @@ from ml_evaluation.evaluation.diagnostics import (
     mean_spread_skill_ratio,
     compute_sal_xr,
     compute_sfss2D_xr,
+    temporal_psd,
+    temporal_lsd,
+    temporal_coherence,
 )
 import ml_evaluation.evaluation.indices as indices
 from ml_evaluation.evaluation.signal import (
@@ -367,7 +370,33 @@ def fast(
     ralsd_val = ralsd(psd_x0, psd_x1, var)
     ralsdnorm_val = ralsd(psdnorm_x0, psdnorm_x1, var)
 
-    click.echo(f"RALSD: {ralsd_val}")
+    # -------------------
+    # Temporal PSD
+    # -------------------
+
+    # Compute temporal PSD and LSD including normalised version
+    click.echo("Computing Temporal Power Spectral Density (PSD) (over time)...")
+    tpsd_x0, tpsd_x1 = temporal_psd(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        norm_psd=False,
+        nperseg=365,
+        weights=xr.DataArray(1.0),
+    )
+    tpsdnorm_x0, tpsdnorm_x1 = temporal_psd(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        norm_psd=True,
+        nperseg=365,
+        weights=xr.DataArray(1.0),
+    )
+    click.echo("Computing Temporal Log Spectral Distance (TLSD) (over time)...")
+    tlsd_val = temporal_lsd(tpsd_x0, tpsd_x1, var)
+    tlsdnorm_val = temporal_lsd(tpsdnorm_x0, tpsdnorm_x1, var)
 
     # -------------------
     # pr specific (Bias)
@@ -521,6 +550,8 @@ def fast(
         "rmse_float": rmse_ds,
         "ralsd_float": ralsd_val,
         "ralsdnorm_float": ralsdnorm_val,
+        "tlsd_float": tlsd_val,
+        "tlsdnorm_float": tlsdnorm_val,
     }
 
     metrics_psd = {
@@ -528,6 +559,13 @@ def fast(
         "psd_x1": psd_x1,
         "psdnorm_x0": psdnorm_x0,
         "psdnorm_x1": psdnorm_x1,
+    }
+
+    metrics_tpsd = {
+        "tpsd_x0": tpsd_x0,
+        "tpsd_x1": tpsd_x1,
+        "tpsdnorm_x0": tpsdnorm_x0,
+        "tpsdnorm_x1": tpsdnorm_x1,
     }
 
     # Store metrics to Zarr
@@ -544,6 +582,9 @@ def fast(
 
     metrics_psd_path = _get_output_path(output, "metrics_fast_psd.zarr")
     write_zarr(metrics_psd, metrics_psd_path, mode="w", var=var)
+
+    metrics_tpsd_path = _get_output_path(output, "metrics_fast_tpsd.zarr")
+    write_zarr(metrics_tpsd, metrics_tpsd_path, mode="w", var=var)
 
     click.echo(f"Saved all fast-track metrics to {metrics_path_field} etc...")
 
@@ -1058,6 +1099,22 @@ def slow(
     )
 
     # -------------------
+    # Temporal Coherence
+    # -------------------
+
+    # Compute temporal coherence
+    click.echo("Computing Temporal Coherence (over time)...")
+    temp_coh = temporal_coherence(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        nperseg=365,
+        aggregate=True,
+        weights=xr.DataArray(1.0),
+    )
+
+    # -------------------
     # Spatial pattern metrics per timestep
     # -------------------
 
@@ -1326,11 +1383,18 @@ def slow(
         "scorr_series": scorrs_ds,
     }
 
+    metrics_tcoh = {
+        "tcoh_series": temp_coh,
+    }
+
     metrics_path = _get_output_path(output, "metrics_slow_field.zarr")
     write_zarr(metrics, metrics_path, mode="w", var=var)
 
     metrics_path_series = _get_output_path(output, "metrics_slow_series.zarr")
     write_zarr(metrics_series, metrics_path_series, mode="w", var=var)
+
+    metrics_tcoh_path = _get_output_path(output, "metrics_slow_tcoh.zarr")
+    write_zarr(metrics_tcoh, metrics_tcoh_path, mode="w", var=var)
 
     if var == "pr":
         metrics_pr_path = _get_output_path(output, "metrics_slow_pr_field.zarr")
@@ -2341,7 +2405,7 @@ def binaryevents(
     """
     Run the binary-event evaluation workflow.
 
-    Computes SAL scores for x1 wrt x0
+    Computes SAL scores and Spatial FSS for x1 wrt x0
     for the specified variable and optionally filters by season.
 
     Parameters
