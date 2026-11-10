@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import glob
 import os
 import xarray as xr
 
@@ -42,16 +43,23 @@ def load_dataset(
     chunks: str | dict[str, int] | None = None,
 ) -> xr.Dataset:
     """
-    Load a NetCDF file into an xarray Dataset.
+    Load one or several NetCDF files into an xarray Dataset.
 
     Reads a NetCDF dataset from the specified file path and optionally
     aligns the dataset to a standard calendar by ensuring February 29th
     is present and filled in leap years.
 
+    If ``path`` contains glob wildcards (``*``, ``?`` or ``[``), all matching
+    files are opened with ``xr.open_mfdataset`` and combined along their
+    coordinates (typically ``time``), e.g. to evaluate several test periods
+    (2041-2060 and 2080-2099) at once. The resulting arrays are always
+    Dask-backed (lazy).
+
     Parameters
     ----------
     path : str
-        The absolute or relative path to the NetCDF file.
+        The absolute or relative path to the NetCDF file, or a glob pattern
+        matching several NetCDF files.
     align_leap_days : str | None
         Whether to align the calendar by filling missing leap days (default is None).
         "fill" : fill using February 28th
@@ -63,8 +71,35 @@ def load_dataset(
     -------
     xr.Dataset
         The loaded NetCDF dataset.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``path`` is a glob pattern that matches no file.
+    ValueError
+        If the combined files contain duplicated time stamps (e.g. overlapping
+        periods).
     """
-    dataset = xr.open_dataset(path, chunks=chunks)
+    if any(char in path for char in "*?["):
+        files = sorted(glob.glob(path))
+        if not files:
+            raise FileNotFoundError(f"No files match the pattern: {path}")
+        dataset = xr.open_mfdataset(
+            files,
+            combine="by_coords",
+            chunks=chunks,
+            data_vars="minimal",
+            coords="minimal",
+            compat="override",
+            join="exact",
+        )
+        if "time" in dataset.indexes and not dataset.indexes["time"].is_unique:
+            raise ValueError(
+                f"Duplicated time stamps after combining {len(files)} files "
+                f"matching '{path}'. Check that the files do not overlap in time."
+            )
+    else:
+        dataset = xr.open_dataset(path, chunks=chunks)
     dataset = align_calendar(dataset, align_leap_days=align_leap_days)
     return dataset
 

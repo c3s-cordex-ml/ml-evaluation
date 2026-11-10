@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import click
+import numpy as np
 import xarray as xr
 from ml_evaluation.evaluation.diagnostics import (
     bias_index,
@@ -32,6 +33,8 @@ from ml_evaluation.transformations import (
     spatial_dims_present,
     standardize_precip_units,
 )
+
+BENCHMARK_MEMBER_SEED = 42
 
 
 def _get_output_path(base: str, default_name: str) -> str:
@@ -542,14 +545,20 @@ def fast(
 @click.option(
     "--x0",
     required=True,
-    type=click.Path(exists=True),
-    help="Path to ground-truth NetCDF file.",
+    type=str,
+    help=(
+        "Path to ground-truth NetCDF file, or a quoted glob pattern "
+        "(e.g. 'test/*_century/target/*.nc') to combine several files along time."
+    ),
 )
 @click.option(
     "--x1",
     required=True,
-    type=click.Path(exists=True),
-    help="Path to predictions NetCDF file.",
+    type=str,
+    help=(
+        "Path to predictions NetCDF file, or a quoted glob pattern "
+        "to combine several files along time."
+    ),
 )
 @click.option(
     "--var",
@@ -576,10 +585,14 @@ def fast(
     help="Options to align datasets to standard calendar by filling missing leap days.",
 )
 @click.option(
-    "--member-num",
-    type=int,
-    default=None,
-    help="Option to evaluate a single member or the ensemble mean.",
+    "--max-members",
+    type=click.IntRange(min=1),
+    default=5,
+    show_default=True,
+    help=(
+        "Maximum number of ensemble members (randomly selected) used when the "
+        "predictions are an ensemble. Use 1 to evaluate a single random member."
+    ),
 )
 @click.option(
     "--force-load",
@@ -600,7 +613,7 @@ def benchmark(
     output: str,
     season: str | None,
     align_leap_days: str | None,
-    member_num: int | None,
+    max_members: int,
     force_load: bool,
     use_dask: bool,
 ) -> None:
@@ -609,9 +622,11 @@ def benchmark(
         Parameters
     ----------
     x0 : str
-        Path to ground-truth NetCDF file.
+        Path to ground-truth NetCDF file, or a glob pattern matching several
+        files, which are combined along time (quote it in the shell).
     x1 : str
-        Path to predictions NetCDF file.
+        Path to predictions NetCDF file, or a glob pattern matching several
+        files, which are combined along time (quote it in the shell).
     var : str
         Variable name to evaluate.
     output : str
@@ -620,11 +635,9 @@ def benchmark(
         Optional season or month standard name.
     align_leap_days : str | None
         Options to align datasets to standard calendar by filling missing leap days.
-    member_num : int | None
-        Option to evaluate a single member or the ensemble mean.
-        - member == -1 : compute the ensemble mean over all members.
-        - member >= 0  : select that single member by integer position.
-        Ignored (with a warning) if x1 has no member dimension.
+    max_members : int
+        Maximum number of ensemble members (randomly selected) used when x1 is
+        an ensemble. Use 1 to evaluate a single random member.
     force_load : bool
         Option to load data into memory for quick testing of small datasets.
     use_dask : bool
@@ -633,6 +646,19 @@ def benchmark(
     Returns
     -------
     None
+
+    Notes
+    -----
+    When x1 is an ensemble, members are handled as in the CORDEX-ML-Bench paper
+    and ``cordex-bench-eval``. A random subset of up to ``max_members`` members
+    is drawn once (fixed seed ``BENCHMARK_MEMBER_SEED`` for reproducibility) and
+    shared by all metrics; one member of that subset is the "single" member.
+
+    - Mean aspects (rmse, bias_mean): ensemble mean of the subset.
+    - Extremes (bias_max1day, bias_sdii): index per member, bias averaged over
+      members, then absolute value and spatial mean.
+    - Distributions (lhd, pss): score per member, averaged over members.
+    - ralsd, bias_annstd: single random member.
     """
     if use_dask:
         from dask.distributed import Client
@@ -659,47 +685,71 @@ def benchmark(
     extra_dims = set(x1_ds.dims) - set(x0_ds.dims)
     n_members = x1_ds.sizes[extra_dims.pop()] if len(extra_dims) == 1 else 1
 
-    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
+    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds)
+    # Positions of the members used
+    members = None
     # Drop the member dimension if it has size 1
-    member = None
     if member_dim is not None and x1_ds.sizes[member_dim] == 1:
-        member = member_num
+        members = [0]
         x1_ds = x1_ds.squeeze(member_dim, drop=True)
         member_dim = None
     
-    # Horizontal dims of THIS variable: (lat, lon) on a regular grid,
-    # (y, x) on a curvilinear one where lat/lon are 2-D coordinates.
+    # Spatial dimensions.
     sdims = spatial_dims(x1_ds, var)
 
+    # Draw a random subset of up to `max_members`
+    if member_dim is not None:
+        rng = np.random.default_rng(BENCHMARK_MEMBER_SEED)
+        order = rng.permutation(x1_ds.sizes[member_dim])
+        subset = np.sort(order[:max_members])
+        # The single member (ralsd, bias_annstd) is drawn from the same subset
+        single_pos = int(np.searchsorted(subset, order[0]))
+        x1_ds = x1_ds.isel({member_dim: subset})
+        members = subset.tolist()
+        click.echo(f"Members used: {members} (single member: {int(order[0])})")
+
     # Force loading when testing on smaller datasets so quick to run
-    # Works well on 6 years 3 members 
     if force_load:
         x0_ds.load()
         x1_ds.load()
 
+    # Ensembel mean and single member. The same in deterministic models
+    if member_dim is not None:
+        x1_ensmean = x1_ds.mean(member_dim, keep_attrs=True)
+        x1_single = x1_ds.isel({member_dim: single_pos}, drop=True)
+    else:
+        x1_ensmean = x1_ds
+        x1_single = x1_ds
+
+    def _mean_members(obj):
+        """Average over the member dimension, if present."""
+        if member_dim is not None and member_dim in obj.dims:
+            return obj.mean(member_dim)
+        return obj
+
     scale, shift = convert_threshold_units(x0_ds, var)
 
     # -------------------
-    # RMSE
+    # RMSE (ensemble mean)
     # -------------------
 
     click.echo("Computing RMSE of daily data...")
     rmse_ds = rmse_index(
         x0_ds,
-        x1_ds,
+        x1_ensmean,
         var=var,
         season=season,
         dim=("time", *sdims),
     )
 
     # -------------------
-    # Bias
+    # Bias (ensemble mean)
     # -------------------
 
     click.echo("Computing bias of the climatology...")
     biasf_ds = bias_index(
         x0_ds,
-        x1_ds,
+        x1_ensmean,
         var=var,
         season=season,
         index_fn=indices.mean,
@@ -708,17 +758,19 @@ def benchmark(
     bias_ds = abs(biasf_ds).mean()
 
     # -------------------
-    # RAPSD
+    # RAPSD (single random member)
     # -------------------
 
-    # Compute PSD and RALSD
     click.echo("Computing Power Spectral Density (PSD)...")
-    psd_x0, psd_x1 = psd(x0_ds, x1_ds, var=var, season=season)
+    psd_x0, psd_x1 = psd(x0_ds, x1_single, var=var, season=season)
     click.echo("Computing Radially Averaged Log Spectral Distance (RALSD)...")
     ralsd_val = ralsd(psd_x0, psd_x1, var)
+    # Alternative (paper): score per member, then mean over members
+    #   psd_x0, psd_x1 = psd(x0_ds, x1_ds, var=var, season=season)
+    #   ralsd_val = _mean_members(ralsd(psd_x0, psd_x1, var))
 
     # -------------------
-    # Mean annual maxima
+    # Mean annual maxima (index per member, bias averaged over members)
     # -------------------
     click.echo("Computing bias of the mean annual daily maxima...")
     biasf_max1day_ds = bias_index(
@@ -731,8 +783,8 @@ def benchmark(
         cmean=True,
     )
     # Aggregate to a scalar
-    bias_max1day = abs(biasf_max1day_ds[var]).mean()
-    
+    bias_max1day = abs(_mean_members(biasf_max1day_ds[var])).mean()
+
     metrics = {
         "rmse": rmse_ds,
         "bias_mean": bias_ds,
@@ -758,11 +810,10 @@ def benchmark(
             output_index=False,
         )
         # Aggregate to a scalar
-        metrics["bias_sdii"] = abs(biasf_sdii_ds[var]).mean()
+        metrics["bias_sdii"] = abs(_mean_members(biasf_sdii_ds[var])).mean()
 
-        # Compute Logarithmic Histogram Distance
         click.echo("Computing Logarithmic Histogram Distance (LHD)...")
-        metrics["lhd"] = calc_pdf_metric_xr(
+        lhd_ds = calc_pdf_metric_xr(
             x0_ds,
             x1_ds,
             var=var,
@@ -775,6 +826,8 @@ def benchmark(
             typedistance="lhd",
             member_name=member_dim,
         )
+        # aggregate to a scalar
+        metrics["lhd"] = _mean_members(lhd_ds)
 
     # -------------------
     # tasmax specific 
@@ -783,7 +836,7 @@ def benchmark(
     elif var == "tasmax":
 
         click.echo("Computing the Perkins Skill Score (PSS)...")
-        metrics["pss"] = calc_pdf_metric_xr(
+        pss_ds = calc_pdf_metric_xr(
             x0_ds,
             x1_ds,
             var=var,
@@ -796,19 +849,28 @@ def benchmark(
             typedistance="pss",
             member_name=member_dim,
         )
+        # aggregate to a scalar
+        metrics["pss"] = _mean_members(pss_ds)
 
-        # Compute Bias of std of annual means (over time): field
-        # **IAV
         click.echo("Computing bias of the Interannual Variability (IAV)...")
         biasf_annstd_ds = bias_index(
             x0_ds,
-            x1_ds,
+            x1_single,
             var=var,
             season=season,
             index_fn=indices.interannual_var,
         )
         # Aggregate to a scalar
         metrics["bias_annstd"] = abs(biasf_annstd_ds).mean()
+        # Alternative (paper):
+        #   biasf_annstd_ds = bias_index(
+        #       x0_ds,
+        #       x1_ds, 
+        #       var=var, 
+        #       season=season,
+        #       index_fn=indices.interannual_var,
+        #   )
+        #   metrics["bias_annstd"] = abs(_mean_members(biasf_annstd_ds)).mean()
 
     # Save all benchmark-track metrics
     click.echo("Combining and saving metrics...")
@@ -819,7 +881,7 @@ def benchmark(
         metrics,
         metrics_path,
         var=var,
-        attrs={"member": member, "n_members": n_members},
+        attrs={"n_members": n_members, "members": members},
     )
 
     click.echo(f"Saved benchmark metrics to {metrics_path}")
