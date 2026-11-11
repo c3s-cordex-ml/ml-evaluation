@@ -820,9 +820,7 @@ def benchmark(
             season=season,
             index_fn=None,
             dim=("time", *sdims),
-            bins_arr=None,
-            nbins=100,
-            bin_target_only=True,
+            bins_arr=np.linspace(0.0, 600.0, 61),
             typedistance="lhd",
             member_name=member_dim,
         )
