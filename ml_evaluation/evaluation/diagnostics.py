@@ -559,10 +559,10 @@ def calc_pdf_metric_nparray(
         arr_max = np.array([arr0.max(), arr1.max()]).max()
         if bin_target_only:
             # Fit bins to target truth only so same for all prediction model comparisons
-            bins_arr = np.linspace(arr_min, arr_max, nbins + 1)
+            bins_arr = np.linspace(arr0.min(), arr0.max(), nbins + 1)
         else:
             # Fit bins to target truth and prediction so entire distributions are captured
-            bins_arr = np.linspace(arr0.min(), arr0.max(), nbins + 1)
+            bins_arr = np.linspace(arr_min, arr_max, nbins + 1)
 
     if printBins and bins_arr is not None:
         print(f"edges: {bins_arr[0]}, {bins_arr[1]},... {bins_arr[-1]}")
@@ -1140,10 +1140,10 @@ def calc_histdata_xr(
         arr_max = np.array([arr0.max(), arr1.max()]).max()
         if bin_target_only:
             # Fit bins to target truth only so same for all prediction model comparisons
-            bins_arr = np.linspace(arr_min, arr_max, nbins + 1)
+            bins_arr = np.linspace(arr0.min(), arr0.max(), nbins + 1)
         else:
             # Fit bins to target truth and prediction so entire distributions are captured
-            bins_arr = np.linspace(arr0.min(), arr0.max(), nbins + 1)
+            bins_arr = np.linspace(arr_min, arr_max, nbins + 1)
 
     phist, pedge = np.histogram(arr0, bins=bins_arr, density=True)
     qhist, qedge = np.histogram(arr1, bins=bins_arr, density=True)
