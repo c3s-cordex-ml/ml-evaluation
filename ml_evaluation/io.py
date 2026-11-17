@@ -50,10 +50,10 @@ def load_dataset(
     is present and filled in leap years.
 
     If ``path`` contains glob wildcards (``*``, ``?`` or ``[``), all matching
-    files are opened with ``xr.open_mfdataset`` and combined along their
-    coordinates (typically ``time``), e.g. to evaluate several test periods
-    (2041-2060 and 2080-2099) at once. The resulting arrays are always
-    Dask-backed (lazy).
+    files are opened with ``xr.open_mfdataset``, concatenated along ``time``
+    and sorted by time, e.g. to evaluate several test periods (2041-2060 and
+    2080-2099) at once. The resulting arrays
+    are always Dask-backed (lazy).
 
     Parameters
     ----------
@@ -86,13 +86,14 @@ def load_dataset(
             raise FileNotFoundError(f"No files match the pattern: {path}")
         dataset = xr.open_mfdataset(
             files,
-            combine="by_coords",
+            combine="nested",
+            concat_dim="time",
             chunks=chunks,
             data_vars="minimal",
             coords="minimal",
             compat="override",
             join="exact",
-        )
+        ).sortby("time")
         if "time" in dataset.indexes and not dataset.indexes["time"].is_unique:
             raise ValueError(
                 f"Duplicated time stamps after combining {len(files)} files "
