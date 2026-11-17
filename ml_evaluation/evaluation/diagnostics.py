@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 from typing import Any, Callable, cast
 
 import numpy as np
@@ -38,6 +40,9 @@ def bias_index(
     season: str | None = None,
     relative: bool = False,
     output_index=False,
+    *,
+    x0_index_kwargs: dict[str, Any] | None = None,
+    x1_index_kwargs: dict[str, Any] | None = None,
     **index_kwargs: Any,
 ) -> xr.Dataset | xr.DataArray:
     """
@@ -59,6 +64,12 @@ def bias_index(
         If True, return the relative bias.
     output_index : bool, default False
         If True, output indices too: bias, x0_index, x1_index
+    x0_index_kwargs : Any
+        Additional keyword arguments specific to x0,
+        passed to the index function.
+    x1_index_kwargs : Any
+        Additional keyword arguments specific to x1,
+        passed to the index function.
     **index_kwargs : Any
         Additional keyword arguments passed to the index function.
 
@@ -67,12 +78,17 @@ def bias_index(
     xr.Dataset or xr.DataArray
         Absolute or relative bias of the selected index.
     """
-    call_kwargs = dict(index_kwargs)
-    if season is not None and "season" not in call_kwargs:
-        call_kwargs["season"] = season
 
-    x0_index = index_fn(x0, **call_kwargs)
-    x1_index = index_fn(x1, **call_kwargs)
+    shared_kwargs = dict(index_kwargs)
+    if season is not None:
+        shared_kwargs.setdefault("season", season)
+
+    x0_kwargs = {**shared_kwargs, **(x0_index_kwargs or {})}
+    x1_kwargs = {**shared_kwargs, **(x1_index_kwargs or {})}
+
+    x0_index = index_fn(x0, **x0_kwargs)
+    x1_index = index_fn(x1, **x1_kwargs)
+
     bias = x1_index - x0_index
 
     if relative:
@@ -94,6 +110,9 @@ def ratio_index(
     index_fn: Callable[..., xr.Dataset | xr.DataArray],
     season: str | None = None,
     output_index=False,
+    *,
+    x0_index_kwargs: dict[str, Any] | None = None,
+    x1_index_kwargs: dict[str, Any] | None = None,
     **index_kwargs: Any,
 ) -> xr.Dataset | xr.DataArray:
     """
@@ -113,6 +132,12 @@ def ratio_index(
         Season to filter before computing the index.
     output_index : bool, default False
         If True, output indices too: bias, x0_index, x1_index
+    x0_index_kwargs : Any
+        Additional keyword arguments specific to x0,
+        passed to the index function.
+    x1_index_kwargs : Any
+        Additional keyword arguments specific to x1,
+        passed to the index function.
     **index_kwargs : Any
         Additional keyword arguments passed to the index function.
 
@@ -121,12 +146,17 @@ def ratio_index(
     xr.Dataset or xr.DataArray
         Ratio of the selected index (x1 / x0).
     """
-    call_kwargs = dict(index_kwargs)
-    if season is not None and "season" not in call_kwargs:
-        call_kwargs["season"] = season
 
-    x0_index = index_fn(x0, **call_kwargs)
-    x1_index = index_fn(x1, **call_kwargs)
+    shared_kwargs = dict(index_kwargs)
+    if season is not None:
+        shared_kwargs.setdefault("season", season)
+
+    x0_kwargs = {**shared_kwargs, **(x0_index_kwargs or {})}
+    x1_kwargs = {**shared_kwargs, **(x1_index_kwargs or {})}
+
+    x0_index = index_fn(x0, **x0_kwargs)
+    x1_index = index_fn(x1, **x1_kwargs)
+
     ratio = x1_index / x0_index
 
     if output_index:
@@ -308,7 +338,7 @@ def bias_multivariable_correlation(
     var_y: str,
     season: str | None = None,
     srank: bool = False,
-) -> tuple[xr.DataArray, xr.DataArray, xr.DataArray]:
+) -> tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
     """
     Compute correlations between two variables for x0 and x1 datasets.
 
@@ -333,8 +363,9 @@ def bias_multivariable_correlation(
 
     Returns
     -------
-    tuple of xr.DataArray
-        Dataset containing the correlation bias and individual correlations.
+    tuple of xr.Dataset
+        Datasets of the x0 correlation, x1 correlation and correlation bias
+        (x1 - x0), each holding a single variable named ``f"{var_x}_{var_y}"``.
 
     Raises
     ------
@@ -376,10 +407,11 @@ def bias_multivariable_correlation(
 
     correlation_bias = x1_corr_xarray - x0_corr_xarray
 
+    name = f"{var_x}_{var_y}"
     output_ds = (
-        x0_corr_xarray,
-        x1_corr_xarray,
-        correlation_bias,
+        x0_corr_xarray.to_dataset(name=name),
+        x1_corr_xarray.to_dataset(name=name),
+        correlation_bias.to_dataset(name=name),
     )
 
     return output_ds
@@ -910,7 +942,7 @@ def calc_pdf_metric_nparray(
     axis: int | None = 0,
     bins_arr: np.ndarray | None = None,
     nbins: int = 100,
-    bin_target_only: bool = False,
+    bin_target_only: bool = True,
     typedistance: str = "pss",
     printBins: bool = False,
     min_freq: int = 10,
@@ -973,10 +1005,13 @@ def calc_pdf_metric_nparray(
         arr_max = np.array([arr0.max(), arr1.max()]).max()
         if bin_target_only:
             # Fit bins to target truth only so same for all prediction model comparisons
+            # extend a little so see if extended tails in prediction
+            arr_min = arr0.min()
+            arr_max = arr0.max()
             bins_arr = np.linspace(arr_min, arr_max, nbins + 1)
         else:
             # Fit bins to target truth and prediction so entire distributions are captured
-            bins_arr = np.linspace(arr0.min(), arr0.max(), nbins + 1)
+            bins_arr = np.linspace(arr_min, arr_max, nbins + 1)
 
     if printBins and bins_arr is not None:
         print(f"edges: {bins_arr[0]}, {bins_arr[1]},... {bins_arr[-1]}")
@@ -1284,7 +1319,7 @@ def calc_pdf_metric_xr(
     emean: bool = False,
     bins_arr: np.ndarray | None = None,
     nbins: int = 100,
-    bin_target_only: bool = False,
+    bin_target_only: bool = True,
     printBins: bool = False,
     typedistance: str = "pss",
     min_freq: int = 10,
@@ -1480,7 +1515,7 @@ def calc_histdata_xr(
     season: str | None = None,
     bins_arr: np.ndarray | None = None,
     nbins: int = 100,
-    bin_target_only: bool = False,
+    bin_target_only: bool = True,
     **index_kwargs: Any,
 ) -> tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
     """
@@ -1554,10 +1589,12 @@ def calc_histdata_xr(
         arr_max = np.array([arr0.max(), arr1.max()]).max()
         if bin_target_only:
             # Fit bins to target truth only so same for all prediction model comparisons
+            arr_min = arr0.min()
+            arr_max = arr0.max()
             bins_arr = np.linspace(arr_min, arr_max, nbins + 1)
         else:
             # Fit bins to target truth and prediction so entire distributions are captured
-            bins_arr = np.linspace(arr0.min(), arr0.max(), nbins + 1)
+            bins_arr = np.linspace(arr_min, arr_max, nbins + 1)
 
     phist, pedge = np.histogram(arr0, bins=bins_arr, density=True)
     qhist, qedge = np.histogram(arr1, bins=bins_arr, density=True)
@@ -2716,3 +2753,425 @@ def compute_sfss2D_xr(
     sfss_xr = xr.Dataset({var: sfss_out})
 
     return sfss_xr
+
+
+_BIVARIATE_DISTANCE_LIST = ["pss", "jsd", "lhd", "alhd"]
+
+
+def _bivariate_bin_edges(
+    a0: np.ndarray,
+    a1: np.ndarray,
+    bins_arr: np.ndarray | None,
+    nbins: int,
+    bin_target_only: bool,
+) -> np.ndarray:
+    """Return bin edges for one variable of a bivariate histogram."""
+    if isinstance(bins_arr, np.ndarray):
+        return bins_arr
+    if nbins < 1:
+        raise ValueError(f"Error: nbins not a positive integer: {nbins}")
+    nbins = int(nbins)
+    if bin_target_only:
+        # Fit bins to target truth only so same for all prediction model comparisons
+        lo, hi = np.nanmin(a0), np.nanmax(a0)
+    else:
+        # Fit bins to target truth and prediction so entire distributions are captured
+        lo = min(np.nanmin(a0), np.nanmin(a1))
+        hi = max(np.nanmax(a0), np.nanmax(a1))
+    return np.linspace(lo, hi, nbins + 1)
+
+
+def _bivariate_hist_counts(
+    ax: np.ndarray,
+    ay: np.ndarray,
+    edges_x: np.ndarray,
+    edges_y: np.ndarray,
+) -> np.ndarray:
+    """
+    Vectorised 2D histogram counts for many columns at once.
+
+    ax, ay have shape (nsamples, npoints); returns counts of shape
+    (npoints, nbins_x, nbins_y). Bin edge handling matches np.histogram
+    (right-most bin is closed). Pairs where either value is NaN or outside
+    the bin range are ignored.
+    """
+    nx = len(edges_x) - 1
+    ny = len(edges_y) - 1
+    npts = ax.shape[1]
+
+    ix = np.searchsorted(edges_x, ax, side="right") - 1
+    iy = np.searchsorted(edges_y, ay, side="right") - 1
+    ix[ax == edges_x[-1]] = nx - 1
+    iy[ay == edges_y[-1]] = ny - 1
+
+    valid = (ix >= 0) & (ix < nx) & (iy >= 0) & (iy < ny)
+    flat = np.arange(npts)[None, :] * (nx * ny) + ix * ny + iy
+    counts = np.bincount(flat[valid], minlength=npts * nx * ny)
+    return counts.reshape(npts, nx, ny)
+
+
+def _bivariate_metric_from_counts(
+    pcount: np.ndarray,
+    qcount: np.ndarray,
+    bin_area: np.ndarray,
+    typedistance: str,
+    min_freq: int,
+) -> np.ndarray:
+    """
+    Compute a bivariate distribution metric from 2D histogram counts.
+
+    pcount, qcount have shape (npoints, nbins_x, nbins_y); returns (npoints,).
+    """
+    npts = pcount.shape[0]
+    with np.errstate(divide="ignore", invalid="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+
+        # Equivalent to np.histogram2d(density=True) then normalise so sums to 1
+        phist = pcount / bin_area
+        qhist = qcount / bin_area
+        phist = phist / phist.sum(axis=(1, 2), keepdims=True)
+        qhist = qhist / qhist.sum(axis=(1, 2), keepdims=True)
+
+        if typedistance == "pss":
+            return np.sum(np.minimum(phist, qhist), axis=(1, 2)).astype(float)
+
+        if typedistance == "jsd":
+            return np.asarray(
+                jensenshannon(phist.reshape(npts, -1), qhist.reshape(npts, -1), axis=1),
+                dtype=float,
+            )
+
+        # lhd / alhd: filter out sparse bins and avoid log(0)
+        eps = 1e-10
+        valid_bins = (pcount > min_freq) & (qcount > min_freq)
+        phist = np.clip(np.where(valid_bins, phist, np.nan), eps, None)
+        qhist = np.clip(np.where(valid_bins, qhist, np.nan), eps, None)
+
+        if typedistance == "lhd":
+            log_diff = (10.0 * (np.log10(phist) - np.log10(qhist))) ** 2
+            return np.sqrt(np.nanmean(log_diff, axis=(1, 2))).astype(float)
+
+        # alhd: LHD using abs(diff) method instead of rmse method
+        log_diff = 10.0 * np.abs(np.log10(phist) - np.log10(qhist))
+        return np.nanmean(log_diff, axis=(1, 2)).astype(float)
+
+
+def calc_bivariate_pdf_metric_nparray(
+    arr0_x: np.ndarray,
+    arr0_y: np.ndarray,
+    arr1_x: np.ndarray,
+    arr1_y: np.ndarray,
+    axis: int | None = 0,
+    bins_x: np.ndarray | None = None,
+    bins_y: np.ndarray | None = None,
+    nbins: int | tuple[int, int] = 50,
+    bin_target_only: bool = False,
+    typedistance: str = "pss",
+    printBins: bool = False,
+    min_freq: int = 10,
+    max_chunk_bins: int = 20_000_000,
+) -> np.ndarray | float:
+    """
+    Calculate bivariate (joint) distribution comparison metrics between two
+    pairs of N-dimensional numpy arrays.
+
+    Builds 2D histograms of (x, y) for target and prediction, then computes the
+    requested distance or similarity metric between the joint distributions.
+    Bivariate analogue of calc_pdf_metric_nparray.
+
+    Parameters
+    ----------
+    arr0_x, arr0_y : np.ndarray
+        Target (truth) arrays for variables x and y (same shape).
+    arr1_x, arr1_y : np.ndarray
+        Prediction arrays for variables x and y (same shape as target).
+    axis : int or None, default 0
+        None : compute over all axes.
+        0 : compute over 0th axis so output has N-1 dimensions.
+    bins_x, bins_y : np.ndarray or None, optional
+        Explicit bin edges for x and y (else use nbins).
+    nbins : int or (int, int), default 50
+        Number of bins per variable when bins_x/bins_y not given. A tuple
+        gives (nbins_x, nbins_y). Note the joint histogram has nbins_x*nbins_y
+        bins, so fewer bins per axis are needed than in the univariate case.
+    bin_target_only : bool, default False
+        True: for nbins option, base on target truth range only.
+        False: for nbins option, base on truth and prediction range.
+    typedistance : str, default 'pss'
+        Type of distance or score to compute ('pss', 'jsd', 'lhd', 'alhd').
+    printBins : bool, default False
+        True: print info regarding number of bins and edge values.
+    min_freq : int, default 10
+        Option for LHD/ALHD: filter out 2D bins with counts <= min_freq.
+    max_chunk_bins : int, default 2e7
+        Upper limit on (npoints * nbins_x * nbins_y) processed at once, to
+        bound memory use for large grids.
+
+    Returns
+    -------
+    np.ndarray or float
+        Array of distribution comparison metrics or a single float.
+    """
+    if typedistance not in _BIVARIATE_DISTANCE_LIST:
+        raise ValueError(
+            f"Error: typedistance not recognised for bivariate metric: "
+            f"{typedistance}. Options: {_BIVARIATE_DISTANCE_LIST}"
+        )
+
+    if axis not in [None, 0]:
+        raise ValueError(f"Error: axis not recognised as None or 0: {axis}")
+
+    shapes = {a.shape for a in (arr0_x, arr0_y, arr1_x, arr1_y)}
+    if len(shapes) != 1:
+        raise ValueError(
+            f"Error: Shape mismatch: arr0_x {arr0_x.shape}, arr0_y {arr0_y.shape}, "
+            f"arr1_x {arr1_x.shape}, arr1_y {arr1_y.shape}"
+        )
+
+    nbins_x, nbins_y = (nbins, nbins) if np.isscalar(nbins) else nbins
+    edges_x = _bivariate_bin_edges(arr0_x, arr1_x, bins_x, nbins_x, bin_target_only)
+    edges_y = _bivariate_bin_edges(arr0_y, arr1_y, bins_y, nbins_y, bin_target_only)
+
+    if printBins:
+        print(f"x edges: {edges_x[0]}, {edges_x[1]},... {edges_x[-1]}")
+        print(f"y edges: {edges_y[0]}, {edges_y[1]},... {edges_y[-1]}")
+        print(f"nbins: {len(edges_x)-1} x {len(edges_y)-1}")
+
+    if axis == 0 and arr0_x.ndim < 2:
+        axis = None
+
+    # Reshape everything to (nsamples, npoints)
+    if axis is None:
+        out_shape: tuple[int, ...] = ()
+        flat = [a.reshape(-1, 1) for a in (arr0_x, arr0_y, arr1_x, arr1_y)]
+    else:
+        out_shape = arr0_x.shape[1:]
+        flat = [a.reshape(a.shape[0], -1) for a in (arr0_x, arr0_y, arr1_x, arr1_y)]
+    a0x, a0y, a1x, a1y = flat
+
+    bin_area = np.outer(np.diff(edges_x), np.diff(edges_y))[None, :, :]
+    npts = a0x.shape[1]
+    nb = bin_area.size
+    chunk = max(1, int(max_chunk_bins // nb))
+
+    dist_flat = np.empty(npts, dtype=float)
+    for start in range(0, npts, chunk):
+        sl = slice(start, min(start + chunk, npts))
+        pcount = _bivariate_hist_counts(a0x[:, sl], a0y[:, sl], edges_x, edges_y)
+        qcount = _bivariate_hist_counts(a1x[:, sl], a1y[:, sl], edges_x, edges_y)
+        dist_flat[sl] = _bivariate_metric_from_counts(
+            pcount, qcount, bin_area, typedistance, min_freq
+        )
+
+    if axis is None:
+        return float(dist_flat[0])
+    return dist_flat.reshape(out_shape)
+
+
+def _get_pdf_input_da(
+    ds: xr.Dataset,
+    var: str,
+    index_fn: Callable[..., xr.Dataset | xr.DataArray] | None,
+    season: str | None,
+    index_kwargs: dict[str, Any],
+) -> xr.DataArray:
+    """Season-filter or apply index_fn to ds and return the DataArray for var."""
+    if index_fn is None:
+        return filter_by_monthseason(ds, season)[var]
+
+    call_kwargs = dict(index_kwargs)
+    if season is not None and "season" not in call_kwargs:
+        call_kwargs["season"] = season
+    if "var" not in call_kwargs:
+        call_kwargs["var"] = var
+
+    ds_idx = index_fn(ds, **call_kwargs)
+    if isinstance(ds_idx, xr.Dataset):
+        return ds_idx[var]
+    return ds_idx
+
+
+def calc_bivariate_pdf_metric_xr(
+    x0: xr.Dataset,
+    x1: xr.Dataset,
+    var_x: str,
+    var_y: str,
+    dim: str | tuple[str, ...] | None = None,
+    index_fn: Callable[..., xr.Dataset | xr.DataArray] | None = None,
+    season: str | None = None,
+    member_name: str | None = None,
+    emean: bool = False,
+    bins_x: np.ndarray | None = None,
+    bins_y: np.ndarray | None = None,
+    nbins: int | tuple[int, int] = 50,
+    bin_target_only: bool = False,
+    printBins: bool = False,
+    typedistance: str = "pss",
+    min_freq: int = 10,
+    **index_kwargs: Any,
+) -> xr.Dataset:
+    """
+    Compute bivariate (joint) distribution comparison metrics between two
+    xarray Datasets for a pair of variables.
+
+    Bivariate analogue of calc_pdf_metric_xr: filters by season, handles
+    ensemble member dimensions, and flattens along the specified dimensions
+    before comparing the joint (var_x, var_y) distributions of target and
+    prediction.
+
+    Warnings:
+    - The same bins are used over all grid points. When compute scores per
+    grid point this may be unfair if locations within the domain have very
+    different distributions.
+    - Has option to apply index function to var_x and var_y but there
+    is currently not an option to use different functions for x and for y,
+    e.g. can compare var_x annual max to var_y annual max but not annual min.
+
+    Parameters
+    ----------
+    x0 : xr.Dataset
+        Ground truth dataset.
+    x1 : xr.Dataset
+        Predicted dataset.
+    var_x, var_y : str
+        Names of the two variables whose joint distribution is analysed.
+    dim : str or tuple of str or None, optional
+        Dimensions to compute distance over (e.g. ('time',)).
+        None: compute distance over all data flattened.
+    index_fn : Callable[..., xr.Dataset | xr.DataArray] or None, optional
+        Optional function computing a desired index before metric calculations.
+        Called once per variable with ``var=var_x`` / ``var=var_y``.
+    season : str | None, optional
+        Optional season or month standard name filter.
+    member_name : str | None, optional
+        Name of member dimension (ensemble prediction).
+    emean : bool, default False
+        Option to compute ensemble mean of prediction over member_name dimension.
+    bins_x, bins_y : np.ndarray or None, optional
+        Explicitly defined bin edges for var_x and var_y.
+    nbins : int or (int, int), default 50
+        Number of bins per variable (or (nbins_x, nbins_y)) when bins not given.
+    bin_target_only : bool, default False
+        True: base nbins range on target truth range only.
+        False: base range on truth and prediction range combined.
+    printBins : bool, default False
+        Option to print details regarding bins and edges.
+    typedistance : str, default 'pss'
+        Type of distance or score to compute ('pss', 'jsd', 'lhd', 'alhd').
+    min_freq : int, default 10
+        Minimum count threshold to filter out sparse 2D bins in LHD/ALHD.
+    **index_kwargs : Any
+        Additional keyword arguments passed to the index function.
+
+    Returns
+    -------
+    xr.Dataset
+        Dataset of distribution comparison metrics, stored under the variable
+        name ``f"{var_x}_{var_y}"``.
+    """
+    if typedistance not in _BIVARIATE_DISTANCE_LIST:
+        raise ValueError(
+            f"Error: typedistance not recognised for bivariate metric: "
+            f"{typedistance}. Options: {_BIVARIATE_DISTANCE_LIST}"
+        )
+
+    out_name = f"{var_x}_{var_y}"
+
+    # Extract just the single variables required
+    tx = _get_pdf_input_da(x0, var_x, index_fn, season, index_kwargs)
+    ty = _get_pdf_input_da(x0, var_y, index_fn, season, index_kwargs)
+    px = _get_pdf_input_da(x1, var_x, index_fn, season, index_kwargs)
+    py = _get_pdf_input_da(x1, var_y, index_fn, season, index_kwargs)
+
+    # var_x and var_y must share dimensions within each dataset
+    for name, da_x, da_y in (("target", tx, ty), ("prediction", px, py)):
+        if set(da_x.dims) != set(da_y.dims):
+            raise ValueError(
+                f"Error: {name} dims differ between {var_x} {da_x.dims} "
+                f"and {var_y} {da_y.dims}."
+            )
+    ty = ty.transpose(*tx.dims)
+    py = py.transpose(*px.dims)
+
+    dim_tuple: tuple[str, ...]
+    if dim is None:
+        dim_tuple = tuple(str(d) for d in px.dims)
+    elif isinstance(dim, str):
+        dim_tuple = (dim,)
+    else:
+        dim_tuple = dim
+
+    # Detect if dim dimensions present in prediction
+    pred_dims = list(px.dims)
+    for dname in dim_tuple:
+        if dname not in pred_dims:
+            raise ValueError(
+                f"Error; dim dimension '{dname}' not found in dims {pred_dims}. "
+                f"Expected something like 'time', 'member', etc."
+            )
+
+    # Detect if ensemble dim present in prediction but not target, and expand
+    # target to match using expand_dims + broadcast
+    extra_member_dim: str | None = None
+    if (
+        member_name is not None
+        and member_name in px.dims
+        and member_name not in tx.dims
+    ):
+        extra_member_dim = member_name
+        if emean:
+            px = px.mean(dim=member_name)
+            py = py.mean(dim=member_name)
+            extra_member_dim = None
+            pred_dims = list(px.dims)
+
+    if extra_member_dim is not None:
+        tx = tx.expand_dims({extra_member_dim: px[extra_member_dim]}).broadcast_like(px)
+        ty = ty.expand_dims({extra_member_dim: py[extra_member_dim]}).broadcast_like(py)
+
+    if tx.shape != px.shape or ty.shape != py.shape:
+        raise ValueError(
+            f"Error: Shape mismatch: Target ({tx.shape}, {ty.shape}), "
+            f"Prediction ({px.shape}, {py.shape}). "
+            f"Specify member_name if ensemble prediction."
+        )
+
+    metric_kwargs: dict[str, Any] = dict(
+        bins_x=bins_x,
+        bins_y=bins_y,
+        nbins=nbins,
+        bin_target_only=bin_target_only,
+        typedistance=typedistance,
+        printBins=printBins,
+        min_freq=min_freq,
+    )
+
+    # Identify output dimensions i.e. those not in dim dimensions
+    output_dims = [d for d in pred_dims if d not in dim_tuple]
+
+    # --- Special case: output_dims empty => compute metric over all data ---
+    if not output_dims:
+        dist_out = calc_bivariate_pdf_metric_nparray(
+            tx.values, ty.values, px.values, py.values, axis=None, **metric_kwargs
+        )
+        return xr.Dataset({out_name: dist_out})
+
+    # Transpose to ensure dim dims come first, output_dims last
+    ordered_dims = list(dim_tuple) + output_dims
+    arrs = [da.transpose(*ordered_dims) for da in (tx, ty, px, py)]
+    pred_ref = arrs[2]
+
+    # Flatten all dim dims into a single axis so can compute over 0th dim
+    output_shape = pred_ref.shape[len(dim_tuple) :]
+    flat = [da.values.reshape(-1, *output_shape) for da in arrs]
+
+    dist_out = calc_bivariate_pdf_metric_nparray(*flat, axis=0, **metric_kwargs)
+
+    dist_out_xr = xr.Dataset({out_name: (output_dims, dist_out)})
+
+    # Restore coordinates for all output dimensions
+    for d in output_dims:
+        if d in pred_ref.coords:
+            dist_out_xr[d] = pred_ref[d]
+
+    return dist_out_xr

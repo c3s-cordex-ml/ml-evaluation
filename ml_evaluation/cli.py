@@ -23,6 +23,7 @@ from ml_evaluation.evaluation.diagnostics import (
     temporal_psd,
     temporal_lsd,
     temporal_coherence,
+    calc_bivariate_pdf_metric_xr,
 )
 import ml_evaluation.evaluation.indices as indices
 from ml_evaluation.evaluation.signal import (
@@ -236,8 +237,24 @@ def fast(
     # Check for different pr units in target vs prediction
     if var == "pr":
         if x1_ds["pr"].max() > 1 and x0_ds["pr"].max() < 1:
-            click.echo("WARNING: pr converted from mm/day to kg/m2/s")
+            click.echo(
+                "WARNING: pr converted x1 from mm/day to kg/m2/s to match target"
+            )
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
+        if x1_ds["pr"].max() < 1 and x0_ds["pr"].max() > 1:
+            click.echo(
+                "WARNING: pr converted x1 from kg/m2/s to mm/day to match target"
+            )
+            x1_ds["pr"] = x1_ds["pr"] * 86400.0
+
+    if var == "pr" or var == "hurs" or var == "rlds" or var == "rsds":
+        if x1_ds[var].min() < 0:
+            click.echo(f"WARNING: pred {var} has neg values: clip to min 0.0")
+            x1_ds[var] = x1_ds[var].clip(min=0.0)
+    if var == "hurs":
+        if x1_ds[var].max() > 100:
+            click.echo("WARNING: pred {var} has values > 100: clip to max 100.0")
+            x1_ds[var] = x1_ds[var].clip(max=100.0)
 
     x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
     # Horizontal dims of THIS variable: (lat, lon) on a regular grid,
@@ -866,8 +883,24 @@ def slow(
     # Check for different pr units in target vs prediction
     if var == "pr":
         if x1_ds["pr"].max() > 1 and x0_ds["pr"].max() < 1:
-            click.echo("WARNING: pr converted from mm/day to kg/m2/s")
+            click.echo(
+                "WARNING: pr converted x1 from mm/day to kg/m2/s to match target"
+            )
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
+        if x1_ds["pr"].max() < 1 and x0_ds["pr"].max() > 1:
+            click.echo(
+                "WARNING: pr converted x1 from kg/m2/s to mm/day to match target"
+            )
+            x1_ds["pr"] = x1_ds["pr"] * 86400.0
+
+    if var == "pr" or var == "hurs" or var == "rlds" or var == "rsds":
+        if x1_ds[var].min() < 0:
+            click.echo(f"WARNING: pred {var} has neg values: clip to min 0.0")
+            x1_ds[var] = x1_ds[var].clip(min=0.0)
+    if var == "hurs":
+        if x1_ds[var].max() > 100:
+            click.echo("WARNING: pred {var} has values > 100: clip to max 100.0")
+            x1_ds[var] = x1_ds[var].clip(max=100.0)
 
     x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
     # Horizontal dims of THIS variable: (lat, lon) on a regular grid,
@@ -1169,6 +1202,80 @@ def slow(
             output_index=True,
         )
 
+        # Compute Bias of 95th wet day percentile (over time): field
+        click.echo("Computing Bias of 95th wet day percentile (over time): field...")
+        biasf_p95wet_ds, targf_p95wet_ds, predf_p95wet_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.season_quantile,
+            q=0.95,
+            wet_threshold=1.0 * scale + shift,
+            output_index=True,
+        )
+
+        # Compute Bias of 99th wet day percentile (over time): field
+        click.echo("Computing Bias of 99th wet day percentile (over time): field...")
+        biasf_p99wet_ds, targf_p99wet_ds, predf_p99wet_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.season_quantile,
+            q=0.99,
+            wet_threshold=1.0 * scale + shift,
+            output_index=True,
+        )
+
+        # Compute Bias of R95P (over time): field
+        click.echo("Computing Bias of R95P (over time): field...")
+        click.echo(
+            "Assumes already computed target and prediction percentiles above..."
+        )
+        biasf_r95p_ds, targf_r95p_ds, predf_r95p_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_sum_wrt_array,
+            cmean=True,
+            output_index=True,
+            x0_index_kwargs={"threshold": targf_p95wet_ds},
+            x1_index_kwargs={"threshold": predf_p95wet_ds},
+        )
+
+        # Compute Bias of R99P (over time): field
+        click.echo("Computing Bias of R99P (over time): field...")
+        click.echo(
+            "Assumes already computed target and prediction percentiles above..."
+        )
+        biasf_r99p_ds, targf_r99p_ds, predf_r99p_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_sum_wrt_array,
+            cmean=True,
+            output_index=True,
+            x0_index_kwargs={"threshold": targf_p99wet_ds},
+            x1_index_kwargs={"threshold": predf_p99wet_ds},
+        )
+
+        # Compute Bias of annual 5 day max (over time): field
+        click.echo("Computing Bias of annual 5 day max (over time): field...")
+        biasf_max5day_ds, targf_max5day_ds, predf_max5day_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_max_nday,
+            ndays=5,
+            stat="sum",
+            cmean=True,
+            output_index=True,
+        )
+
         # Compute Bias of freq ge 10mm/day (over time): field
         # **Precipitation only metric
         click.echo("Computing Bias of freq ge 10mm/day (over time): field...")
@@ -1179,6 +1286,21 @@ def slow(
             season=season,
             index_fn=indices.ann_freq_wrt_array,
             threshold=10.0 * scale + shift,
+            relation="ge",
+            cmean=True,
+            output_index=True,
+        )
+
+        # Compute Bias of freq ge 20mm/day (over time): field
+        # **Precipitation only metric
+        click.echo("Computing Bias of freq ge 20mm/day (over time): field...")
+        biasf_r20_ds, targf_r20_ds, predf_r20_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_freq_wrt_array,
+            threshold=20.0 * scale + shift,
             relation="ge",
             cmean=True,
             output_index=True,
@@ -1227,16 +1349,79 @@ def slow(
             wet_threshold=1.0 * scale + shift,
         )
 
+        # Compute Relative Bias of R95P (over time): field
+        click.echo("Computing Relative Bias of R95P (over time): field...")
+        relbiasf_r95p_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_sum_wrt_array,
+            cmean=True,
+            output_index=False,
+            x0_index_kwargs={"threshold": targf_p95wet_ds},
+            x1_index_kwargs={"threshold": predf_p95wet_ds},
+        )
+
+        # Compute Relative Bias of R99P (over time): field
+        click.echo("Computing Relative Bias of R99P (over time): field...")
+        relbiasf_r99p_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_sum_wrt_array,
+            cmean=True,
+            output_index=False,
+            x0_index_kwargs={"threshold": targf_p99wet_ds},
+            x1_index_kwargs={"threshold": predf_p99wet_ds},
+        )
+
+        # Compute Relative Bias of annual 5 day max (over time): field
+        click.echo("Computing Relative Bias of annual 5 day max (over time): field...")
+        relbiasf_max5day_ds = bias_index(
+            x0_ds,
+            x1_ds,
+            var=var,
+            season=season,
+            index_fn=indices.ann_max_nday,
+            ndays=5,
+            stat="sum",
+            cmean=True,
+            output_index=False,
+        )
+
         metrics_pr_field = {
             "bias_p90wet_field": biasf_p90wet_ds,
+            "bias_p95wet_field": biasf_p95wet_ds,
+            "bias_p99wet_field": biasf_p99wet_ds,
+            "bias_r95p_field": biasf_r95p_ds,
+            "bias_r99p_field": biasf_r99p_ds,
+            "bias_max5day_field": biasf_max5day_ds,
             "bias_r10_field": biasf_r10_ds,
+            "bias_r20_field": biasf_r20_ds,
             "bias_cdd_field": biasf_cdd_ds,
             "bias_cwd_field": biasf_cwd_ds,
             "relbias_p90wet_field": relbiasf_p90wet_ds,
+            "relbias_r95p_field": relbiasf_r95p_ds,
+            "relbias_r99p_field": relbiasf_r99p_ds,
+            "relbias_max5day_field": relbiasf_max5day_ds,
             "targ_p90wet_field": targf_p90wet_ds,
             "pred_p90wet_field": predf_p90wet_ds,
+            "targ_p95wet_field": targf_p95wet_ds,
+            "pred_p95wet_field": predf_p95wet_ds,
+            "targ_p99wet_field": targf_p99wet_ds,
+            "pred_p99wet_field": predf_p99wet_ds,
+            "targ_r95p_field": targf_r95p_ds,
+            "pred_r95p_field": predf_r95p_ds,
+            "targ_r99p_field": targf_r99p_ds,
+            "pred_r99p_field": predf_r99p_ds,
+            "targ_max5day_field": targf_max5day_ds,
+            "pred_max5day_field": predf_max5day_ds,
             "targ_r10_field": targf_r10_ds,
             "pred_r10_field": predf_r10_ds,
+            "targ_r20_field": targf_r20_ds,
+            "pred_r20_field": predf_r20_ds,
             "targ_cdd_field": targf_cdd_ds,
             "pred_cdd_field": predf_cdd_ds,
             "targ_cwd_field": targf_cwd_ds,
@@ -1537,9 +1722,28 @@ def multivar(
             click.echo("WARNING: pr converted from mm/day to kg/m2/s")
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
 
+    if var == "pr" or var == "hurs" or var == "rlds" or var == "rsds":
+        if x1_ds[var].min() < 0:
+            click.echo(f"WARNING: pred {var} has neg values: clip to min 0.0")
+            x1_ds[var] = x1_ds[var].clip(min=0.0)
+    if var == "hurs":
+        if x1_ds[var].max() > 100:
+            click.echo("WARNING: pred {var} has values > 100: clip to max 100.0")
+            x1_ds[var] = x1_ds[var].clip(max=100.0)
+
+    if var2 == "pr" or var2 == "hurs" or var2 == "rlds" or var2 == "rsds":
+        if x1_ds[var2].min() < 0:
+            click.echo(f"WARNING: pred {var2} has neg values: clip to min 0.0")
+            x1_ds[var2] = x1_ds[var2].clip(min=0.0)
+    if var2 == "hurs":
+        if x1_ds[var2].max() > 100:
+            click.echo("WARNING: pred {var2} has values > 100: clip to max 100.0")
+            x1_ds[var2] = x1_ds[var2].clip(max=100.0)
+
     x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
     # Horizontal dims of THIS variable: (lat, lon) on a regular grid,
     # (y, x) on a curvilinear one where lat/lon are 2-D coordinates.
+    sdims = spatial_dims(x1_ds, var)
 
     # Force loading when testing on smaller datasets so quick to run
     # Works well on 6 years 3 members
@@ -1548,6 +1752,64 @@ def multivar(
         x1_ds.load()
 
     scale, shift = convert_threshold_units(x0_ds, var)
+
+    # Compute bivariate distribution scores
+
+    pss_ds = calc_bivariate_pdf_metric_xr(
+        x0_ds,
+        x1_ds,
+        var_x=var,
+        var_y=var2,
+        index_fn=None,
+        dim=("time", *sdims),
+        season=season,
+        nbins=50,
+        bin_target_only=True,
+        typedistance="pss",
+        member_name=member_dim,
+    )
+
+    lhd_ds = calc_bivariate_pdf_metric_xr(
+        x0_ds,
+        x1_ds,
+        var_x=var,
+        var_y=var2,
+        index_fn=None,
+        dim=("time", *sdims),
+        season=season,
+        nbins=50,
+        bin_target_only=True,
+        typedistance="lhd",
+        member_name=member_dim,
+    )
+
+    pssf_ds = calc_bivariate_pdf_metric_xr(
+        x0_ds,
+        x1_ds,
+        var_x=var,
+        var_y=var2,
+        index_fn=None,
+        dim=("time",),
+        season=season,
+        nbins=50,
+        bin_target_only=True,
+        typedistance="pss",
+        member_name=member_dim,
+    )
+
+    lhdf_ds = calc_bivariate_pdf_metric_xr(
+        x0_ds,
+        x1_ds,
+        var_x=var,
+        var_y=var2,
+        index_fn=None,
+        dim=("time",),
+        season=season,
+        nbins=50,
+        bin_target_only=True,
+        typedistance="lhd",
+        member_name=member_dim,
+    )
 
     # Compute Pearson Correlation of daily data between variables (over time): field
     click.echo(
@@ -1578,6 +1840,28 @@ def multivar(
         )
     )
 
+    if {var, var2} == {"tasmax", "tasmin"}:
+        # Difference between the two reference variables (var - var2)
+        diff_name = "tasmax_tasmin"
+        x0_diff = (x0_ds["tasmax"] - x0_ds["tasmin"]).to_dataset(name=diff_name)
+        x0_diff[diff_name].attrs["long_name"] = "tasmax minus tasmin"
+        x1_diff = (x1_ds["tasmax"] - x1_ds["tasmin"]).to_dataset(name=diff_name)
+        x1_diff[diff_name].attrs["long_name"] = "tasmax minus tasmin"
+        # Compute bias of annual max diurnal temperature range
+        # Compute Bias of annual max (over time): field
+        # **precip Rx1day fast track; temperature TXx, TNx slow track?
+        click.echo("Computing Bias of annual max (over time): field...")
+        biasf_maxdtr_ds, targf_maxdtr_ds, predf_maxdtr_ds = bias_index(
+            x0_diff,
+            x1_diff,
+            var=diff_name,
+            season=season,
+            index_fn=indices.ann_extrema,
+            maxmin="max",
+            cmean=True,
+            output_index=True,
+        )
+
     # Consolidate and save all slow metrics
     click.echo("Combining and saving metrics...")
     metrics = {
@@ -1587,9 +1871,29 @@ def multivar(
         "targ_mv_scorr_field": targ_mv_scorrf_ds,
         "pred_mv_scorr_field": pred_mv_scorrf_ds,
         "bias_mv_scorr_field": bias_mv_scorrf_ds,
+        "pss_field": pssf_ds,
+        "lhd_field": lhdf_ds,
     }
+
+    metrics_float = {
+        "pss_float": pss_ds,
+        "lhd_float": lhd_ds,
+    }
+
     metrics_path = _get_output_path(output, "metrics_mv_field.zarr")
-    write_zarr(metrics, metrics_path, mode="w", var=var + var2)
+    write_zarr(metrics, metrics_path, mode="w", var=f"{var}_{var2}")
+
+    metrics_path_float = _get_output_path(output, "metrics_mv_float.zarr")
+    write_zarr(metrics_float, metrics_path_float, mode="w", var=f"{var}_{var2}")
+
+    if {var, var2} == {"tasmax", "tasmin"}:
+        metrics_dtr = {
+            "targ_maxdtr_field": targf_maxdtr_ds,
+            "pred_maxdtr_field": predf_maxdtr_ds,
+            "bias_maxdtr_field": biasf_maxdtr_ds,
+        }
+        metrics_dtr_path = _get_output_path(output, "metrics_dtr_field.zarr")
+        write_zarr(metrics_dtr, metrics_dtr_path, mode="w", var=f"{var}_{var2}")
 
     click.echo(f"Saved all multi-variate metrics to {metrics_path} etc...")
 
@@ -1907,8 +2211,24 @@ def prob(
     # Check for different pr units in target vs prediction
     if var == "pr":
         if x1_ds["pr"].max() > 1 and x0_ds["pr"].max() < 1:
-            click.echo("WARNING: pr converted from mm/day to kg/m2/s")
+            click.echo(
+                "WARNING: pr converted x1 from mm/day to kg/m2/s to match target"
+            )
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
+        if x1_ds["pr"].max() < 1 and x0_ds["pr"].max() > 1:
+            click.echo(
+                "WARNING: pr converted x1 from kg/m2/s to mm/day to match target"
+            )
+            x1_ds["pr"] = x1_ds["pr"] * 86400.0
+
+    if var == "pr" or var == "hurs" or var == "rlds" or var == "rsds":
+        if x1_ds[var].min() < 0:
+            click.echo(f"WARNING: pred {var} has neg values: clip to min 0.0")
+            x1_ds[var] = x1_ds[var].clip(min=0.0)
+    if var == "hurs":
+        if x1_ds[var].max() > 100:
+            click.echo("WARNING: pred {var} has values > 100: clip to max 100.0")
+            x1_ds[var] = x1_ds[var].clip(max=100.0)
 
     x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=None)
     sdims = spatial_dims(x1_ds, var)
@@ -2207,8 +2527,24 @@ def cdextremes(
     # Check for different pr units in target vs prediction
     if var == "pr":
         if x1_ds["pr"].max() > 1 and x0_ds["pr"].max() < 1:
-            click.echo("WARNING: pr converted from mm/day to kg/m2/s")
+            click.echo(
+                "WARNING: pr converted x1 from mm/day to kg/m2/s to match target"
+            )
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
+        if x1_ds["pr"].max() < 1 and x0_ds["pr"].max() > 1:
+            click.echo(
+                "WARNING: pr converted x1 from kg/m2/s to mm/day to match target"
+            )
+            x1_ds["pr"] = x1_ds["pr"] * 86400.0
+
+    if var == "pr" or var == "hurs" or var == "rlds" or var == "rsds":
+        if x1_ds[var].min() < 0:
+            click.echo(f"WARNING: pred {var} has neg values: clip to min 0.0")
+            x1_ds[var] = x1_ds[var].clip(min=0.0)
+    if var == "hurs":
+        if x1_ds[var].max() > 100:
+            click.echo("WARNING: pred {var} has values > 100: clip to max 100.0")
+            x1_ds[var] = x1_ds[var].clip(max=100.0)
 
     x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
     # Horizontal dims of THIS variable: (lat, lon) on a regular grid,
@@ -2458,8 +2794,24 @@ def binaryevents(
     # Check for different pr units in target vs prediction
     if var == "pr":
         if x1_ds["pr"].max() > 1 and x0_ds["pr"].max() < 1:
-            click.echo("WARNING: pr converted from mm/day to kg/m2/s")
+            click.echo(
+                "WARNING: pr converted x1 from mm/day to kg/m2/s to match target"
+            )
             x1_ds["pr"] = x1_ds["pr"] / 86400.0
+        if x1_ds["pr"].max() < 1 and x0_ds["pr"].max() > 1:
+            click.echo(
+                "WARNING: pr converted x1 from kg/m2/s to mm/day to match target"
+            )
+            x1_ds["pr"] = x1_ds["pr"] * 86400.0
+
+    if var == "pr" or var == "hurs" or var == "rlds" or var == "rsds":
+        if x1_ds[var].min() < 0:
+            click.echo(f"WARNING: pred {var} has neg values: clip to min 0.0")
+            x1_ds[var] = x1_ds[var].clip(min=0.0)
+    if var == "hurs":
+        if x1_ds[var].max() > 100:
+            click.echo("WARNING: pred {var} has values > 100: clip to max 100.0")
+            x1_ds[var] = x1_ds[var].clip(max=100.0)
 
     x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds, member=member_num)
 

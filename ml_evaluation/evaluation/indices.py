@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import numpy as np
 import xarray as xr
 
@@ -181,10 +183,10 @@ def ann_extrema(
     da = x_filtered[[var]]
 
     if maxmin not in ["max", "min"]:
-        maxmin = "max"
         print(
             f"WARNING: maxmin='{maxmin}' not in list ['max','min'] so default to 'max'"
         )
+        maxmin = "max"
 
     if season == "DJF":
         # Compute on consecutive months across year boundary ending at the end of Feb
@@ -214,6 +216,108 @@ def ann_extrema(
         output: xr.Dataset = annual_extrema.mean(dim="time")
     else:
         output = annual_extrema
+
+    return output
+
+
+def ann_max_nday(
+    x: xr.Dataset,
+    var: str,
+    ndays: int = 5,
+    stat: str = "sum",
+    season: str | None = None,
+    drop_nonfull: bool = True,
+    cmean: bool = False,
+) -> xr.Dataset:
+    """
+    Compute the annual maximum of the n-day running total (or mean) per year.
+
+    With the defaults this is the Rx5day index (maximum consecutive 5-day
+    precipitation total). Has options to output annual values or climate mean.
+
+    Each n-day window is labelled by its last day and assigned to the year (or
+    DJF season) containing that day. Only windows of ``ndays`` consecutive
+    calendar days are used: windows spanning a gap in the time axis (e.g. the
+    jump between seasons after filtering with ``season``, or missing time
+    steps) are discarded, as are windows containing any NaN value.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the target variable.
+    var : str
+        Name of the daily variable.
+    ndays : int, default 5
+        Length of the running window in days.
+    stat : str, default 'sum'
+        Statistic over each window, options are 'sum' (n-day total) or 'mean'
+        (n-day mean).
+    season : str | None, optional
+        Season or Month standard name to filter. Windows must lie entirely
+        within the season.
+    drop_nonfull : bool, default True
+        Treatment of DJF season: True to only include seasons with full 3 months
+        of data.
+    cmean : bool, default False
+        True to compute climate mean over time, False to leave as annual output.
+
+    Returns
+    -------
+    xr.Dataset
+        Annual maximum of the n-day running total or mean of the daily variable
+        (or mean thereof).
+
+    Raises
+    ------
+    ValueError
+        If ``ndays`` is less than 1 or ``stat`` is not 'sum' or 'mean'.
+    """
+    if ndays < 1:
+        raise ValueError(f"ndays must be >= 1, got {ndays}")
+    if stat not in ["sum", "mean"]:
+        raise ValueError(f"stat='{stat}' not in list ['sum', 'mean']")
+
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
+
+    # Running n-day statistic, labelled at the last day of each window. The
+    # default min_periods (= ndays) gives NaN for any window containing a NaN.
+    rolling = da.rolling(time=ndays)
+    running = rolling.sum() if stat == "sum" else rolling.mean()
+
+    # Discard windows that are not ndays consecutive calendar days, e.g. those
+    # spanning the gap between one season and the next after filtering.
+    if ndays > 1:
+        tindex = da.indexes["time"]
+        span = tindex[ndays - 1 :] - tindex[: -(ndays - 1)]
+        contiguous = np.zeros(da.sizes["time"], dtype=bool)
+        contiguous[ndays - 1 :] = span == timedelta(days=ndays - 1)
+        running = running.where(
+            xr.DataArray(contiguous, dims="time", coords={"time": da["time"]})
+        )
+
+    if season == "DJF":
+        # Compute on consecutive months across year boundary ending at the end of Feb
+        annual_max = running.resample(time="1YE-FEB").max()
+        # If data covers n years going from Jan Year1 to Dec YearN, there will be
+        # n+1 max values for seasons [JF, DJF, ..., DJF, D] so drop shortest season (D)
+        years = np.unique(da["time.year"])
+        counts = da.resample(time="1YE-FEB").count()
+        if drop_nonfull:
+            # Only include full DJF seasons (90 days)
+            annual_max = annual_max.where(counts == 90, drop=True)
+        else:
+            # Include full DJF seasons (90 days) and JF season (59 days)
+            # but not D season (31 days)
+            if len(counts[var]) > len(years):
+                annual_max = annual_max.where(counts >= 59, drop=True)
+    else:
+        annual_max = running.resample(time="1YE").max()
+
+    if cmean:
+        output: xr.Dataset = annual_max.mean(dim="time")
+    else:
+        output = annual_max
 
     return output
 
@@ -295,9 +399,9 @@ def ann_freq_wrt_array(
         threshold_new = threshold
 
     if relation not in ["gt", "ge", "lt", "le", "eq", "ne"]:
-        relation = "gt"
         print(f"WARNING: relation='{relation}' not in list: ")
         print("['gt', 'ge', 'lt', 'le', 'eq', 'ne'] so default to 'gt'")
+        relation = "gt"
 
     # Event Condition
     if relation == "gt":
@@ -422,9 +526,9 @@ def ann_maxspell_wrt_array(
         threshold_new = threshold
 
     if relation not in ["gt", "ge", "lt", "le", "eq", "ne"]:
-        relation = "gt"
         print(f"WARNING: relation='{relation}' not in list: ")
         print("['gt', 'ge', 'lt', 'le', 'eq', 'ne'] so default to 'gt'")
+        relation = "gt"
 
     # Event Condition
     if relation == "gt":
@@ -487,7 +591,7 @@ def ann_sdii(
     cmean: bool = False,
 ) -> xr.Dataset:
     """
-    Compute the simple precipitation intensity index.
+    Compute the simple precipitation intensity index (average rainfall on wet days).
 
     Has options to output annual values or annual mean.
 
@@ -538,6 +642,116 @@ def ann_sdii(
         output = output.mean("time")
 
     return output
+
+
+def ann_sum_wrt_array(
+    x: xr.Dataset,
+    var: str,
+    threshold: xr.Dataset | xr.DataArray | int | float,
+    season: str | None = None,
+    drop_nonfull: bool = True,
+    cmean: bool = False,
+) -> xr.Dataset:
+    """
+    Compute the total precipitation from days exceeding a threshold, per year.
+
+    E.g. R95pTOT-style totals when ``threshold`` is a 95th percentile field, or
+    PRCPTOT-style wet-day totals when ``threshold`` is a scalar such as 1.0.
+    Has options to output annual values or annual mean.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the precipitation variable.
+    var : str
+        Variable name of daily precipitation.
+    threshold : xr.Dataset or xr.DataArray or int or float
+        Scalar threshold, or threshold field. A field must match the spatial
+        shape of ``x``; it may optionally carry a ``dayofyear`` dimension (e.g.
+        output of ``calday_quantile``), which is mapped onto the time axis. If a
+        Dataset, ``threshold[var]`` is used (or its only variable).
+    season : str | None, optional
+        Season name to filter before computing the index.
+    drop_nonfull : bool, default True
+        Treatment of DJF season: True to only include seasons with full 3 months
+        of data.
+    cmean : bool, default False
+        True to compute climate mean over time, False to leave as annual output.
+
+    Returns
+    -------
+    xr.Dataset
+        Annual total of precipitation on days with values > threshold (or mean
+        thereof). Years with no exceedances give 0; points that are entirely
+        missing remain NaN.
+
+    Raises
+    ------
+    ValueError
+        If threshold spatial shape does not match input, or a threshold Dataset
+        has no unambiguous variable to use.
+    """
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[var]
+
+    threshold_new: xr.DataArray | int | float
+    if isinstance(threshold, (int, float)):
+        threshold_new = threshold
+    else:
+        if isinstance(threshold, xr.Dataset):
+            if var in threshold.data_vars:
+                threshold = threshold[var]
+            elif len(threshold.data_vars) == 1:
+                threshold = threshold[next(iter(threshold.data_vars))]
+            else:
+                raise ValueError(
+                    f"Threshold Dataset has no variable '{var}' and more than one "
+                    f"data variable: {list(threshold.data_vars)}"
+                )
+
+        sdims = spatial_dims(x_filtered, var)
+        if any(da.sizes[d] != threshold.sizes.get(d) for d in sdims):
+            raise ValueError(
+                f"Spatial shape mismatch: input "
+                f"({', '.join(str(da.sizes[d]) for d in sdims)}) "
+                f"!= threshold "
+                f"({', '.join(str(threshold.sizes.get(d)) for d in sdims)}) "
+                f"on dims {sdims}"
+            )
+
+        if "dayofyear" in threshold.dims:
+            # Broadcast the threshold back onto actual time axis via dayofyear
+            threshold_new = threshold.sel(dayofyear=da["time"].dt.dayofyear)
+        else:
+            threshold_new = threshold
+
+    # Keep values above threshold, 0 elsewhere, NaN where input is missing
+    exceed = xr.where(da > threshold_new, da, 0.0).where(da.notnull())
+    # Drop dayofyear coord picked up from a day-of-year threshold
+    exceed = exceed.drop_vars("dayofyear", errors="ignore")
+
+    if season == "DJF":
+        # Compute on consecutive months across year boundary ending at the end of Feb
+        output = exceed.resample(time="1YE-FEB").sum(dim="time", min_count=1)
+        # If data covers n years going from Jan Year1 to Dec YearN, there will be
+        # n+1 values for seasons [JF, DJF, ..., DJF, D] so drop shortest season (D)
+        years = np.unique(da["time.year"])
+        counts = da.resample(time="1YE-FEB").count()
+        if drop_nonfull:
+            # Only include full DJF seasons (90 days)
+            output = output.where(counts == 90, drop=True)
+        else:
+            # Include full DJF seasons (90 days) and JF season (59 days)
+            # but not D season (31 days)
+            if counts.sizes["time"] > len(years):
+                output = output.where(counts >= 59, drop=True)
+    else:
+        output = exceed.resample(time="1YE").sum(dim="time", min_count=1)
+
+    if cmean:
+        output = output.mean("time")
+
+    return output.to_dataset(name=var)
 
 
 # SPDX-FileCopyrightText: 2026 CORDEX
