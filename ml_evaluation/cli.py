@@ -676,37 +676,39 @@ def benchmark(
         x1, align_leap_days=align_leap_days, chunks="auto" if use_dask else None
     )[[var]]
 
+    # Ensemble size
+    extra_dims = set(x1_ds.dims) - set(x0_ds.dims)
+    member_dim = extra_dims.pop() if len(extra_dims) == 1 else None
+    n_members = x1_ds.sizes[member_dim] if member_dim is not None else 1
+
+    # Draw a random subset of up to `max_members`
+    members = None 
+    if member_dim is not None and n_members > 1:
+        rng = np.random.default_rng(BENCHMARK_MEMBER_SEED)
+        order = rng.permutation(n_members)
+        subset = np.sort(order[:max_members])
+        # The single member metrics (ralsd, bias_annstd) is drawn from the same subset
+        single_pos = int(np.searchsorted(subset, order[0]))
+        x1_ds = x1_ds.isel({raw_member_dim: subset})
+        members = subset.tolist()
+        click.echo(f"Members used: {members} (single member: {int(order[0])})")
+
+    # Drop the member dimension if the file has a single member
+    if member_dim is not None and n_members == 1:
+        members = [0]
+        x1_ds = x1_ds.squeeze(member_dim, drop=True)
+        member_dim = None
+
+    # Ensure dimensions are aligned
+    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds)
+
+    # Spatial dimensions.
+    sdims = spatial_dims(x1_ds, var)
+
     # Ensure precipitation is in mm/day
     if var == "pr":
         x0_ds = standardize_precip_units(x0_ds, var)
         x1_ds = standardize_precip_units(x1_ds, var)
-
-    # Ensemble size
-    extra_dims = set(x1_ds.dims) - set(x0_ds.dims)
-    n_members = x1_ds.sizes[extra_dims.pop()] if len(extra_dims) == 1 else 1
-
-    x0_ds, x1_ds, member_dim = align_dims(x0_ds, x1_ds)
-    # Positions of the members used
-    members = None
-    # Drop the member dimension if it has size 1
-    if member_dim is not None and x1_ds.sizes[member_dim] == 1:
-        members = [0]
-        x1_ds = x1_ds.squeeze(member_dim, drop=True)
-        member_dim = None
-    
-    # Spatial dimensions.
-    sdims = spatial_dims(x1_ds, var)
-
-    # Draw a random subset of up to `max_members`
-    if member_dim is not None:
-        rng = np.random.default_rng(BENCHMARK_MEMBER_SEED)
-        order = rng.permutation(x1_ds.sizes[member_dim])
-        subset = np.sort(order[:max_members])
-        # The single member (ralsd, bias_annstd) is drawn from the same subset
-        single_pos = int(np.searchsorted(subset, order[0]))
-        x1_ds = x1_ds.isel({member_dim: subset})
-        members = subset.tolist()
-        click.echo(f"Members used: {members} (single member: {int(order[0])})")
 
     # Force loading when testing on smaller datasets so quick to run
     if force_load:

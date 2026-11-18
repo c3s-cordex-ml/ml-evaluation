@@ -283,7 +283,6 @@ def align_dims(x0_ds, x1_ds, member=None):
     """
     Align x0_ds and x1_ds along lat/lon and time, and detect a member dimension.
 
-    - Ensure that the order of the spatial dimensions in x1_ds and x0_ds match.
     - Verifies lat/lon coordinates match (exactly or within tolerance), and
       snaps x1_ds's coords to x0_ds's if they're only "close".
     - Subsets both datasets to their common time steps, so the returned
@@ -318,23 +317,14 @@ def align_dims(x0_ds, x1_ds, member=None):
         Name of the standardized member dimension in x1_ds, if any.
     """
 
-    # Check that the order of the spatial dimension matches
-    ref_dims = next(iter(x0_ds.data_vars.values())).dims
-    spatial = set(x0_ds.lat.dims) | set(x0_ds.lon.dims)
-    spatial_dims = [d for d in ref_dims if d in spatial]
-    if x1_ds.lat.dims != x0_ds.lat.dims and set(spatial_dims) <= set(x1_ds.dims):
-        print(
-            f"Warning: x1 spatial dims {x1_ds.lat.dims} reordered to "
-            f"{tuple(spatial_dims)} as in x0"
-        )
-        x1_ds = x1_ds.transpose(..., *spatial_dims)
-
     # Check that lat and lon coords exactly match
-    CheckEqual = np.array_equal(
-        x0_ds.lat.values, x1_ds.lat.values
-    ) and np.array_equal(x0_ds.lon.values, x1_ds.lon.values)
-    CheckClose = np.allclose(x0_ds.lat.values, x1_ds.lat.values) and np.allclose(
-        x0_ds.lon.values, x1_ds.lon.values
+    x1_lat = x1_ds.lat.transpose(*x0_ds.lat.dims, missing_dims="ignore")
+    x1_lon = x1_ds.lon.transpose(*x0_ds.lon.dims, missing_dims="ignore")
+    CheckEqual = np.array_equal(x0_ds.lat.values, x1_lat.values) and np.array_equal(
+        x0_ds.lon.values, x1_lon.values
+    )
+    CheckClose = np.allclose(x0_ds.lat.values, x1_lat.values) and np.allclose(
+        x0_ds.lon.values, x1_lon.values
     )
     if not CheckEqual and not CheckClose:
         raise ValueError("lat and/or lon coordinates don't match")

@@ -1568,10 +1568,12 @@ def compute_sal_xr(
         )
         target_xr = target_xr.broadcast_like(prediction_xr)
 
-    if target_xr.values.shape != prediction_xr.values.shape:
+    # Ensure the dimensions are in the same order
+    target_xr = target_xr.transpose(..., *prediction_xr.dims, missing_dims="ignore")
+    if target_xr.shape != prediction_xr.shape:
         raise ValueError(
-            f"Shape mismatch: Target ({target_xr.values.shape}), "
-            f"Prediction ({prediction_xr.values.shape})"
+            f"Shape mismatch: Target ({target_xr.shape}), "
+            f"Prediction ({prediction_xr.shape})"
         )
 
     # Identify spatial vs leading dimensions
@@ -2215,10 +2217,12 @@ def compute_sfss2D_xr(
         target = target.expand_dims({extra_member_dim: prediction[extra_member_dim]})
         target = target.broadcast_like(prediction)
 
-    if target.values.shape != prediction.values.shape:
+    # Ensure the dimensions are in the same order
+    target = target.transpose(..., *prediction.dims, missing_dims="ignore")
+    if target.shape != prediction.shape:
         raise ValueError(
-            f"Shape mismatch: Target ({target.values.shape}), "
-            f"Prediction ({prediction.values.shape})"
+            f"Shape mismatch: Target ({target.shape}), "
+            f"Prediction ({prediction.shape})"
         )
 
     # Identify spatial vs leading dimensions
