@@ -13,34 +13,53 @@ classifiers = [
   "Operating System :: OS Independent"
 ]
 dependencies = [
-  "numpy>=2.0.0",
-  "xarray>=2025.0.0",
-  "pandas>=2.0.0",
-  "cartopy>=0.20.0",
+  # --- Currently unused by ml_evaluation - uncomment if needed in future. ---
+  # Installed anyway as cartopy dependencies.
+  # "pyproj>=3.0.0",
+  # "shapely>=2.0.0",
+  # Not imported anywhere.
+  # "PySide6>=6.0.0",
+  # "pyyaml>=6.0",
+  # "requests>=2.0.0",
+  # "tqdm>=4.0.0",
+  # PyTorch and its dependencies.
+  # "torch",
+  # "torchvision",
+  # "filelock",
+  # "fsspec",
+  # "mpmath",
+  # "networkx",
+  # "sympy",
+  # --- Required ---
+  "bottleneck>=1.6.0,<2",
+  "cartopy>=0.25.0",
+  "cftime>=1.0.0",
+  "click",
+  "dask>=2026.7.1,<2027",
+  "distributed>=2026.7.1,<2027",
   "matplotlib>=3.5.0",
   "netcdf4>=1.5.0",
-  "pyproj>=3.0.0",
-  "shapely>=2.0.0",
-  "PySide6>=6.0.0",
-  "cftime>=1.0.0",
-  "pyyaml>=6.0",
-  "requests>=2.0.0",
+  "numpy>=2.0.0",
+  "pandas>=2.0.0",
   "scipy>=1.10.0",
-  "tqdm>=4.0.0",
-  "filelock",
-  "fsspec",
-  "mpmath",
-  "networkx",
-  "sympy",
-  "torch",
-  "torchvision",
-  "click"
+  "xarray>=2025.0.0",
+  "zarr>=3.2.1,<4"
 ]
 description = "Evaluation of Machine Learning Regional Climate Models"
 name = "ml-evaluation"
 readme = "README.md"
 requires-python = ">=3.13"
 version = "0.1.0"
+
+[project.optional-dependencies]
+dev = [
+  "commitizen",
+  "cruft",
+  "mypy",
+  "pre-commit",
+  "pytest",
+  "pytest-cov"
+]
 
 [project.scripts]
 ml-eval = "ml_evaluation.cli:main"

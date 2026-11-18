@@ -3,30 +3,36 @@ channels:
 - conda-forge
 dependencies:
 - python>=3.13
-- numpy>=2.0.0
-- xarray>=2025.0.0
-- pandas>=2.0.0
+- bottleneck>=1.6.0,<2
 - cartopy>=0.25.0
-- matplotlib>=3.5.0
-- netcdf4>=1.5.0
-- pyproj>=3.0.0
-- shapely>=2.0.0
-- pyside6>=6.0.0
 - cftime>=1.0.0
-- pyyaml>=6.0
-- requests>=2.0.0
-- scipy>=1.10.0
-- tqdm>=4.0.0
-- filelock
-- fsspec
-- mpmath
-- networkx
-- sympy
-- pytorch
-- torchvision
 - click
-- zarr
-- bottleneck
+- dask>=2026.7.1,<2027
+- distributed>=2026.7.1,<2027
+- matplotlib-base>=3.5.0
+- netcdf4>=1.5.0
+- numpy>=2.0.0
+- pandas>=2.0.0
+- scipy>=1.10.0
+- xarray>=2025.0.0
+- zarr>=3.2.1,<4
 - pip
-- dask
-- distributed
+# Currently unused by ml_evaluation - uncomment if needed in future.
+# Full matplotlib (adds the Qt GUI backend via pyside6); matplotlib-base above is enough for the Agg backend used.
+# - matplotlib>=3.5.0
+# - pyside6>=6.0.0
+# Installed anyway as cartopy dependencies.
+# - pyproj>=3.0.0
+# - shapely>=2.0.0
+# Not imported anywhere.
+# - pyyaml>=6.0
+# - requests>=2.0.0
+# - tqdm>=4.0.0
+# PyTorch and its dependencies.
+# - pytorch
+# - torchvision
+# - filelock
+# - fsspec
+# - mpmath
+# - networkx
+# - sympy

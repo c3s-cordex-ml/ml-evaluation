@@ -11,11 +11,8 @@ RUN apt-get update -y && \
     apt-get install -y g++ curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Install dependencies and set up environment
-RUN pixi install && pixi clean
-
-# Install the package
-RUN pixi run python -m pip install --no-cache-dir --no-deps .
+# Install dependencies and the package itself (editable, via [pypi-dependencies] in pixi.toml)
+RUN pixi install && pixi clean cache --yes
 
 # Use pixi run as default entrypoint
 ENTRYPOINT ["pixi", "run"]
