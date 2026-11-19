@@ -176,6 +176,53 @@ def ann_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArray:
     return output
 
 
+def _rank(da, dim):
+    if da.chunks is not None:  # dask-backed
+        other = {d: "auto" for d in da.dims if d != dim}
+        da = da.chunk({dim: -1, **other})
+    return da.rank(dim=dim)
+
+
+def _rank_along(da: xr.DataArray, dim: str, chunk_size: str = "32MiB") -> xr.DataArray:
+    """
+    Rank ``da`` along ``dim``, keeping dask chunks small enough to rank.
+
+    Ranking needs ``dim`` in a single chunk. For dask-backed input, the
+    other dims are re-split ("auto", capped at ``chunk_size``) at the same
+    time so each chunk stays small once ``dim`` is merged. Non-dask input
+    is ranked eagerly with numpy and is not converted to dask.
+
+    Ranks are cast back to the input's float precision (bottleneck always
+    returns float64), halving memory for float32 data. float64 is kept
+    if ``dim`` is longer than 2**24, beyond which float32 cannot hold
+    every rank exactly.
+
+    Parameters
+    ----------
+    da : xr.DataArray
+        Array to rank.
+    dim : str
+        Dimension to rank along.
+    chunk_size : str, default "32MiB"
+        Target size of each input chunk after rechunking (dask only).
+
+    Returns
+    -------
+    xr.DataArray
+        Ranks of ``da`` along ``dim``.
+    """
+    if da.chunks is not None:  # dask-backed
+        import dask
+
+        other = {d: "auto" for d in da.dims if d != dim}
+        with dask.config.set({"array.chunk-size": chunk_size}):
+            da = da.chunk({dim: -1, **other})
+    out_dtype = np.result_type(da.dtype, np.float32)
+    if da.sizes[dim] > 2**24:
+        out_dtype = np.float64
+    return da.rank(dim=dim).astype(out_dtype, copy=False)
+
+
 # SPDX-FileCopyrightText: 2026 Klima consulting
 # SPDX-License-Identifier: MIT
 # Third-party code (modified); see THIRD_PARTY_NOTICES.md, section 2.
@@ -208,23 +255,13 @@ def xr_spearman_corr(da_a, da_b, dim=None):
     dims = [dim] if isinstance(dim, str) else list(dim)
 
     if len(dims) == 1:
-        rank_a = da_a.chunk({dims[0]: -1}).rank(dim=dims[0])
-        rank_b = da_b.chunk({dims[0]: -1}).rank(dim=dims[0])
+        rank_a = _rank_along(da_a, dims[0])
+        rank_b = _rank_along(da_b, dims[0])
     else:
         # DataArray.rank only supports a single dim, so stack the
         # requested dims into one before ranking, then unstack.
         stacked = "__spearman_stack__"
-        rank_a = (
-            da_a.stack({stacked: dims})
-            .chunk({stacked: -1})
-            .rank(dim=stacked)
-            .unstack(stacked)
-        )
-        rank_b = (
-            da_b.stack({stacked: dims})
-            .chunk({stacked: -1})
-            .rank(dim=stacked)
-            .unstack(stacked)
-        )
+        rank_a = _rank_along(da_a.stack({stacked: dims}), stacked).unstack(stacked)
+        rank_b = _rank_along(da_b.stack({stacked: dims}), stacked).unstack(stacked)
 
     return xr.corr(rank_a, rank_b, dim=dim)
