@@ -130,8 +130,8 @@ def test_cli_fast_workflow(
 @pytest.mark.parametrize(
     ("var", "expected_metrics"),
     [
-        ("pr", {"rmse", "clim_mean", "ralsd", "sdii", "rx1day", "lhd"}),
-        ("tasmax", {"rmse", "clim_mean", "ralsd", "txx", "pss", "iav"}),
+        ("pr", {"rmse", "bias_mean", "ralsd", "bias_sdii", "bias_max1day", "lhd"}),
+        ("tasmax", {"rmse", "bias_mean", "ralsd", "bias_max1day", "pss", "bias_annstd"}),
     ],
 )
 def test_cli_benchmark_workflow(
@@ -182,8 +182,164 @@ def test_cli_benchmark_workflow(
     assert os.path.exists(json_path)
     with open(json_path) as f:
         metrics = json.load(f)
+    assert metrics.pop("attrs") == {"n_members": 1, "members": None}
     assert set(metrics) == expected_metrics
     assert all(v is not None and np.isfinite(v) for v in metrics.values())
+
+
+@pytest.mark.parametrize("max_members", [1, 2, 5])
+def test_cli_benchmark_ensemble(max_members: int, tmp_path: pathlib.Path) -> None:
+    """A random subset of members gives scalars and is recorded."""
+    rng = np.random.default_rng(4)
+    n_members = 3
+    times = pd.date_range("2001-01-01", periods=730, freq="D")
+    coords = {"time": times, "lat": [45.0, 46.0], "lon": [10.0, 11.0]}
+    target = 295.0 + rng.normal(0.0, 3.0, size=(730, 2, 2))
+    members = target + rng.normal(0.5, 1.0, size=(n_members, 730, 2, 2))
+    reference = xr.Dataset(
+        {"tasmax": (["time", "lat", "lon"], target, {"units": "K"})}, coords=coords
+    )
+    prediction = xr.Dataset(
+        {"tasmax": (["member", "time", "lat", "lon"], members, {"units": "K"})},
+        coords=coords,
+    )
+    x0_path = tmp_path / "tasmax_ref.nc"
+    x1_path = tmp_path / "tasmax_pred.nc"
+    reference.to_netcdf(x0_path)
+    prediction.to_netcdf(x1_path)
+    output_prefix = str(tmp_path / "benchmark_tasmax")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "benchmark",
+            "--x0",
+            str(x0_path),
+            "--x1",
+            str(x1_path),
+            "--var",
+            "tasmax",
+            "--output",
+            output_prefix,
+            "--max-members",
+            str(max_members),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    with open(f"{output_prefix}_metrics_benchmark.json") as f:
+        metrics = json.load(f)
+    attrs = metrics.pop("attrs")
+    assert set(attrs) == {"n_members", "members"}
+    assert attrs["n_members"] == n_members
+    assert len(attrs["members"]) == min(max_members, n_members)
+    assert all(0 <= m < n_members for m in attrs["members"])
+    assert set(metrics) == {"rmse", "bias_mean", "ralsd", "bias_max1day", "pss", "bias_annstd"}
+    assert all(v is not None and np.isfinite(v) for v in metrics.values())
+
+
+def _run_benchmark_members(
+    tmp_path: pathlib.Path,
+    members_offset_K: list[float],
+    extra_args: list[str] | None = None,
+    noise_K: float = 1.0,
+) -> dict:
+    """
+    Run ``benchmark`` on a synthetic tasmax ensemble and return the JSON.
+
+    Each member is the target plus a constant offset (K) plus Gaussian noise.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary directory for the input/output files.
+    members_offset_K : list[float]
+        Constant offset (K) of each member with respect to the target.
+    extra_args : list[str] | None, optional
+        Additional CLI arguments.
+    noise_K : float, optional
+        Standard deviation (K) of the member noise.
+
+    Returns
+    -------
+    dict
+        The metrics JSON content.
+    """
+    rng = np.random.default_rng(7)
+    times = pd.date_range("2001-01-01", periods=730, freq="D")
+    coords = {"time": times, "lat": [45.0, 46.0], "lon": [10.0, 11.0]}
+    target = 295.0 + rng.normal(0.0, 3.0, size=(730, 2, 2))
+    offsets = np.asarray(members_offset_K)[:, None, None, None]
+    members = target + offsets
+    if noise_K > 0:
+        members = members + rng.normal(0.0, noise_K, size=members.shape)
+    xr.Dataset(
+        {"tasmax": (["time", "lat", "lon"], target, {"units": "K"})}, coords=coords
+    ).to_netcdf(tmp_path / "ref.nc")
+    xr.Dataset(
+        {"tasmax": (["member", "time", "lat", "lon"], members, {"units": "K"})},
+        coords=coords,
+    ).to_netcdf(tmp_path / "pred.nc")
+    output_prefix = str(tmp_path / "benchmark_tasmax")
+    args = [
+        "benchmark",
+        "--x0",
+        str(tmp_path / "ref.nc"),
+        "--x1",
+        str(tmp_path / "pred.nc"),
+        "--var",
+        "tasmax",
+        "--output",
+        output_prefix,
+    ] + (extra_args or [])
+    result = CliRunner().invoke(main, args)
+    assert result.exit_code == 0, result.output
+    with open(f"{output_prefix}_metrics_benchmark.json") as f:
+        return json.load(f)
+
+
+def test_cli_benchmark_member_protocol(tmp_path: pathlib.Path) -> None:
+    """By default, a random subset of 5 members is used and recorded."""
+    metrics = _run_benchmark_members(tmp_path, [0.5] * 7)
+    attrs = metrics.pop("attrs")
+    assert set(attrs) == {"n_members", "members"}
+    assert attrs["n_members"] == 7
+    subset = attrs["members"]
+    assert len(subset) == 5 and subset == sorted(subset) and len(set(subset)) == 5
+    assert all(0 <= m < 7 for m in subset)
+    assert set(metrics) == {
+        "rmse", "bias_mean", "ralsd", "bias_max1day", "pss", "bias_annstd"
+    }
+    assert all(v is not None and np.isfinite(v) for v in metrics.values())
+
+
+def test_cli_benchmark_member_selection_reproducible(tmp_path: pathlib.Path) -> None:
+    """Repeated runs select the same members; fewer members than the cap use all."""
+    for name in ("a", "b", "c"):
+        (tmp_path / name).mkdir()
+    run_a = _run_benchmark_members(tmp_path / "a", [0.5] * 7)
+    run_b = _run_benchmark_members(tmp_path / "b", [0.5] * 7)
+    assert run_a == run_b
+    run_c = _run_benchmark_members(tmp_path / "c", [0.5] * 3)
+    assert run_c["attrs"]["members"] == [0, 1, 2]
+
+
+def test_cli_benchmark_member_mean_before_abs(tmp_path: pathlib.Path) -> None:
+    """
+    Opposite member biases cancel: the member mean is taken before abs().
+
+    Two members at +2 K and two at -2 K (no noise): the member-mean annual
+    maximum equals the target one, so bias_max1day is 0 (and not 2 K, which
+    would be the mean of the absolute per-member biases). The ensemble mean
+    equals the target, so rmse and bias_mean are 0 too.
+    """
+    metrics = _run_benchmark_members(
+        tmp_path, [2.0, 2.0, -2.0, -2.0], ["--max-members", "4"], noise_K=0.0
+    )
+    assert metrics["attrs"]["members"] == [0, 1, 2, 3]
+    assert metrics["bias_max1day"] == pytest.approx(0.0, abs=1e-6)
+    assert metrics["bias_mean"] == pytest.approx(0.0, abs=1e-6)
+    assert metrics["rmse"] == pytest.approx(0.0, abs=1e-6)
 
 
 @pytest.fixture

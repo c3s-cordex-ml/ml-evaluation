@@ -90,3 +90,51 @@ def test_calc_pdf_metric_xr(test_datasets: tuple[xr.Dataset, xr.Dataset]) -> Non
     )
     assert "tasmax" in fcss_res
     assert isinstance(fcss_res["tasmax"].values, np.ndarray)
+
+
+
+@pytest.mark.parametrize(
+    "metric, shape",
+    [
+        # non-square grid: mixed order used to raise a "Shape mismatch" error
+        ("sal", (3, 6, 9)),
+        ("fss", (3, 6, 9)),
+        # single square field (no time): SAL used to silently compare the
+        # prediction with its transpose
+        ("sal", (8, 8)),
+    ],
+)
+def test_pixelwise_metrics_ignore_dim_order(
+    metric: str, shape: tuple[int, ...]
+) -> None:
+    """
+    SAL and FSS give the same result whether the prediction is stored as
+    (..., y, x) like the target, or as (..., x, y).
+    """
+    from ml_evaluation.evaluation.diagnostics import (
+        compute_sal_xr,
+        compute_sfss2D_xr,
+    )
+
+    rng = np.random.default_rng(seed=42)
+    dims = ("time", "y", "x")[-len(shape) :]
+    # precipitation-like fields (mm/day), non-symmetric so a transpose matters
+    target = xr.DataArray(rng.gamma(0.5, 4.0, shape), dims=dims)
+    prediction = xr.DataArray(rng.gamma(0.5, 4.0, shape), dims=dims)
+
+    def run(pred: xr.DataArray):
+        if metric == "sal":
+            return compute_sal_xr(
+                pred, target, "pr", eThreshFix=1.0, lat_name="y", lon_name="x"
+            )
+        return compute_sfss2D_xr(
+            pred, target, "pr", 1.0, window=3, lat_name="y", lon_name="x"
+        )
+
+    same_order = run(prediction)
+    mixed_order = run(prediction.transpose(..., "x", "y"))
+
+    same_order = same_order if isinstance(same_order, tuple) else (same_order,)
+    mixed_order = mixed_order if isinstance(mixed_order, tuple) else (mixed_order,)
+    for expected, result in zip(same_order, mixed_order):
+        xr.testing.assert_allclose(result.transpose(*expected.dims), expected)

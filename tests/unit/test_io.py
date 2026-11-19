@@ -172,3 +172,130 @@ def test_write_json(tmp_path: pathlib.Path) -> None:
 
     with pytest.raises(ValueError):
         write_json({"x": xr.DataArray(np.ones(3), dims="t")}, str(path))
+
+    # metadata is written as-is under "attrs"
+    write_json({"c": 3.5}, str(path), attrs={"member": 0, "n_members": 10})
+    assert json.loads(path.read_text()) == {
+        "c": 3.5,
+        "attrs": {"member": 0, "n_members": 10},
+    }
+    with pytest.raises(ValueError):
+        write_json({"attrs": 1.0}, str(path), attrs={"member": 0})
+
+
+def _write_period(path: pathlib.Path, start: str, end: str) -> None:
+    """Write a small daily NetCDF file (pr in mm/day) on a 2x2 grid."""
+    times = xr.date_range(start, end, calendar="standard", freq="D")
+    rng = np.random.default_rng(seed=42)
+    ds = xr.Dataset(
+        {"pr": (["time", "lat", "lon"], rng.random((len(times), 2, 2)))},
+        coords={"time": times, "lat": [45.0, 46.0], "lon": [7.0, 8.0]},
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ds.to_netcdf(path)
+
+
+def test_load_dataset_glob_combines_periods(tmp_path: pathlib.Path) -> None:
+    """
+    Test that a glob pattern loads and joins two separate periods along time.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Fixture providing a temporary directory.
+
+    Returns
+    -------
+    None
+    """
+    # Written in reverse order to check that files are ordered by time
+    _write_period(tmp_path / "end_century" / "pr.nc", "2080-01-01", "2080-01-10")
+    _write_period(tmp_path / "mid_century" / "pr.nc", "2041-01-01", "2041-01-10")
+    _write_period(tmp_path / "historical" / "pr.nc", "1990-01-01", "1990-01-10")
+
+    loaded = load_dataset(str(tmp_path / "*_century" / "pr.nc"))
+
+    assert loaded.sizes["time"] == 20
+    assert loaded.indexes["time"].is_monotonic_increasing
+    assert loaded.time.dt.year.to_index().unique().tolist() == [2041, 2080]
+    assert loaded.sizes["lat"] == 2 and loaded.sizes["lon"] == 2
+
+
+def test_load_dataset_glob_no_match(tmp_path: pathlib.Path) -> None:
+    """
+    Test that a glob pattern matching no file raises FileNotFoundError.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Fixture providing a temporary directory.
+
+    Returns
+    -------
+    None
+    """
+    with pytest.raises(FileNotFoundError):
+        load_dataset(str(tmp_path / "*.nc"))
+
+
+def test_load_dataset_glob_overlap(tmp_path: pathlib.Path) -> None:
+    """
+    Test that overlapping periods matched by a glob pattern raise an error.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Fixture providing a temporary directory.
+
+    Returns
+    -------
+    None
+    """
+    _write_period(tmp_path / "a.nc", "2041-01-01", "2041-01-10")
+    _write_period(tmp_path / "b.nc", "2041-01-05", "2041-01-15")
+
+    with pytest.raises(ValueError):
+        load_dataset(str(tmp_path / "*.nc"))
+
+
+def test_load_dataset_glob_2d_spatial_coords(tmp_path: pathlib.Path) -> None:
+    """
+    Test that a glob pattern combines files whose x/y are 2D (no index).
+
+    Some submissions store x/y as 2D copies of lon/lat. These cannot be
+    combined with ``combine="by_coords"`` (it needs a 1D index for every
+    dimension), which is why ``load_dataset`` uses ``combine="nested"``.
+    This test guards against reverting that choice.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Fixture providing a temporary directory.
+
+    Returns
+    -------
+    None
+    """
+    lat2d = np.array([[45.0, 45.0], [46.0, 46.0]])
+    lon2d = np.array([[7.0, 8.0], [7.0, 8.0]])
+    rng = np.random.default_rng(seed=42)
+    for folder, start in [("end_century", "2080-01-01"), ("mid_century", "2041-01-01")]:
+        times = xr.date_range(start, periods=10, calendar="standard", freq="D")
+        ds = xr.Dataset(
+            {"pr": (["time", "y", "x"], rng.random((len(times), 2, 2)))},
+            coords={
+                "time": times,
+                "y": (["y", "x"], lat2d),
+                "x": (["y", "x"], lon2d),
+            },
+        )
+        path = tmp_path / folder / "pr.nc"
+        path.parent.mkdir(parents=True)
+        ds.to_netcdf(path)
+
+    loaded = load_dataset(str(tmp_path / "*_century" / "pr.nc"))
+
+    assert loaded.sizes["time"] == 20
+    assert loaded.indexes["time"].is_monotonic_increasing
+    assert loaded["y"].dims == ("y", "x")
+    np.testing.assert_array_equal(loaded["y"].values, lat2d)
