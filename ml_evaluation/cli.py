@@ -618,7 +618,7 @@ def benchmark(
     use_dask: bool,
 ) -> None:
     """Compute scalar CORDEX-ML-Bench comparison metrics for 'pr' or 'tasmax'.
-    
+
         Parameters
     ----------
     x0 : str
@@ -682,14 +682,14 @@ def benchmark(
     n_members = x1_ds.sizes[member_dim] if member_dim is not None else 1
 
     # Draw a random subset of up to `max_members`
-    members = None 
+    members = None
     if member_dim is not None and n_members > 1:
         rng = np.random.default_rng(BENCHMARK_MEMBER_SEED)
         order = rng.permutation(n_members)
         subset = np.sort(order[:max_members])
         # The single member metrics (ralsd, bias_annstd) is drawn from the same subset
         single_pos = int(np.searchsorted(subset, order[0]))
-        x1_ds = x1_ds.isel({raw_member_dim: subset})
+        x1_ds = x1_ds.isel({member_dim: subset})
         members = subset.tolist()
         click.echo(f"Members used: {members} (single member: {int(order[0])})")
 
@@ -795,11 +795,10 @@ def benchmark(
     }
 
     # -------------------
-    # pr specific 
+    # pr specific
     # -------------------
 
     if var == "pr":
-
         click.echo("Computing bias of the Simple Daily Intensity Index (SDII)...")
         biasf_sdii_ds = bias_index(
             x0_ds,
@@ -830,11 +829,10 @@ def benchmark(
         metrics["lhd"] = _mean_members(lhd_ds)
 
     # -------------------
-    # tasmax specific 
+    # tasmax specific
     # -------------------
 
     elif var == "tasmax":
-
         click.echo("Computing the Perkins Skill Score (PSS)...")
         pss_ds = calc_pdf_metric_xr(
             x0_ds,
@@ -865,8 +863,8 @@ def benchmark(
         # Alternative (paper):
         #   biasf_annstd_ds = bias_index(
         #       x0_ds,
-        #       x1_ds, 
-        #       var=var, 
+        #       x1_ds,
+        #       var=var,
         #       season=season,
         #       index_fn=indices.interannual_var,
         #   )
@@ -885,7 +883,7 @@ def benchmark(
     )
 
     click.echo(f"Saved benchmark metrics to {metrics_path}")
-    
+
     click.echo("Benchmark evaluation complete.")
 
 
