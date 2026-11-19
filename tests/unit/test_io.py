@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+import pytest
 import numpy as np
 import xarray as xr
 from ml_evaluation.io import load_dataset
@@ -148,9 +149,6 @@ def test_write_diagnostics_dict(tmp_path: pathlib.Path) -> None:
     ds_nc = xr.open_dataset(str(nc_path))
     assert "value" in ds_nc
     assert set(ds_nc["diagnostic"].values) == {"mean_bias", "rmsefld", "rmse"}
-
-
-import pytest
 
 
 def test_write_json(tmp_path: pathlib.Path) -> None:

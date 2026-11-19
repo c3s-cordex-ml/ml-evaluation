@@ -235,14 +235,7 @@ def standardize_precip_units(ds: xr.Dataset, var: str) -> xr.Dataset:
         "mm/s",
         "mm s-1",
     }
-    PRECIP_DAILY_UNITS = {
-        "mm/day",
-        "mm day-1",
-        "mm d-1",
-        "mm.day-1",
-        "mm/d",
-        "mm"
-    }
+    PRECIP_DAILY_UNITS = {"mm/day", "mm day-1", "mm d-1", "mm.day-1", "mm/d", "mm"}
 
     attrs = dict(ds[var].attrs)
     raw_units = attrs.get("units")

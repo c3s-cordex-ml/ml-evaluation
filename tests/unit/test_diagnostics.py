@@ -92,7 +92,6 @@ def test_calc_pdf_metric_xr(test_datasets: tuple[xr.Dataset, xr.Dataset]) -> Non
     assert isinstance(fcss_res["tasmax"].values, np.ndarray)
 
 
-
 @pytest.mark.parametrize(
     "metric, shape",
     [

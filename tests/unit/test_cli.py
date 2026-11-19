@@ -131,7 +131,10 @@ def test_cli_fast_workflow(
     ("var", "expected_metrics"),
     [
         ("pr", {"rmse", "bias_mean", "ralsd", "bias_sdii", "bias_max1day", "lhd"}),
-        ("tasmax", {"rmse", "bias_mean", "ralsd", "bias_max1day", "pss", "bias_annstd"}),
+        (
+            "tasmax",
+            {"rmse", "bias_mean", "ralsd", "bias_max1day", "pss", "bias_annstd"},
+        ),
     ],
 )
 def test_cli_benchmark_workflow(
@@ -234,7 +237,14 @@ def test_cli_benchmark_ensemble(max_members: int, tmp_path: pathlib.Path) -> Non
     assert attrs["n_members"] == n_members
     assert len(attrs["members"]) == min(max_members, n_members)
     assert all(0 <= m < n_members for m in attrs["members"])
-    assert set(metrics) == {"rmse", "bias_mean", "ralsd", "bias_max1day", "pss", "bias_annstd"}
+    assert set(metrics) == {
+        "rmse",
+        "bias_mean",
+        "ralsd",
+        "bias_max1day",
+        "pss",
+        "bias_annstd",
+    }
     assert all(v is not None and np.isfinite(v) for v in metrics.values())
 
 
@@ -308,7 +318,12 @@ def test_cli_benchmark_member_protocol(tmp_path: pathlib.Path) -> None:
     assert len(subset) == 5 and subset == sorted(subset) and len(set(subset)) == 5
     assert all(0 <= m < 7 for m in subset)
     assert set(metrics) == {
-        "rmse", "bias_mean", "ralsd", "bias_max1day", "pss", "bias_annstd"
+        "rmse",
+        "bias_mean",
+        "ralsd",
+        "bias_max1day",
+        "pss",
+        "bias_annstd",
     }
     assert all(v is not None and np.isfinite(v) for v in metrics.values())
 
