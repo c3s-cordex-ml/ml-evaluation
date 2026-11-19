@@ -178,10 +178,44 @@ Computes **distribution scores**, **Bias** for various additional indices (inclu
 
 ```bash
 ml-eval slow --x0 <ref.nc> --x1 <pred.nc> --var <variable> --output <prefix_or_dir> [--season <season>]
-
 ```
 
-### 4. Multi-Variate Workflow (`multivar`)
+### 4. CORDEX-ML-Bench Workflow
+
+Computes the [CORDEX-ML-Bench](https://github.com/WCRP-CORDEX/ml-benchmark) comparison metrics as scalar diagnostics and saves them together in one JSON file. Index biases are summarized as the spatial mean of their absolute values. For total precipitation (`pr`), the diagnostics are RMSE, climatological-mean bias, SDII bias, Rx1day bias, RALSD, and LHD. For maximum temperature (`tasmax`), the diagnostics are RMSE, climatological-mean bias, TXx bias, RALSD, PSS, and IAV bias. Precipitation is converted to mm/day before computing the metrics.
+
+```bash
+ml-eval benchmark --x0 <ref.nc> --x1 <pred.nc> --var pr|tasmax --output <prefix_or_dir_or_json> [--season <season>] [--max-members <int>]
+```
+
+`--output` may be an existing directory (writes `<dir>/metrics_benchmark.json`), a file prefix (writes `<prefix>_metrics_benchmark.json`) or a full path ending in `.json`. The file is a flat `{metric: value}` mapping (NaN written as `null`) plus an `attrs` entry describing the ensemble members used, e.g. (illustrative values for `pr`):
+
+```json
+{
+  "bias_max1day": 3.01,
+  "bias_mean": 0.09,
+  "bias_sdii": 0.15,
+  "lhd": 0.84,
+  "ralsd": 0.008,
+  "rmse": 3.12,
+  "attrs": {"n_members": 10, "members": [0, 3, 5, 6, 7]}
+}
+```
+
+`--x0` and `--x1` also accept a **quoted** glob pattern (e.g. `"test/*_century/target/pr_*.nc"`) to combine several files along time.
+
+**Ensemble predictions.** If `x1` has a member dimension, members are handled as in the [CORDEX-ML-Bench paper](https://arxiv.org/abs/2606.29172). A random subset of up to `--max-members` members (default 5) is drawn with a fix seed, and shared by all metrics. From this subset, members are aggregated differently among metrics:
+
+| Metric | Member aggregation |
+|---|---|
+| RMSE, climatological-mean bias | Metric over the ensemble mean |
+| Rx1day/TXx bias, SDII bias | Index per member, bias averaged over members, then absolute value and spatial mean |
+| LHD, PSS | Metric per member, averaged over members |
+| RALSD, IAV bias | One random member of the subset |
+
+The output JSON `attrs` record `n_members` (members in `x1`) and `members` (positions of the selected members; `null` without a member dimension). Use `--max-members 1` to evaluate a single random member.
+
+### 5. Multi-Variate Workflow (`multivar`)
 
 Computes **correlation** (Pearson and Spearman's rank) between two variables for the reference and prediction datasets, along with their biases.
 
@@ -189,7 +223,7 @@ Computes **correlation** (Pearson and Spearman's rank) between two variables for
 ml-eval multivar --x0 <ref.nc> --x1 <pred.nc> --var <variable> --var2 <second_variable> --output <prefix_or_dir> [--season <season>]
 ```
 
-### 5. Probabilistic Workflow (`prob`)
+### 6. Probabilistic Workflow (`prob`)
 
 Computes **CRPS**, **Brier Score**, and the **spread-error ratio** between `x0` and `x1`, evaluated across the full ensemble (no `--member-num` selection).
 
