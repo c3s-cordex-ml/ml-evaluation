@@ -37,6 +37,7 @@ from ml_evaluation.transformations import (
     convert_threshold_units,
     spatial_dims,
     spatial_dims_present,
+    ensure_member_coords,
 )
 
 
@@ -1242,7 +1243,7 @@ def slow(
             cmean=True,
             output_index=True,
             x0_index_kwargs={"threshold": targf_p95wet_ds},
-            x1_index_kwargs={"threshold": predf_p95wet_ds},
+            x1_index_kwargs={"threshold": targf_p95wet_ds},
         )
 
         # Compute Bias of R99P (over time): field
@@ -1259,7 +1260,7 @@ def slow(
             cmean=True,
             output_index=True,
             x0_index_kwargs={"threshold": targf_p99wet_ds},
-            x1_index_kwargs={"threshold": predf_p99wet_ds},
+            x1_index_kwargs={"threshold": targf_p99wet_ds},
         )
 
         # Compute Bias of annual 5 day max (over time): field
@@ -1360,7 +1361,7 @@ def slow(
             cmean=True,
             output_index=False,
             x0_index_kwargs={"threshold": targf_p95wet_ds},
-            x1_index_kwargs={"threshold": predf_p95wet_ds},
+            x1_index_kwargs={"threshold": targf_p95wet_ds},
         )
 
         # Compute Relative Bias of R99P (over time): field
@@ -1374,7 +1375,7 @@ def slow(
             cmean=True,
             output_index=False,
             x0_index_kwargs={"threshold": targf_p99wet_ds},
-            x1_index_kwargs={"threshold": predf_p99wet_ds},
+            x1_index_kwargs={"threshold": targf_p99wet_ds},
         )
 
         # Compute Relative Bias of annual 5 day max (over time): field
@@ -2300,7 +2301,7 @@ def prob(
     "--x0",
     required=True,
     type=click.Path(exists=True),
-    help="Path to ground-truth NetCDF file.",
+    help="Path to NetCDF file.",
 )
 @click.option("--var", required=True, type=str, help="Variable name to evaluate.")
 @click.option(
@@ -2308,6 +2309,19 @@ def prob(
     required=True,
     type=str,
     help="Directory or file path for the output Zarr results.",
+)
+@click.option(
+    "--member-dim",
+    type=str,
+    default=None,
+    help="Name of member dimension if input ensemble prediction.",
+)
+@click.option(
+    "--pool-members",
+    type=bool,
+    default=True,
+    help="If True (default), pool all ensemble members into one threshold; "
+    "if False, compute a separate threshold per member.",
 )
 @click.option(
     "--align-leap-days",
@@ -2331,6 +2345,8 @@ def cdquantiles(
     x0: str,
     var: str,
     output: str,
+    member_dim: str | None,
+    pool_members: bool,
     align_leap_days: str | None,
     force_load: bool,
     use_dask: bool,
@@ -2338,7 +2354,7 @@ def cdquantiles(
     """
     Run the calendar day extreme threshold computation workflow.
 
-    Computes target 90th and 10th calendar percentiles for use
+    Computes 90th and 10th calendar percentiles for use
     in fn cdextremes().
 
     Parameters
@@ -2349,6 +2365,13 @@ def cdquantiles(
         Variable name to evaluate.
     output : str
         Directory for netcdf threshold fields.
+    member_dim : str | None
+        Name of the member dimension if the input is an ensemble; it is
+        renamed to "member".
+    pool_members : bool
+        If True, pool all members into one threshold field; if False, compute
+        one threshold field per member. Ignored when there is no "member"
+        dimension.
     align_leap_days : str | None
         Options to align datasets to standard calendar by filling missing leap days.
     force_load : bool
@@ -2381,21 +2404,37 @@ def cdquantiles(
     if force_load:
         x0_ds.load()
 
+    if isinstance(member_dim, str):
+        # Over-ride member dimension to be called "member"
+        x0_ds = ensure_member_coords(x0_ds, dim=member_dim, new_name="member")
+
+    pool_dim = None
+    if "member" in x0_ds.dims:
+        if pool_members:
+            click.echo("Pooling all members into a single threshold field")
+            pool_dim = "member"
+        else:
+            click.echo("Computing a separate threshold field per member")
+
     # Compute Bias of freq gt 90th cal_day percentile: field
     click.echo("Computing Target 90th cal_day percentile: field... SLOW...")
 
-    targ_var90p_quantile = indices.calday_quantile(x0_ds, var=var, q=0.9, padding=2)
-    targ_var90p_quantile_path = _get_output_path(output, "targ_quantile_var90p.nc")
-    targ_var90p_quantile.to_netcdf(targ_var90p_quantile_path)
-    click.echo(f"Saved Target 90th cal_day percentile to {targ_var90p_quantile_path}")
+    var_quantile = indices.calday_quantile(
+        x0_ds, var=var, q=0.9, padding=2, pool_dim=pool_dim
+    )
+    var90p_quantile_path = _get_output_path(output, "quantile_var90p.nc")
+    var_quantile.to_netcdf(var90p_quantile_path)
+    click.echo(f"Saved Target 90th cal_day percentile to {var90p_quantile_path}")
 
     # Compute time Bias of freq timesteps lt 10th cal_day percentile: field
     click.echo("Computing Target 10th cal_day percentile: field... SLOW...")
 
-    targ_var10p_quantile = indices.calday_quantile(x0_ds, var=var, q=0.1, padding=2)
-    targ_var10p_quantile_path = _get_output_path(output, "targ_quantile_var10p.nc")
-    targ_var10p_quantile.to_netcdf(targ_var10p_quantile_path)
-    click.echo(f"Saved Target 10th cal_day percentile to {targ_var10p_quantile_path}")
+    var_quantile = indices.calday_quantile(
+        x0_ds, var=var, q=0.1, padding=2, pool_dim=pool_dim
+    )
+    var10p_quantile_path = _get_output_path(output, "quantile_var10p.nc")
+    var_quantile.to_netcdf(var10p_quantile_path)
+    click.echo(f"Saved Target 10th cal_day percentile to {var10p_quantile_path}")
 
 
 @main.command()
@@ -2419,10 +2458,28 @@ def cdquantiles(
     help="Directory or file path for the output Zarr results.",
 )
 @click.option(
-    "--thresh-dir",
+    "--thresh-path-90p",
     required=True,
     type=str,
-    help="Directory for the netcdf threshold files.",
+    help="Path for netcdf target threshold 90P.",
+)
+@click.option(
+    "--thresh-path-10p",
+    required=True,
+    type=str,
+    help="Path for netcdf target threshold 10P.",
+)
+@click.option(
+    "--thresh-path-pred-90p",
+    type=str,
+    default=None,
+    help="Path for netcdf prediction threshold 90P (default None: use target).",
+)
+@click.option(
+    "--thresh-path-pred-10p",
+    type=str,
+    default=None,
+    help="Path for netcdf prediction threshold 10P (default None: use target).",
 )
 @click.option(
     "--season",
@@ -2459,7 +2516,10 @@ def cdextremes(
     x1: str,
     var: str,
     output: str,
-    thresh_dir: str,
+    thresh_path_90p: str,
+    thresh_path_10p: str,
+    thresh_path_pred_90p: str | None,
+    thresh_path_pred_10p: str | None,
     season: str | None,
     align_leap_days: str | None,
     member_num: int | None,
@@ -2482,9 +2542,18 @@ def cdextremes(
         Variable name to evaluate.
     output : str
         Directory, file prefix, or final Zarr store path.
-    thresh_dir : str
-        Directory for netcdf threshold files (from fn )
-        targ_quantile_var90p.nc, targ_quantile_var10p.nc
+    thresh_path_90p : str
+        Path for netcdf 90% threshold file (from fn cdquantiles)
+        e.g. quantile_var90p.nc
+    thresh_path_10p : str
+        Path for netcdf 10% threshold file (from fn cdquantiles)
+        e.g. quantile_var10p.nc
+    thresh_path_pred_90p : str | None
+        Separate file if use prediction based 90% threshold for prediction.
+        This can be 1 threshold for all members or a separate threshold for
+        each member, but the choice may effect the order of output dims.
+    thresh_path_pred_10p : str | None
+        Separate file if use prediction based 10% threshold for prediction.
     season : str | None
         Optional season or month standard name.
     align_leap_days : str | None
@@ -2556,10 +2625,10 @@ def cdextremes(
         x0_ds.load()
         x1_ds.load()
 
-    calday_90p_path = _get_output_path(thresh_dir, "targ_quantile_var90p.nc")
-    calday_10p_path = _get_output_path(thresh_dir, "targ_quantile_var10p.nc")
+    calday_90p_path = thresh_path_90p
+    calday_10p_path = thresh_path_10p
 
-    if not os.path.isfile(calday_90p_path) and not os.path.isfile(calday_10p_path):
+    if not os.path.isfile(calday_90p_path) or not os.path.isfile(calday_10p_path):
         click.echo(
             f"Target threshold files do not exist: {calday_90p_path}; {calday_10p_path}. "
             f"Use track cdquantiles to compute these for variable {var}."
@@ -2569,102 +2638,205 @@ def cdextremes(
             f"Use track cdquantiles to compute these for variable {var}."
         )
 
-    if os.path.isfile(calday_90p_path):
-        targ_var90p_quantile = load_dataset(
-            calday_90p_path, chunks="auto" if use_dask else None
-        )
-
-        click.echo(f"Loaded threshold file: {calday_90p_path}")
-
-        if len(targ_var90p_quantile[var].dims) < 3:
+    if isinstance(thresh_path_pred_90p, str):
+        calday_90p_pred_path = thresh_path_pred_90p
+        if not os.path.isfile(calday_90p_pred_path):
             click.echo(
-                f"WARNING: expected at least 3 dimensions but got: {targ_var90p_quantile[var].dims}"
+                f"Pred threshold file doesn't exist: {calday_90p_pred_path}. "
+                f"Use track cdquantiles to compute this for variable {var}."
             )
-
-        # Compute Bias of freq gt 90th cal_day percentile: field
-        click.echo("Computing Bias of freq gt 90th cal_day percentile: field...")
-        biasf_freq90p_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_freq_wrt_array,
-            threshold=targ_var90p_quantile,
-            relation="gt",
-            cmean=True,
-        )
-
-        # Compute Bias of max spell duration index (over time): field
-        click.echo("Computing Bias of max spell duration index (over time): field...")
-        biasf_spell90p_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_maxspell_wrt_array,
-            threshold=targ_var90p_quantile,
-            relation="gt",
-            cmean=True,
-        )
-
-        metrics_90p = {
-            "bias_freq90p_field": biasf_freq90p_ds,
-            "bias_spell90p_field": biasf_spell90p_ds,
-        }
-
+            raise ValueError(
+                f"Pred threshold file doesn't exist: {calday_90p_pred_path}. "
+                f"Use track cdquantiles to compute this for variable {var}."
+            )
     else:
-        click.echo(
-            f"Target threshold file does not exist: {calday_90p_path}. Use track cdquantiles to compute this for variable {var}."
-        )
+        calday_90p_pred_path = calday_90p_path
 
-    if os.path.isfile(calday_10p_path):
-        targ_var10p_quantile = load_dataset(
-            calday_10p_path, chunks="auto" if use_dask else None
-        )
-
-        click.echo(f"Loaded threshold file: {calday_10p_path}")
-
-        if len(targ_var10p_quantile[var].dims) < 3:
+    if isinstance(thresh_path_pred_10p, str):
+        calday_10p_pred_path = thresh_path_pred_10p
+        if not os.path.isfile(calday_10p_pred_path):
             click.echo(
-                f"WARNING: expected at least 3 dimensions but got: {targ_var10p_quantile[var].dims}"
+                f"Pred threshold file doesn't exist: {calday_10p_pred_path}. "
+                f"Use track cdquantiles to compute this for variable {var}."
             )
-
-        # Compute time Bias of freq timesteps lt 10th cal_day percentile: field
-        click.echo("Computing Bias of freq lt 10th cal_day percentile: field...")
-        biasf_freq10p_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_freq_wrt_array,
-            threshold=targ_var10p_quantile,
-            relation="lt",
-            cmean=True,
-        )
-
-        # Compute Bias of max spell duration index (over time): field
-        click.echo("Computing Bias of max spell duration index (over time): field...")
-        biasf_spell10p_ds = bias_index(
-            x0_ds,
-            x1_ds,
-            var=var,
-            season=season,
-            index_fn=indices.ann_maxspell_wrt_array,
-            threshold=targ_var10p_quantile,
-            relation="lt",
-            cmean=True,
-        )
-
-        metrics_10p = {
-            "bias_freq10p_field": biasf_freq10p_ds,
-            "bias_spell10p_field": biasf_spell10p_ds,
-        }
-
+            raise ValueError(
+                f"Pred threshold file doesn't exist: {calday_10p_pred_path}. "
+                f"Use track cdquantiles to compute this for variable {var}."
+            )
     else:
+        calday_10p_pred_path = calday_10p_path
+
+    # ------ 90th Percentile Threshold ------
+
+    targ_var90p_quantile = load_dataset(
+        calday_90p_path,
+        chunks=None,  # "auto" if use_dask else None
+    )
+    click.echo(f"Loaded target threshold file: {calday_90p_path}")
+
+    if len(targ_var90p_quantile[var].dims) < 3:
         click.echo(
-            f"Target threshold file does not exist: {calday_10p_path}. "
-            f"Use track cdquantiles to compute this for variable {var}."
+            f"WARNING: expected at least 3 dimensions but got: {targ_var90p_quantile[var].dims}"
         )
+
+    pred_var90p_quantile = load_dataset(
+        calday_90p_pred_path,
+        chunks=None,  # "auto" if use_dask else None
+    )
+    click.echo(f"Loaded pred threshold file: {calday_90p_pred_path}")
+
+    if len(pred_var90p_quantile[var].dims) < 3:
+        click.echo(
+            f"WARNING: expected at least 3 dimensions but got: {pred_var90p_quantile[var].dims}"
+        )
+
+    targ_var90p_quantile, pred_var90p_quantile, member_dim = align_dims(
+        targ_var90p_quantile, pred_var90p_quantile, member=member_num
+    )
+
+    # Compute Bias of freq gt 90th cal_day percentile: field
+    click.echo("Computing Bias of freq gt 90th cal_day percentile: field...")
+    biasf_freq90p_ds, targf_freq90p_ds, predf_freq90p_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices.ann_freq_wrt_array,
+        x0_index_kwargs={"threshold": targ_var90p_quantile},
+        x1_index_kwargs={"threshold": pred_var90p_quantile},
+        relation="gt",
+        cmean=True,
+        output_index=True,
+    )
+
+    # Compute Bias of WSDI (freq of days in spell of length > 6): field
+    click.echo("Computing Bias of WSDI (freq of days in spell of length > 6): field...")
+    biasf_wsdi90p_ds, targf_wsdi90p_ds, predf_wsdi90p_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices.ann_spellfreq_wrt_array,
+        x0_index_kwargs={"threshold": targ_var90p_quantile},
+        x1_index_kwargs={"threshold": pred_var90p_quantile},
+        min_length=6,
+        relation="gt",
+        cmean=True,
+        output_index=True,
+    )
+
+    # Compute Bias of max spell duration index (over time): field
+    click.echo("Computing Bias of max spell duration index (over time): field...")
+    biasf_spell90p_ds, targf_spell90p_ds, predf_spell90p_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices.ann_maxspell_wrt_array,
+        x0_index_kwargs={"threshold": targ_var90p_quantile},
+        x1_index_kwargs={"threshold": pred_var90p_quantile},
+        relation="gt",
+        cmean=True,
+        output_index=True,
+    )
+
+    metrics_90p = {
+        "bias_freq90p_field": biasf_freq90p_ds,
+        "bias_WSDI90p_field": biasf_wsdi90p_ds,
+        "bias_spell90p_field": biasf_spell90p_ds,
+        "targ_freq90p_field": targf_freq90p_ds,
+        "pred_freq90p_field": predf_freq90p_ds,
+        "targ_WSDI90p_field": targf_wsdi90p_ds,
+        "pred_WSDI90p_field": predf_wsdi90p_ds,
+        "targ_spell90p_field": targf_spell90p_ds,
+        "pred_spell90p_field": predf_spell90p_ds,
+    }
+
+    # ------ 10th Percentile Threshold ------
+
+    targ_var10p_quantile = load_dataset(
+        calday_10p_path,
+        chunks=None,  # "auto" if use_dask else None
+    )
+    click.echo(f"Loaded target threshold file: {calday_10p_path}")
+
+    if len(targ_var10p_quantile[var].dims) < 3:
+        click.echo(
+            f"WARNING: expected at least 3 dimensions but got: {targ_var10p_quantile[var].dims}"
+        )
+
+    pred_var10p_quantile = load_dataset(
+        calday_10p_pred_path,
+        chunks=None,  # "auto" if use_dask else None
+    )
+    click.echo(f"Loaded pred threshold file: {calday_10p_pred_path}")
+
+    if len(pred_var10p_quantile[var].dims) < 3:
+        click.echo(
+            f"WARNING: expected at least 3 dimensions but got: {pred_var10p_quantile[var].dims}"
+        )
+
+    targ_var10p_quantile, pred_var10p_quantile, member_dim = align_dims(
+        targ_var10p_quantile, pred_var10p_quantile, member=member_num
+    )
+
+    # Compute time Bias of freq timesteps lt 10th cal_day percentile: field
+    click.echo("Computing Bias of freq lt 10th cal_day percentile: field...")
+    biasf_freq10p_ds, targf_freq10p_ds, predf_freq10p_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices.ann_freq_wrt_array,
+        x0_index_kwargs={"threshold": targ_var10p_quantile},
+        x1_index_kwargs={"threshold": pred_var10p_quantile},
+        relation="lt",
+        cmean=True,
+        output_index=True,
+    )
+
+    # Compute Bias of CSDI (freq of days in spell of length > 6): field
+    click.echo("Computing Bias of CSDI (freq of days in spell of length > 6): field...")
+    biasf_csdi10p_ds, targf_csdi10p_ds, predf_csdi10p_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices.ann_spellfreq_wrt_array,
+        x0_index_kwargs={"threshold": targ_var10p_quantile},
+        x1_index_kwargs={"threshold": pred_var10p_quantile},
+        min_length=6,
+        relation="lt",
+        cmean=True,
+        output_index=True,
+    )
+
+    # Compute Bias of max spell duration index (over time): field
+    click.echo("Computing Bias of max spell duration index (over time): field...")
+    biasf_spell10p_ds, targf_spell10p_ds, predf_spell10p_ds = bias_index(
+        x0_ds,
+        x1_ds,
+        var=var,
+        season=season,
+        index_fn=indices.ann_maxspell_wrt_array,
+        x0_index_kwargs={"threshold": targ_var10p_quantile},
+        x1_index_kwargs={"threshold": pred_var10p_quantile},
+        relation="lt",
+        cmean=True,
+        output_index=True,
+    )
+
+    metrics_10p = {
+        "bias_freq10p_field": biasf_freq10p_ds,
+        "bias_CSDI10p_field": biasf_csdi10p_ds,
+        "bias_spell10p_field": biasf_spell10p_ds,
+        "targ_freq10p_field": targf_freq10p_ds,
+        "pred_freq10p_field": predf_freq10p_ds,
+        "targ_CSDI10p_field": targf_csdi10p_ds,
+        "pred_CSDI10p_field": predf_csdi10p_ds,
+        "targ_spell10p_field": targf_spell10p_ds,
+        "pred_spell10p_field": predf_spell10p_ds,
+    }
 
     click.echo("Combining and saving metrics...")
     metrics = metrics_90p | metrics_10p

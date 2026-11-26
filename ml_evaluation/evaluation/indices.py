@@ -18,6 +18,7 @@ from ml_evaluation.transformations import spatial_dims
 from ml_evaluation.evaluation.utils import (
     filter_by_monthseason,
     ann_max_spell,
+    ann_spell_days,
 )
 
 
@@ -57,6 +58,7 @@ def season_quantile(
     q: float,
     season: str | None = None,
     wet_threshold: float | None = None,
+    pool_dim: str | None = None,
 ) -> xr.Dataset:
     """
     Compute the specified time quantile of a variable in a dataset.
@@ -78,6 +80,11 @@ def season_quantile(
         Season or Month standard name to filter before computing the quantile.
     wet_threshold : float | None
         Precipitation threshold to qualify as a wet day e.g. 1mm/day.
+    pool_dim : str | None, optional
+        Extra dimension (e.g. ensemble ``"member"``) to pool into the quantile,
+        giving one quantile shared by all members. If None (default), or if
+        the dimension is absent, any such dimension is kept and the quantile
+        is computed separately along it.
 
     Returns
     -------
@@ -90,7 +97,17 @@ def season_quantile(
     if wet_threshold is not None:
         da = da.where(da >= wet_threshold)
 
-    result = da.quantile(q, dim="time", skipna=True)
+    quantile_dims = ["time"]
+    if pool_dim is not None:
+        if pool_dim in da.dims:
+            quantile_dims.append(pool_dim)
+        else:
+            print(
+                f"WARNING: pool_dim='{pool_dim}' is not a dimension of the "
+                "dataset, so nothing is pooled."
+            )
+
+    result = da.quantile(q, dim=tuple(quantile_dims), skipna=True)
     if "quantile" in result.dims:
         result = result.sel(quantile=q)
     return result
@@ -122,19 +139,65 @@ def season_std(x: xr.Dataset, var: str, season: str | None = None) -> xr.Dataset
     return x_filtered[[var]].std("time", skipna=True)
 
 
-def calday_quantile(x: xr.Dataset, var: str, q: float, padding: int = 2) -> xr.Dataset:
-    da = x[[var]]
-    n_members = padding * 2 + 1
-    center = n_members // 2  # = 2
-    shifts = [i - center for i in range(n_members)]  # [-2, -1, 0, 1, 2]
-    members = [da.roll(time=s, roll_coords=False) for s in shifts]
-    da_members = xr.concat(members, dim="member")
-    da_members = da_members.assign_coords(member=range(n_members))
+def calday_quantile(
+    x: xr.Dataset,
+    var: str,
+    q: float,
+    padding: int = 2,
+    pool_dim: str | None = None,
+) -> xr.Dataset:
+    """
+    Compute a calendar-day quantile using a moving day-window.
 
-    # Group by calendar day-of-year, then take the quantile over
-    # both the member (day-window) and time (all years) dimensions
-    result = da_members.groupby("time.dayofyear").quantile(
-        q, dim=("member", "time"), skipna=True
+    For each day of year, the quantile is taken over all years and over a
+    window of +/- ``padding`` days around that day.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the daily variable.
+    var : str
+        Name of the daily variable.
+    q : float
+        Quantile to compute (0-1).
+    padding : int, default 2
+        Half-width of the day-window (window length is ``2 * padding + 1``).
+    pool_dim : str | None, optional
+        Extra dimension (e.g. ensemble ``"member"``) to pool into the quantile,
+        giving one threshold shared by all members. If None (default), or if
+        the dimension is absent, any such dimension is kept and the threshold
+        is computed separately along it.
+
+    Returns
+    -------
+    xr.Dataset
+        Quantile field with a ``dayofyear`` dimension.
+    """
+    da = x[[var]]
+    # Private name for the day-window dimension so it cannot clash with an
+    # existing ensemble "member" dimension (which is kept, giving per-member
+    # thresholds).
+    window_dim = "_calday_window"
+    n_window = padding * 2 + 1
+    center = n_window // 2  # = 2
+    shifts = [i - center for i in range(n_window)]  # [-2, -1, 0, 1, 2]
+    windows = [da.roll(time=s, roll_coords=False) for s in shifts]
+    da_windows = xr.concat(windows, dim=window_dim)
+
+    quantile_dims = [window_dim, "time"]
+    if pool_dim is not None:
+        if pool_dim in da_windows.dims:
+            quantile_dims.append(pool_dim)
+        else:
+            print(
+                f"WARNING: pool_dim='{pool_dim}' is not a dimension of the "
+                "dataset, so nothing is pooled."
+            )
+
+    # Group by calendar day-of-year, then take the quantile over the
+    # day-window, time (all years) and any pooled dimension
+    result = da_windows.groupby("time.dayofyear").quantile(
+        q, dim=tuple(quantile_dims), skipna=True
     )
 
     if "quantile" in result.dims:
@@ -575,6 +638,138 @@ def ann_maxspell_wrt_array(
         output: xr.Dataset = ann_spell_ds.mean("time")
     else:
         output = ann_spell_ds
+
+    return output
+
+
+def ann_spellfreq_wrt_array(
+    x: xr.Dataset,
+    var: str,
+    threshold: xr.Dataset | int | float,
+    min_length: int = 6,
+    relation: str = "gt",
+    season: str | None = None,
+    drop_nonfull: bool = True,
+    cmean: bool = False,
+) -> xr.Dataset:
+    """
+    Count days in spells of at least ``min_length`` event days per year.
+
+    Event days are defined wrt threshold. Only days belonging to runs of
+    >= ``min_length`` consecutive event days are counted (e.g. WSDI/CSDI with
+    ``min_length=6``). Spells are split at year (or DJF-season) boundaries.
+    Has options to output annual values or annual mean.
+
+    Parameters
+    ----------
+    x : xr.Dataset
+        Dataset containing the target variable.
+    var : str
+        Name of the daily variable.
+    threshold : xr.Dataset or int or float
+        Array threshold or scalar to define event.
+    min_length : int, default 6
+        Minimum number of consecutive event days for a spell to be counted.
+    relation : str, default 'gt'
+        Relationship of event to threshold: 'gt', 'ge', 'lt', 'le', 'eq', 'ne'.
+    season : str | None, optional
+        Season name to filter.
+    drop_nonfull : bool, default True
+        True to ignore DJF seasons < 90 days.
+    cmean : bool, default False
+        True to compute climate mean over time, False to leave as annual output.
+
+    Returns
+    -------
+    xr.Dataset
+        Annual count of days in spells of length >= ``min_length``
+        (or mean thereof).
+
+    Raises
+    ------
+    ValueError
+        If ``min_length`` < 1 or if shape of threshold does not match input.
+    """
+    if min_length < 1:
+        raise ValueError(f"min_length must be >= 1, got {min_length}")
+
+    x_filtered = filter_by_monthseason(x, season)
+    da = x_filtered[[var]]
+
+    threshold_new: xr.Dataset | int | float
+    if isinstance(threshold, (int, float)):
+        threshold_new = threshold
+    elif isinstance(threshold, xr.Dataset):
+        sdims = spatial_dims(da, var)
+        if any(da.sizes[d] != threshold.sizes.get(d) for d in sdims):
+            raise ValueError(
+                f"Spatial shape mismatch: input "
+                f"({', '.join(str(da.sizes[d]) for d in sdims)}) "
+                f"!= threshold "
+                f"({', '.join(str(threshold.sizes.get(d)) for d in sdims)}) "
+                f"on dims {sdims}"
+            )
+
+        dims_thresh = set(threshold.dims)
+        other_dims_thresh = dims_thresh - set(sdims)
+
+        if not other_dims_thresh:
+            threshold_new = threshold
+        else:
+            # Broadcast the threshold back onto actual time axis via dayofyear
+            doy = da["time"].dt.dayofyear
+            threshold_new = threshold.sel(dayofyear=doy)
+    else:
+        threshold_new = threshold
+
+    if relation not in ["gt", "ge", "lt", "le", "eq", "ne"]:
+        print(f"WARNING: relation='{relation}' not in list: ")
+        print("['gt', 'ge', 'lt', 'le', 'eq', 'ne'] so default to 'gt'")
+        relation = "gt"
+
+    # Event Condition
+    if relation == "gt":
+        econdition = da[var] > threshold_new
+    elif relation == "ge":
+        econdition = da[var] >= threshold_new
+    elif relation == "lt":
+        econdition = da[var] < threshold_new
+    elif relation == "le":
+        econdition = da[var] <= threshold_new
+    elif relation == "eq":
+        econdition = da[var] == threshold_new
+    elif relation == "ne":
+        econdition = da[var] != threshold_new
+    else:
+        econdition = da[var] > threshold_new
+
+    if season == "DJF":
+        # Compute on consecutive months across year boundary ending at the end of Feb
+        ann_sfreq = ann_spell_days(econdition, min_length, freq="1YE-FEB")
+        # If data covers n years going from Jan Year1 to Dec YearN, there will be
+        # n+1 values for seasons [JF, DJF, ..., DJF, D] so drop shortest season (D)
+        years = np.unique(da["time.year"])
+        counts = da.resample(time="1YE-FEB").count()
+        if drop_nonfull:
+            # Only include full DJF seasons (90 days)
+            ann_sfreq = ann_sfreq.where(counts == 90, drop=True)
+        else:
+            # Include full DJF seasons (90 days) and JF season (59 days)
+            # but not D season (31 days)
+            if len(counts[var]) > len(years):
+                ann_sfreq = ann_sfreq.where(counts >= 59, drop=True)
+    else:
+        ann_sfreq = ann_spell_days(econdition, min_length, freq="1YE")
+
+    if isinstance(ann_sfreq, xr.Dataset):
+        ann_sfreq_ds = ann_sfreq
+    else:
+        ann_sfreq_ds = xr.Dataset({var: ann_sfreq})
+
+    if cmean:
+        output: xr.Dataset = ann_sfreq_ds.mean("time")
+    else:
+        output = ann_sfreq_ds
 
     return output
 
