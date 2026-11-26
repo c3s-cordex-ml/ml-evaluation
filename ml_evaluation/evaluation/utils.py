@@ -176,6 +176,94 @@ def ann_max_spell(condition: xr.DataArray, freq: str = "1YE") -> xr.DataArray:
     return output
 
 
+def spell_days_length(condition: np.ndarray, min_length: int) -> float:
+    """
+    Count days belonging to spells of at least ``min_length`` consecutive days.
+
+    Parameters
+    ----------
+    condition : np.ndarray
+        Boolean sequence describing the spell condition.
+    min_length : int
+        Minimum spell length (days) for its days to be counted.
+
+    Returns
+    -------
+    float
+        Total number of days in spells of length >= ``min_length``.
+    """
+    total = 0
+    run = 0
+    for flag in condition:
+        if flag:
+            run += 1
+        else:
+            if run >= min_length:
+                total += run
+            run = 0
+    if run >= min_length:
+        total += run
+    return float(total)
+
+
+def compute_spell_days_per_year(arr: xr.DataArray, min_length: int) -> xr.DataArray:
+    """
+    Count days in spells of length >= ``min_length`` for one resample group.
+
+    Parameters
+    ----------
+    arr : xr.DataArray
+        Boolean array describing the spell condition over time.
+    min_length : int
+        Minimum spell length (days) for its days to be counted.
+
+    Returns
+    -------
+    xr.DataArray
+        Number of days in qualifying spells.
+    """
+    tdim = "time"
+    output: xr.DataArray = xr.apply_ufunc(
+        spell_days_length,
+        arr.chunk({tdim: -1}),
+        input_core_dims=[[tdim]],
+        output_core_dims=[[]],
+        kwargs={"min_length": min_length},
+        vectorize=True,
+        dask="parallelized",
+        output_dtypes=[float],
+    )
+    return output
+
+
+def ann_spell_days(
+    condition: xr.DataArray, min_length: int, freq: str = "1YE"
+) -> xr.DataArray:
+    """
+    Aggregate number of days in spells of length >= ``min_length`` per period.
+
+    Spells are split at the boundaries of the resampling period.
+
+    Parameters
+    ----------
+    condition : xr.DataArray
+        Boolean array describing the spell condition over time.
+    min_length : int
+        Minimum spell length (days) for its days to be counted.
+    freq : str, default '1YE'
+        Resampling frequency following pandas offset aliases.
+
+    Returns
+    -------
+    xr.DataArray
+        Resampled number of days in qualifying spells.
+    """
+    output: xr.DataArray = condition.resample(time=freq).map(
+        compute_spell_days_per_year, min_length=min_length
+    )
+    return output
+
+
 def _rank(da, dim):
     if da.chunks is not None:  # dask-backed
         other = {d: "auto" for d in da.dims if d != dim}
@@ -219,7 +307,7 @@ def _rank_along(da: xr.DataArray, dim: str, chunk_size: str = "32MiB") -> xr.Dat
             da = da.chunk({dim: -1, **other})
     out_dtype = np.result_type(da.dtype, np.float32)
     if da.sizes[dim] > 2**24:
-        out_dtype = np.float64
+        out_dtype = np.dtype(np.float64)
     return da.rank(dim=dim).astype(out_dtype, copy=False)
 
 

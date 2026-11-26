@@ -66,10 +66,12 @@ def bias_index(
         If True, output indices too: bias, x0_index, x1_index
     x0_index_kwargs : Any
         Additional keyword arguments specific to x0,
-        passed to the index function.
+        passed to the index function,
+        e.g. x0_index_kwargs={"threshold": targ_thresh}
     x1_index_kwargs : Any
         Additional keyword arguments specific to x1,
-        passed to the index function.
+        passed to the index function,
+        e.g. x1_index_kwargs={"threshold": pred_thresh}
     **index_kwargs : Any
         Additional keyword arguments passed to the index function.
 
