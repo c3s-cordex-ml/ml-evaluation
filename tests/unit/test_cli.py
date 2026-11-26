@@ -551,8 +551,8 @@ def test_cli_calendar_day_workflow(
     )
     assert result_q.exit_code == 0
     assert "Using dask" in result_q.output
-    assert os.path.exists(os.path.join(thresh_dir, "targ_quantile_var90p.nc"))
-    assert os.path.exists(os.path.join(thresh_dir, "targ_quantile_var10p.nc"))
+    assert os.path.exists(os.path.join(thresh_dir, "quantile_var90p.nc"))
+    assert os.path.exists(os.path.join(thresh_dir, "quantile_var10p.nc"))
 
     # 2. Run cdextremes with Dask
     result_e = runner.invoke(
